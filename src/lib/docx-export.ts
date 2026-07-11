@@ -9,8 +9,8 @@ function run(text: string, bold = false): TextRun {
   return new TextRun({ text, bold, font: FONT });
 }
 
-function parseFormatted(text: string, isMath: boolean): Paragraph[] {
-  const paragraphs: Paragraph[] = [];
+function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
+  const paragraphs: (Paragraph | Table)[] = [];
   // Normalize: strip blank lines from source, we control spacing via paragraph spacing.
   const lines = text
     .split("\n")
@@ -19,7 +19,8 @@ function parseFormatted(text: string, isMath: boolean): Paragraph[] {
 
   let seenQuestion = false;
   let inSolution = false;
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     // Question line: "374. ..."
     const q = line.match(/^(\d{1,4})\.\s+(.*)$/);
     if (q && !seenQuestion) {
@@ -218,7 +219,7 @@ export async function downloadBatchAsDocx(
   const valid = (questions ?? []).filter((q) => q && typeof q.formatted_output === "string" && q.formatted_output.trim().length > 0);
   if (valid.length === 0) throw new Error("Nothing to export yet — no completed questions.");
 
-  const body: Paragraph[] = [];
+  const body: (Paragraph | Table)[] = [];
 
   for (let i = 0; i < valid.length; i++) {
     const q = valid[i];

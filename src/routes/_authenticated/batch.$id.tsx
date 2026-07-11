@@ -398,7 +398,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           <span className="font-semibold">Answer:</span> {line.replace(/^Answer:\s*/i, "")}
         </p>,
       );
-      return;
+      continue;
     }
     if (/^Solution:/i.test(line)) {
       inSolution = true;
@@ -408,7 +408,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           <span className="font-semibold">Solution:</span>{rest ? ` ${rest}` : ""}
         </p>,
       );
-      return;
+      continue;
     }
     const step = inSolution ? line.match(/^(\d{1,2})\.\s+(.*)$/) : null;
     if (step) {
@@ -420,14 +420,14 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
             <span>{step[2]}</span>
           </div>,
         );
-        return;
+        continue;
       }
       blocks.push(
         <p key={i} className="text-[15px] leading-7 pl-6 my-1">
           <span className="font-semibold">{step[1]}.</span> {step[2]}
         </p>,
       );
-      return;
+      continue;
     }
     const dashStep = inSolution ? line.match(/^-\s+(.*)$/) : null;
     if (dashStep) {
@@ -437,7 +437,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           <span>{dashStep[1]}</span>
         </div>,
       );
-      return;
+      continue;
     }
     const b = line.match(/^\*\s+(.*)$/);
     if (b) {
@@ -448,10 +448,10 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           <span>{b[1]}</span>
         </div>,
       );
-      return;
+      continue;
     }
     blocks.push(<p key={i} className="text-[15px] leading-7">{line}</p>);
-  });
+  }
 
   return <div className="font-sans">{blocks}</div>;
 });
