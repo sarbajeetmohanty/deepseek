@@ -346,11 +346,11 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       );
       return;
     }
-    const matchItem = line.match(/^([1-9]|[a-h])\.\s+(.*)$/);
+    const matchItem = line.match(/^([1-9]|[a-h])[.)]?\s+(.*)$/);
     if (matchItem && seenQuestion && !inSolution) {
       blocks.push(
         <p key={i} className="text-[15px] leading-7 pl-6">
-          <span className="font-semibold">{matchItem[1]}.</span> {matchItem[2]}
+          <span className="font-semibold">{matchItem[1]} </span> {matchItem[2]}
         </p>,
       );
       return;

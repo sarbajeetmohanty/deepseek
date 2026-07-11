@@ -115,9 +115,11 @@ function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" 
   s = s.replace(/(?:^|\n)\s*(?:Step|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/g, "\n$1 ");
   // Ensure inline numbered steps like " 2 " after a period become new lines.
   s = s.replace(/(\.\s+)(?=\d{1,2}\s)/g, ".\n");
-  // Force the question number to the caller-supplied idx so numbering is
-  // always correct even when the source pasted every question as "1.".
-  s = s.replace(/^\s*(?:#+\s*)?(?:[Qq]\s*)?\d{1,4}\.\s+/, `${idx}. `);
+  // Remove dots from all numbered list items at the start of any line (e.g. " 1. " -> " 1 ")
+  s = s.replace(/^([ \t]*\d+)\.\s+/gm, "$1 ");
+  // Force the main question number to the caller-supplied idx with a dot,
+  // matching the first occurrence of a number at the top of the string.
+  s = s.replace(/^\s*(?:#+\s*)?(?:[Qq]\s*)?\d{1,4}[.\s]+\s*/, `${idx}. `);
   // For math, convert numbered solution steps into dash bullets so they
   // render as red "- " markers instead of "1. 2. 3.".
   if (subjectType === "math") {

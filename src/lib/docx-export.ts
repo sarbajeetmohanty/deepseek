@@ -45,16 +45,16 @@ function parseFormatted(text: string, isMath: boolean): Paragraph[] {
       continue;
     }
 
-    // Match-column item inside a Column block: "1. ..." or "a. ..."
+    // Match-column item inside a Column block: "1. ..." or "a. ..." or "1 ..."
     // Only treat single-digit "1." … "9." (or "a." … "h.") as match items when
     // we're NOT inside the Solution block (Solution has numbered steps).
-    const matchItem = line.match(/^([1-9]|[a-h])\.\s+(.*)$/);
+    const matchItem = line.match(/^([1-9]|[a-h])[.)]?\s+(.*)$/);
     if (matchItem && seenQuestion && !inSolution) {
       paragraphs.push(
         new Paragraph({
           spacing: { before: 30, after: 30, line: 300 },
           indent: { left: 540 },
-          children: [run(`${matchItem[1]}. `, true), run(matchItem[2])],
+          children: [run(`${matchItem[1]} `, true), run(matchItem[2])],
         }),
       );
       continue;
