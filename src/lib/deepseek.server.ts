@@ -35,9 +35,9 @@ D. <option 4>
 
 Answer: <A/B/C/D>
 Solution:
-1) <first step>
-2) <second step>
-3) <final step ending in the correct answer>
+1 <first step>
+2 <second step>
+3 <final step ending in the correct answer>
 * Key point: <formula / fact 1>
 * Key point: <formula / fact 2>
 * Key point: <formula / fact 3>
@@ -52,7 +52,7 @@ Strict rules:
 6. "Answer" and "Solution" labels are always English; everything else follows the LANGUAGE RULE.
 7. Keep formulas compact so MS Word copy-paste does not break.
 8. Output ONLY the format above — no greeting, no explanation before or after.
-9. Every solution step on its own line as "1) ", "2) ", "3) " — never a paragraph.`;
+9. Every solution step on its own line as "1 ", "2 ", "3 " — never a paragraph.`;
 
 const PROMPT_MATH = `You are a math teacher. Write the MCQ in MS-Word-friendly format so copy-paste never breaks numbering or spacing.
 
@@ -110,10 +110,10 @@ function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" 
       .replace(/\s+(?=Solution:)/gi, "\n")
       .replace(/\s+(?=\*\s+महत्वपूर्ण)/g, "\n");
   }
-  // Normalize "Step 1:" / "चरण 1:" -> "1) " on its own line inside the Solution.
-  s = s.replace(/(?:^|\n)\s*(?:Step|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/g, "\n$1) ");
-  // Ensure inline numbered steps like " 2) " after a period become new lines.
-  s = s.replace(/(\.\s+)(?=\d{1,2}\)\s)/g, ".\n");
+  // Normalize "Step 1:" / "चरण 1:" -> "1 " on its own line inside the Solution.
+  s = s.replace(/(?:^|\n)\s*(?:Step|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/g, "\n$1 ");
+  // Ensure inline numbered steps like " 2 " after a period become new lines.
+  s = s.replace(/(\.\s+)(?=\d{1,2}\s)/g, ".\n");
   // Force the question number to the caller-supplied idx so numbering is
   // always correct even when the source pasted every question as "1.".
   s = s.replace(/^\s*(?:#+\s*)?(?:[Qq]\s*)?\d{1,4}\.\s+/, `${idx}. `);
@@ -127,8 +127,8 @@ function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" 
       if (/^Solution:/i.test(line)) { inSol = true; continue; }
       if (!inSol) continue;
       if (/^Answer:/i.test(line)) { inSol = false; continue; }
-      // Convert "1. text" or "1) text" step lines to "- text"; keep bullets "* ..." untouched.
-      const m = line.match(/^\s*\d{1,2}[.)]\s+(.*)$/);
+      // Convert "1. text" or "1) text" or "1 text" step lines to "- text"; keep bullets "* ..." untouched.
+      const m = line.match(/^\s*\d{1,2}[.)]?\s+(.*)$/);
       if (m) lines[i] = `- ${m[1]}`;
     }
     s = lines.join("\n");
