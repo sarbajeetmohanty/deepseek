@@ -119,7 +119,7 @@ function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" 
   s = s.replace(/^([ \t]*\d+)\.\s+/gm, "$1 ");
   // Force the main question number to the caller-supplied idx with a dot,
   // matching the first occurrence of a number at the top of the string.
-  s = s.replace(/^\s*(?:#+\s*)?(?:[Qq]\s*)?\d{1,4}[.\s]+\s*/, `${idx}. `);
+  s = s.replace(/^\s*(?:#+\s*)?(?:(?:[Qq](?:uestion)?|प्रश्न|प्र\.?)[ \t]*[.-]?[ \t]*)?\d{1,4}[.:\-)\]\s]+\s*/i, `${idx}. `);
   // For math, convert numbered solution steps into dash bullets so they
   // render as red "- " markers instead of "1. 2. 3.".
   if (subjectType === "math") {

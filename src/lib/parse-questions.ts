@@ -8,8 +8,8 @@ export function parseQuestions(raw: string): { idx: number; text: string }[] {
   const blocks: { idx: number; text: string; startLine: number }[] = [];
   let current: { idx: number; text: string; startLine: number } | null = null;
 
-  // m[1]: leading spaces, m[2]: optional Q prefix, m[3]: digits
-  const startRe = /^([ \t]*)(?:#+[ \t]*)?([Qq][ \t]*)?(\d{1,4})\.\s+/;
+  // m[1]: leading spaces, m[2]: optional Q/प्रश्न prefix, m[3]: digits
+  const startRe = /^([ \t]*)(?:#+[ \t]*)?((?:[Qq](?:uestion)?|प्रश्न|प्र\.?)[ \t]*[.-]?[ \t]*)?(\d{1,4})(?:[.:\-)\]]\s*|\s+)/i;
   let docPrefixType: "Q" | "NUM" | null = null;
   let baseIndent = 0;
 
