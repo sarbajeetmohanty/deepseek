@@ -97,7 +97,7 @@ function Dashboard() {
     staleTime: 30_000,
     retry: 1,
   });
-  const detected = rawText.trim() ? (rawText.match(/^\s*\d{1,4}\.\s+/gm) || []).length : 0;
+  const detected = rawText.trim() ? (rawText.match(/^([ \t]*)(?:#+[ \t]*)?(?:(?:[Qq](?:uestion)?|प्रश्न|प्र\.?)[ \t]*[.-]?[ \t]*)?(\d{1,4})(?:[.:\-)\]]\s*|\s+)/gmi) || []).length : 0;
   const remaining = quota?.limit === null || quota?.limit === undefined
     ? null
     : Math.max(0, quota.limit - quota.used);
