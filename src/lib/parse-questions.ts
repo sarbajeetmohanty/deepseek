@@ -8,15 +8,41 @@ export function parseQuestions(raw: string): { idx: number; text: string }[] {
   const blocks: { idx: number; text: string; startLine: number }[] = [];
   let current: { idx: number; text: string; startLine: number } | null = null;
 
-  const startRe = /^\s*(\d{1,4})\.\s+/;
+  // m[1]: leading spaces, m[2]: optional Q prefix, m[3]: digits
+  const startRe = /^([ \t]*)(?:#+[ \t]*)?([Qq][ \t]*)?(\d{1,4})\.\s+/;
+  let docPrefixType: "Q" | "NUM" | null = null;
+  let baseIndent = 0;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
     // Skip chat-log timestamps like "[11-07-2026 14:05] TEX QR:"
     if (/^\[\d{2}-\d{2}-\d{4} \d{2}:\d{2}\] /.test(line)) continue;
+
     const m = line.match(startRe);
     if (m) {
-      const idx = Number(m[1]);
+      const leadingSpaces = m[1].length;
+      const hasQ = !!m[2];
+      const idx = Number(m[3]);
+
       if (!Number.isFinite(idx)) continue;
+
+      if (!current) {
+        docPrefixType = hasQ ? "Q" : "NUM";
+        baseIndent = leadingSpaces;
+      } else {
+        let isSubPoint = false;
+        if (!hasQ && leadingSpaces > baseIndent) {
+          // Sub-points (e.g. statement 1, 2) never have Q prefixes and are typically indented 
+          // more than the actual question number.
+          isSubPoint = true;
+        }
+
+        if (isSubPoint) {
+          current.text += "\n" + line;
+          continue;
+        }
+      }
+
       if (current) blocks.push(current);
       current = { idx, text: line, startLine: i };
     } else if (current) {

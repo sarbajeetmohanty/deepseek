@@ -39,8 +39,10 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // Dynamic concurrency based on user request (m/5), capped between 5 and 100.
-    const CONCURRENCY = Math.max(5, Math.min(100, Math.ceil(pending.length / 5)));
+    // User requested at least 50 concurrency if possible, up to 100.
+    const CONCURRENCY = Math.min(100, Math.max(50, pending.length));
+    // Wait, to perfectly match "less than 50 do that many", we cap at pending.length:
+    const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
     // Flush UI counters immediately on every completion for absolute fastest visual feedback
     const COUNTER_FLUSH_EVERY = 1;
 
@@ -155,7 +157,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       }
     };
 
-    for (let i = 0; i < CONCURRENCY; i++) workers.push(worker());
+    for (let i = 0; i < ACTUAL_CONCURRENCY; i++) workers.push(worker());
     await Promise.allSettled(workers);
     await flushCounters();
 
