@@ -1,5 +1,6 @@
 import {
   Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel, LevelFormat,
+  Table, TableRow, TableCell, WidthType, BorderStyle,
 } from "docx";
 
 const FONT = "Noto Sans Devanagari";
@@ -33,30 +34,70 @@ function parseFormatted(text: string, isMath: boolean): Paragraph[] {
       continue;
     }
 
-    // Column heading: "Column A:" / "Column B:"
-    if (/^Column\s+[AB]:/i.test(line)) {
+    if (/^Column\s+A:/i.test(line)) {
       inSolution = false;
+      const colA: string[] = [];
+      const colB: string[] = [];
+      let j = i + 1;
+      while (j < lines.length && !/^Column\s+B:/i.test(lines[j])) {
+        colA.push(lines[j]);
+        j++;
+      }
+      if (j < lines.length && /^Column\s+B:/i.test(lines[j])) {
+        j++;
+        while (j < lines.length && !/^[A-D]\.\s/.test(lines[j]) && !/^Answer:/i.test(lines[j])) {
+          colB.push(lines[j]);
+          j++;
+        }
+      }
       paragraphs.push(
-        new Paragraph({
-          spacing: { before: 120, after: 60, line: 300 },
-          children: [run(line, true)],
-        }),
+        new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          borders: {
+            top: { style: BorderStyle.NONE, size: 0, color: "auto" },
+            bottom: { style: BorderStyle.NONE, size: 0, color: "auto" },
+            left: { style: BorderStyle.NONE, size: 0, color: "auto" },
+            right: { style: BorderStyle.NONE, size: 0, color: "auto" },
+            insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "auto" },
+            insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
+          },
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({
+                  width: { size: 50, type: WidthType.PERCENTAGE },
+                  children: [
+                    new Paragraph({ spacing: { before: 120, after: 60, line: 300 }, children: [run("Column A", true)] }),
+                    ...colA.map(c => {
+                       const m = c.match(/^([1-9]|[a-h])[.)]?\s+(.*)$/);
+                       return new Paragraph({
+                         spacing: { before: 30, after: 30, line: 300 },
+                         indent: { left: 360 },
+                         children: m ? [run(`${m[1]} `, true), run(m[2])] : [run(c)],
+                       });
+                    }),
+                  ],
+                }),
+                new TableCell({
+                  width: { size: 50, type: WidthType.PERCENTAGE },
+                  children: [
+                    new Paragraph({ spacing: { before: 120, after: 60, line: 300 }, children: [run("Column B", true)] }),
+                    ...colB.map(c => {
+                       const m = c.match(/^([1-9]|[a-h])[.)]?\s+(.*)$/);
+                       return new Paragraph({
+                         spacing: { before: 30, after: 30, line: 300 },
+                         indent: { left: 360 },
+                         children: m ? [run(`${m[1]} `, true), run(m[2])] : [run(c)],
+                       });
+                    }),
+                  ],
+                }),
+              ],
+            }),
+          ],
+        })
       );
-      continue;
-    }
-
-    // Match-column item inside a Column block: "1. ..." or "a. ..." or "1 ..."
-    // Only treat single-digit "1." … "9." (or "a." … "h.") as match items when
-    // we're NOT inside the Solution block (Solution has numbered steps).
-    const matchItem = line.match(/^([1-9]|[a-h])[.)]?\s+(.*)$/);
-    if (matchItem && seenQuestion && !inSolution) {
-      paragraphs.push(
-        new Paragraph({
-          spacing: { before: 30, after: 30, line: 300 },
-          indent: { left: 540 },
-          children: [run(`${matchItem[1]} `, true), run(matchItem[2])],
-        }),
-      );
+      i = j - 1;
       continue;
     }
 

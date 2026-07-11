@@ -327,7 +327,8 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
   let seenQuestion = false;
   let inSolution = false;
 
-  lines.forEach((line, i) => {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const q = line.match(/^(\d{1,4})\.\s+(.*)$/);
     if (q && !seenQuestion) {
       seenQuestion = true;
@@ -337,23 +338,48 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           <span>{q[1]}. {q[2]}</span>
         </p>,
       );
-      return;
+      continue;
     }
-    if (/^Column\s+[AB]:/i.test(line)) {
+    if (/^Column\s+A:/i.test(line)) {
       inSolution = false;
+      const colA: string[] = [];
+      const colB: string[] = [];
+      let j = i + 1;
+      while (j < lines.length && !/^Column\s+B:/i.test(lines[j])) {
+        colA.push(lines[j]);
+        j++;
+      }
+      if (j < lines.length && /^Column\s+B:/i.test(lines[j])) {
+        j++; // skip Column B:
+        while (j < lines.length && !/^[A-D]\.\s/.test(lines[j]) && !/^Answer:/i.test(lines[j])) {
+          colB.push(lines[j]);
+          j++;
+        }
+      }
       blocks.push(
-        <p key={i} className="text-[15px] leading-7 font-semibold mt-2">{line}</p>,
+        <div key={i} className="flex flex-row gap-8 w-full my-3 px-4">
+          <div className="flex-1 space-y-1">
+            <div className="font-semibold underline mb-1">Column A</div>
+            {colA.map((c, idx) => {
+              const m = c.match(/^([1-9]|[a-h])[.)]?\s+(.*)$/);
+              return m 
+                ? <div key={idx} className="text-[15px] leading-7"><span className="font-semibold">{m[1]} </span>{m[2]}</div>
+                : <div key={idx} className="text-[15px] leading-7">{c}</div>;
+            })}
+          </div>
+          <div className="flex-1 space-y-1">
+            <div className="font-semibold underline mb-1">Column B</div>
+            {colB.map((c, idx) => {
+              const m = c.match(/^([1-9]|[a-h])[.)]?\s+(.*)$/);
+              return m 
+                ? <div key={idx} className="text-[15px] leading-7"><span className="font-semibold">{m[1]} </span>{m[2]}</div>
+                : <div key={idx} className="text-[15px] leading-7">{c}</div>;
+            })}
+          </div>
+        </div>
       );
-      return;
-    }
-    const matchItem = line.match(/^([1-9]|[a-h])[.)]?\s+(.*)$/);
-    if (matchItem && seenQuestion && !inSolution) {
-      blocks.push(
-        <p key={i} className="text-[15px] leading-7 pl-6">
-          <span className="font-semibold">{matchItem[1]} </span> {matchItem[2]}
-        </p>,
-      );
-      return;
+      i = j - 1;
+      continue;
     }
     const opt = line.match(/^([A-D])\.\s+(.*)$/);
     if (opt) {
@@ -363,7 +389,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           {opt[1]}. {opt[2]}
         </p>,
       );
-      return;
+      continue;
     }
     if (/^Answer:/i.test(line)) {
       inSolution = false;
