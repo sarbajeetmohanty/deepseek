@@ -41,8 +41,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
 
     // Dynamic concurrency based on user request (m/5), capped between 5 and 100.
     const CONCURRENCY = Math.max(5, Math.min(100, Math.ceil(pending.length / 5)));
-    // Flush UI counters more frequently for real-time speed updates
-    const COUNTER_FLUSH_EVERY = Math.max(1, Math.floor(CONCURRENCY / 4));
+    // Flush UI counters immediately on every completion for absolute fastest visual feedback
+    const COUNTER_FLUSH_EVERY = 1;
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
     for (let i = 0; i < pending.length; i += 400) {
