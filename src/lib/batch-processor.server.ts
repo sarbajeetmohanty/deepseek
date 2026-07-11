@@ -1,5 +1,5 @@
-const CONCURRENCY = 24;
-const COUNTER_FLUSH_EVERY = 5; // update batch counters after every N completions
+const CONCURRENCY = 5;
+const COUNTER_FLUSH_EVERY = 2; // update batch counters after every N completions
 
 export async function processBatchInternal(batchId: string): Promise<void> {
   try {

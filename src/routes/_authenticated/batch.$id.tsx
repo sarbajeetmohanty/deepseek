@@ -92,12 +92,12 @@ function BatchView() {
       .channel(`batch-${id}`)
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "questions", filter: `batch_id=eq.${id}` },
+        { event: "*", schema: "public", table: "questions", filter: `batch_id=eq.${id}` },
         () => qc.invalidateQueries({ queryKey: ["questions", id] }),
       )
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "batches", filter: `id=eq.${id}` },
+        { event: "*", schema: "public", table: "batches", filter: `id=eq.${id}` },
         () => qc.invalidateQueries({ queryKey: ["batch", id] }),
       )
       .subscribe();
