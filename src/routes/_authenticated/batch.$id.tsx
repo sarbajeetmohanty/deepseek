@@ -361,7 +361,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           <div className="flex-1 space-y-1">
             <div className="font-semibold underline mb-1">Column A</div>
             {colA.map((c, idx) => {
-              const m = c.match(/^([1-9]|[a-h])[.)]?\s+(.*)$/);
+              const m = c.match(/^(\(?[1-9a-hA-H]\)?|[1-9a-hA-H][.)]?)\s+(.*)$/);
               return m 
                 ? <div key={idx} className="text-[15px] leading-7"><span className="font-semibold">{m[1]} </span>{m[2]}</div>
                 : <div key={idx} className="text-[15px] leading-7">{c}</div>;
@@ -370,7 +370,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           <div className="flex-1 space-y-1">
             <div className="font-semibold underline mb-1">Column B</div>
             {colB.map((c, idx) => {
-              const m = c.match(/^([1-9]|[a-h])[.)]?\s+(.*)$/);
+              const m = c.match(/^(\(?[1-9a-hA-H]\)?|[1-9a-hA-H][.)]?)\s+(.*)$/);
               return m 
                 ? <div key={idx} className="text-[15px] leading-7"><span className="font-semibold">{m[1]} </span>{m[2]}</div>
                 : <div key={idx} className="text-[15px] leading-7">{c}</div>;

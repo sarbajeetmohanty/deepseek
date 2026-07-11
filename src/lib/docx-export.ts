@@ -69,7 +69,7 @@ function parseFormatted(text: string, isMath: boolean): Paragraph[] {
                   children: [
                     new Paragraph({ spacing: { before: 120, after: 60, line: 300 }, children: [run("Column A", true)] }),
                     ...colA.map(c => {
-                       const m = c.match(/^([1-9]|[a-h])[.)]?\s+(.*)$/);
+                       const m = c.match(/^(\(?[1-9a-hA-H]\)?|[1-9a-hA-H][.)]?)\s+(.*)$/);
                        return new Paragraph({
                          spacing: { before: 30, after: 30, line: 300 },
                          indent: { left: 360 },
@@ -83,7 +83,7 @@ function parseFormatted(text: string, isMath: boolean): Paragraph[] {
                   children: [
                     new Paragraph({ spacing: { before: 120, after: 60, line: 300 }, children: [run("Column B", true)] }),
                     ...colB.map(c => {
-                       const m = c.match(/^([1-9]|[a-h])[.)]?\s+(.*)$/);
+                       const m = c.match(/^(\(?[1-9a-hA-H]\)?|[1-9a-hA-H][.)]?)\s+(.*)$/);
                        return new Paragraph({
                          spacing: { before: 30, after: 30, line: 300 },
                          indent: { left: 360 },
