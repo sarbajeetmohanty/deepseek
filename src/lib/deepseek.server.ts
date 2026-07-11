@@ -35,13 +35,14 @@ D. <option 4>
 
 Answer: <A/B/C/D>
 Solution:
-1 <first step>
-2 <second step>
-3 <final step ending in the correct answer>
-* Key point: <formula / fact 1>
-* Key point: <formula / fact 2>
-* Key point: <formula / fact 3>
-* Key point: <final calculation / conclusion>
+1 <point 1>
+2 <point 2>
+3 <point 3>
+4 <point 4>
+5 <point 5>
+6 <point 6>
+7 <point 7>
+8 <point 8>
 
 Strict rules:
 1. Facts must be 100% accurate. Solve the question yourself, then match against the options.
@@ -52,7 +53,7 @@ Strict rules:
 6. "Answer" and "Solution" labels are always English; everything else follows the LANGUAGE RULE.
 7. Keep formulas compact so MS Word copy-paste does not break.
 8. Output ONLY the format above — no greeting, no explanation before or after.
-9. Every solution step on its own line as "1 ", "2 ", "3 " — never a paragraph.`;
+9. Every solution step on its own line as "1 ", "2 ", "3 " — never a paragraph. The solution MUST contain exactly 8 to 10 detailed points covering the complete background and relevant facts.`;
 
 const PROMPT_MATH = `You are a math teacher. Write the MCQ in MS-Word-friendly format so copy-paste never breaks numbering or spacing.
 
@@ -204,9 +205,9 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
   }
   if (!cleaned.trim()) throw new Error("Empty question text");
   const basePrompt = subjectType === "math" ? PROMPT_MATH : PROMPT_GK;
-  const lengthRule = solutionLength === "long" ? LENGTH_LONG : LENGTH_NORMAL;
+  const lengthRule = subjectType === "math" ? (solutionLength === "long" ? LENGTH_LONG : LENGTH_NORMAL) : "";
   const systemPrompt = basePrompt + LANG_RULE + lengthRule;
-  const maxTokens = solutionLength === "long" ? 1800 : 1200;
+  const maxTokens = solutionLength === "long" || subjectType === "gk_english" ? 1800 : 1200;
   const userPrompt = `Format question number ${idx} in the required format. Original question:\n\n${cleaned}\n\nReminder: verify correctness, follow the format exactly, and write the output in the SAME language as the question above.`;
 
   const attempt = async () => {
