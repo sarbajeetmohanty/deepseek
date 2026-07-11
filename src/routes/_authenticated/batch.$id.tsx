@@ -59,7 +59,7 @@ function BatchView() {
     // processing (in case the realtime socket dropped). Terminal → stop.
     refetchInterval: (query) => {
       const b = query.state.data as { status?: string } | undefined;
-      return b && b.status !== "processing" ? false : 15_000;
+      return b && b.status !== "processing" ? false : 2000;
     },
     refetchOnWindowFocus: false,
     retry: 1,
@@ -80,7 +80,7 @@ function BatchView() {
     // Realtime pushes UPDATEs → invalidates this query. Slow safety poll only.
     refetchInterval: () => {
       const b = qc.getQueryData<{ status?: string }>(["batch", id]);
-      return b && b.status !== "processing" ? false : 15_000;
+      return b && b.status !== "processing" ? false : 2000;
     },
     refetchOnWindowFocus: false,
     retry: 1,
