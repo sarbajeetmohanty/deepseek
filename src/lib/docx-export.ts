@@ -177,14 +177,7 @@ export async function downloadBatchAsDocx(
   const valid = (questions ?? []).filter((q) => q && typeof q.formatted_output === "string" && q.formatted_output.trim().length > 0);
   if (valid.length === 0) throw new Error("Nothing to export yet — no completed questions.");
 
-  const body: Paragraph[] = [
-    new Paragraph({
-      heading: HeadingLevel.HEADING_1,
-      alignment: AlignmentType.CENTER,
-      spacing: { after: 240 },
-      children: [new TextRun({ text: safeTitle, bold: true, font: FONT, size: 32 })],
-    }),
-  ];
+  const body: Paragraph[] = [];
 
   for (let i = 0; i < valid.length; i++) {
     const q = valid[i];
