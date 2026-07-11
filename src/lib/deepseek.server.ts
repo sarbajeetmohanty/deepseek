@@ -255,7 +255,8 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
   };
 
   let lastErr: unknown;
-  for (let i = 0; i < 2; i++) {
+  const MAX_RETRIES = 5;
+  for (let i = 0; i < MAX_RETRIES; i++) {
     try {
       const content = await attempt();
       try {
@@ -267,7 +268,11 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
       lastErr = e;
       if (isNonRetryableDeepSeekError(e)) throw e;
       if (e instanceof Error && e.name === "AbortError" && signal?.aborted) throw e;
-      if (i === 0) await new Promise((r) => setTimeout(r, 600));
+      if (i < MAX_RETRIES - 1) {
+        // Exponential backoff with jitter to optimize API usage under extreme concurrency
+        const backoff = Math.pow(2, i) * 1000 + Math.random() * 500;
+        await new Promise((r) => setTimeout(r, backoff));
+      }
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
