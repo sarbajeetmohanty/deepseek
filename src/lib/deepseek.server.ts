@@ -116,8 +116,6 @@ function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" 
   s = s.replace(/^([A-D]\.)\s*\n\s*/gm, "$1 ");
   // Normalize "Step 1:" / "चरण 1:" -> "1 " on its own line inside the Solution.
   s = s.replace(/(?:^|\n)\s*(?:Step|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/g, "\n$1 ");
-  // Ensure inline numbered steps like " 2 " after a period become new lines.
-  s = s.replace(/(\.\s+)(?=\d{1,2}\s)/g, ".\n");
   // Remove dots from all numbered list items at the start of any line (e.g. " 1. " -> " 1 ")
   s = s.replace(/^([ \t]*\d+)\.\s+/gm, "$1 ");
   // Force the main question number to the caller-supplied idx with a dot,
