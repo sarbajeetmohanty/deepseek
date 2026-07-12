@@ -351,7 +351,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       }
       if (j < lines.length && /^Column\s+B:/i.test(lines[j])) {
         j++; // skip Column B:
-        while (j < lines.length && !/^[A-D]\.\s/.test(lines[j]) && !/^Answer:/i.test(lines[j])) {
+        while (j < lines.length && !/^(\(?[a-dA-D]\)?|[a-dA-D][.)])\s+/.test(lines[j]) && !/^Answer:/i.test(lines[j])) {
           colB.push(lines[j]);
           j++;
         }
@@ -381,14 +381,31 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       i = j - 1;
       continue;
     }
-    const opt = line.match(/^([A-D])\.\s+(.*)$/);
-    if (opt) {
+    const optMatch = line.match(/^(\(?[a-dA-D]\)?|[a-dA-D][.)])\s+(.*)$/);
+    if (optMatch) {
       inSolution = false;
+      const options: { label: string; text: string }[] = [];
+      let j = i;
+      while (j < lines.length) {
+        const m = lines[j].match(/^(\(?[a-dA-D]\)?|[a-dA-D][.)])\s+(.*)$/);
+        if (m) {
+          options.push({ label: m[1], text: m[2] });
+          j++;
+        } else {
+          break;
+        }
+      }
       blocks.push(
-        <p key={i} className="text-[15px] leading-7 pl-4 my-1.5 font-semibold">
-          {opt[1]}. {opt[2]}
-        </p>,
+        <div key={i} className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 pl-4 my-3">
+          {options.map((o, idx) => (
+            <div key={idx} className="flex items-start text-[15px] leading-7 font-semibold">
+              <span className="shrink-0 w-8">{o.label}</span>
+              <span>{o.text}</span>
+            </div>
+          ))}
+        </div>
       );
+      i = j - 1;
       continue;
     }
     if (/^Answer:/i.test(line)) {
