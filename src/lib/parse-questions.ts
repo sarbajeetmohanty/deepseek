@@ -9,7 +9,7 @@ export function parseQuestions(raw: string): { idx: number; text: string }[] {
   let current: { idx: number; text: string; startLine: number } | null = null;
 
   // m[1]: leading spaces, m[2]: optional Q/प्रश्न prefix, m[3]: digits
-  const startRe = /^([ \t]*)(?:#+[ \t]*)?((?:[Qq](?:uestion)?|प्रश्न|प्र\.?)[ \t]*[.-]?[ \t]*)?(\d{1,4})(?:[.:\-)\]]\s*|\s+)/i;
+  const startRe = /^([ \t]*)(?:#+[ \t]*)?((?:[Qq](?:uestion)?|प्रश्न|प्र\.?)[ \t]*[.-]?[ \t]*)?(\d{1,4})(?:[.:\-)\]]\s*)/i;
   let docPrefixType: "Q" | "NUM" | null = null;
   let baseIndent = 0;
 
