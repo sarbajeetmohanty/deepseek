@@ -52,6 +52,7 @@
     "date-fns": "^4.1.0",
     "docx": "^9.7.1",
     "embla-carousel-react": "^8.6.0",
+    "google-translate-api-x": "^10.7.3",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.575.0",
     "react": "^19.2.0",
