@@ -46,7 +46,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       }
       if (j < lines.length && /^Column\s+B:/i.test(lines[j])) {
         j++;
-        while (j < lines.length && !/^[A-D]\.\s/.test(lines[j]) && !/^Answer:/i.test(lines[j])) {
+        while (j < lines.length && !/^(\(?[a-dA-D]\)?|[a-dA-D][.)])(?:\s+|$)/.test(lines[j]) && !/^Answer:/i.test(lines[j])) {
           colB.push(lines[j]);
           j++;
         }
@@ -103,16 +103,41 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     }
 
     // Option line: "A. ..."
-    const opt = line.match(/^([A-D])\.\s+(.*)$/);
-    if (opt) {
+    const optMatch = line.match(/^(\(?[a-dA-D]\)?|[a-dA-D][.)])(?:\s+(.*))?$/);
+    if (optMatch) {
       inSolution = false;
-      paragraphs.push(
-        new Paragraph({
-          spacing: { before: 120, after: 120, line: 300 },
-          indent: { left: 360 },
-          children: [run(`${opt[1]}. ${opt[2]}`, true)],
-        }),
-      );
+      const options: { label: string; text: string }[] = [];
+      let j = i;
+      while (j < lines.length) {
+        const m = lines[j].match(/^(\(?[a-dA-D]\)?|[a-dA-D][.)])(?:\s+(.*))?$/);
+        if (m) {
+          const label = m[1];
+          let text = m[2] ? m[2].trim() : "";
+          j++;
+          while (
+            j < lines.length &&
+            !/^(\(?[a-dA-D]\)?|[a-dA-D][.)])(?:\s+|$)/.test(lines[j]) &&
+            !/^Answer:/i.test(lines[j]) &&
+            !/^Solution:/i.test(lines[j])
+          ) {
+            text += (text ? " " : "") + lines[j].trim();
+            j++;
+          }
+          options.push({ label, text });
+        } else {
+          break;
+        }
+      }
+      for (const o of options) {
+        paragraphs.push(
+          new Paragraph({
+            spacing: { before: 120, after: 120, line: 300 },
+            indent: { left: 720, hanging: 360 },
+            children: [run(`${o.label}   `, true), run(o.text)],
+          }),
+        );
+      }
+      i = j - 1;
       continue;
     }
 

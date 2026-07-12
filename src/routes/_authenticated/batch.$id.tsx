@@ -351,7 +351,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       }
       if (j < lines.length && /^Column\s+B:/i.test(lines[j])) {
         j++; // skip Column B:
-        while (j < lines.length && !/^(\(?[a-dA-D]\)?|[a-dA-D][.)])\s+/.test(lines[j]) && !/^Answer:/i.test(lines[j])) {
+        while (j < lines.length && !/^(\(?[a-dA-D]\)?|[a-dA-D][.)])(?:\s+|$)/.test(lines[j]) && !/^Answer:/i.test(lines[j])) {
           colB.push(lines[j]);
           j++;
         }
@@ -381,16 +381,27 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       i = j - 1;
       continue;
     }
-    const optMatch = line.match(/^(\(?[a-dA-D]\)?|[a-dA-D][.)])\s+(.*)$/);
+    const optMatch = line.match(/^(\(?[a-dA-D]\)?|[a-dA-D][.)])(?:\s+(.*))?$/);
     if (optMatch) {
       inSolution = false;
       const options: { label: string; text: string }[] = [];
       let j = i;
       while (j < lines.length) {
-        const m = lines[j].match(/^(\(?[a-dA-D]\)?|[a-dA-D][.)])\s+(.*)$/);
+        const m = lines[j].match(/^(\(?[a-dA-D]\)?|[a-dA-D][.)])(?:\s+(.*))?$/);
         if (m) {
-          options.push({ label: m[1], text: m[2] });
+          const label = m[1];
+          let text = m[2] ? m[2].trim() : "";
           j++;
+          while (
+            j < lines.length &&
+            !/^(\(?[a-dA-D]\)?|[a-dA-D][.)])(?:\s+|$)/.test(lines[j]) &&
+            !/^Answer:/i.test(lines[j]) &&
+            !/^Solution:/i.test(lines[j])
+          ) {
+            text += (text ? " " : "") + lines[j].trim();
+            j++;
+          }
+          options.push({ label, text });
         } else {
           break;
         }
