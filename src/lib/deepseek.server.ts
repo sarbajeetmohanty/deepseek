@@ -8,6 +8,7 @@ import { latexToText } from "./latex-to-text";
 const LANG_RULE = `\n\nLANGUAGE RULE (STRICT):
 - Detect the language of the input question and write the ENTIRE output (question, options, solution steps, bullets) in that SAME language.
 - If the question is in Hindi, write output in Hindi. If English, write in English. If any other language, use that language.
+- For Hindi solutions, ensure all explanatory text is in pure Hindi, but keep digits (0-9) and mathematical symbols (+, -, =) exactly as they are.
 - ONLY the labels "Answer:" and "Solution:" must always be in English.
 - Do NOT translate the question. Preserve its original language exactly.`;
 
@@ -76,14 +77,14 @@ Strict rules:
 1. Math must be 100% accurate. Solve first, then match to options.
 2. Every solution step starts with "- " (dash + space). NEVER use "1.", "2.", "Step 1", etc. Each step on its own line.
 3. Options A. B. C. D. each on its own line, dot flush.
-4. Solution ALWAYS as dash-bulleted steps (never a paragraph) — each step on a new line starting with "- ".
+4. Solution ALWAYS as dash-bulleted steps (never a paragraph). Maximum 10 steps total. Each point must be very concise (normally 1 line, absolute maximum 3 lines). Each step on a new line starting with "- ".
 5. Squares as ², cubes as ³ — never "^2".
 6. "Answer" and "Solution" labels are always English; everything else follows the LANGUAGE RULE.
 7. No decorative "()" brackets in the question; brackets only for real mathematical grouping.
 8. Return the whole output in one shot — no greeting, no explanation.`;
 
 const LENGTH_NORMAL = `\n\nSolution length: 2–4 short steps only. Keep it brief.`;
-const LENGTH_LONG = `\n\nSolution length: 5–10 detailed steps. First step recalls the relevant formula, then show every intermediate calculation, last step is the final answer. One step per line, never a paragraph.`;
+const LENGTH_LONG = `\n\nSolution length: 5–10 detailed steps maximum. First step recalls the relevant formula, then show every intermediate calculation, last step is the final answer. One step per line, never a paragraph. Each step must be concise (1 line normally, absolute maximum 3 lines).`;
 
 export interface DeepSeekOptions {
   raw: string;
