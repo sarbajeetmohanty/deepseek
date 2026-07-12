@@ -169,7 +169,7 @@ function BatchView() {
     try {
       await downloadBatchAsDocx(batch.title, doneQs, batch.subject_type as "gk_english" | "math" | undefined);
       // Fire-and-forget usage log; don't block the download UX on it.
-      void logDownload({ data: { batchId: id, kind: "original" } }).catch(() => {});
+      void logDownload({ data: { batchId: id, kind: "original" } }).catch(() => { });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not download .docx");
     } finally {
@@ -184,7 +184,7 @@ function BatchView() {
       const { questions: translated, targetLang } = await translateBatchToOpposite({ data: { batchId: id } });
       const suffix = targetLang === "en" ? "English" : "Hindi";
       await downloadBatchAsDocx(`${batch.title} (${suffix})`, translated, batch.subject_type as "gk_english" | "math" | undefined);
-      void logDownload({ data: { batchId: id, kind: "translated" } }).catch(() => {});
+      void logDownload({ data: { batchId: id, kind: "translated" } }).catch(() => { });
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not translate & download .docx");
     } finally {
@@ -274,36 +274,35 @@ function BatchView() {
             )}
           </div>
         )}
-        {(questions ?? []).map((q) => (
-          <Card key={q.id} className={q.status === "failed" ? "border-destructive/40" : ""}>
-            <CardHeader className="py-3 flex-row items-center justify-between">
-              <span className="text-xs font-mono text-muted-foreground">Q{q.idx}</span>
-              <span className={`text-xs px-2 py-0.5 rounded ${
-                q.status === "done" ? "bg-primary/10 text-primary" :
+      {(questions ?? []).map((q) => (
+        <Card key={q.id} className={q.status === "failed" ? "border-destructive/40" : ""}>
+          <CardHeader className="py-3 flex-row items-center justify-between">
+            <span className="text-xs font-mono text-muted-foreground">Q{q.idx}</span>
+            <span className={`text-xs px-2 py-0.5 rounded ${q.status === "done" ? "bg-primary/10 text-primary" :
                 q.status === "processing" ? "bg-secondary" :
-                q.status === "failed" ? "bg-destructive/10 text-destructive" : "bg-muted"
+                  q.status === "failed" ? "bg-destructive/10 text-destructive" : "bg-muted"
               }`}>{q.status}</span>
-            </CardHeader>
-            <CardContent className="pt-0">
-              {q.formatted_output ? (
-                <FormattedOutput
-                  text={
-                    viewLang === "translated" && translatedByIdx?.get(q.idx)
-                      ? (translatedByIdx.get(q.idx) as string)
-                      : q.formatted_output
-                  }
-                  subjectType={batch.subject_type as "gk_english" | "math" | undefined}
-                />
-              ) : q.error ? (
-                <p className="text-sm text-destructive">{formatQuestionError(q.error)}</p>
-              ) : (
-                <p className="text-sm text-muted-foreground italic">Processing…</p>
-              )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {q.formatted_output ? (
+              <FormattedOutput
+                text={
+                  viewLang === "translated" && translatedByIdx?.get(q.idx)
+                    ? (translatedByIdx.get(q.idx) as string)
+                    : q.formatted_output
+                }
+                subjectType={batch.subject_type as "gk_english" | "math" | undefined}
+              />
+            ) : q.error ? (
+              <p className="text-sm text-destructive">{formatQuestionError(q.error)}</p>
+            ) : (
+              <p className="text-sm text-muted-foreground italic">Processing…</p>
+            )}
+          </CardContent>
+        </Card>
+      ))}
     </div>
+    </div >
   );
 }
 
@@ -362,7 +361,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
             <div className="font-semibold underline mb-1">Column A</div>
             {colA.map((c, idx) => {
               const m = c.match(/^(\(?[1-9a-hA-H]\)?|[1-9a-hA-H][.)]?)\s+(.*)$/);
-              return m 
+              return m
                 ? <div key={idx} className="text-[15px] leading-7"><span className="font-semibold">{m[1]} </span>{m[2]}</div>
                 : <div key={idx} className="text-[15px] leading-7">{c}</div>;
             })}
@@ -371,7 +370,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
             <div className="font-semibold underline mb-1">Column B</div>
             {colB.map((c, idx) => {
               const m = c.match(/^(\(?[1-9a-hA-H]\)?|[1-9a-hA-H][.)]?)\s+(.*)$/);
-              return m 
+              return m
                 ? <div key={idx} className="text-[15px] leading-7"><span className="font-semibold">{m[1]} </span>{m[2]}</div>
                 : <div key={idx} className="text-[15px] leading-7">{c}</div>;
             })}
@@ -407,7 +406,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
         }
       }
       blocks.push(
-        <div key={i} className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 pl-4 my-3">
+        <div key={i} className="flex flex-col gap-y-3 pl-4 my-4">
           {options.map((o, idx) => (
             <div key={idx} className="flex items-start text-[15px] leading-7 font-semibold">
               <span className="shrink-0 w-8">{o.label}</span>
