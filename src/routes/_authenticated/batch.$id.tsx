@@ -350,7 +350,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       }
       if (j < lines.length && /^Column\s+B:/i.test(lines[j])) {
         j++; // skip Column B:
-        while (j < lines.length && !/^(\(?[a-dA-D]\)?|[a-dA-D][.)])(?:\s+|$)/.test(lines[j]) && !/^Answer:/i.test(lines[j])) {
+        while (j < lines.length && colB.length < colA.length && !/^Answer:/i.test(lines[j]) && !/^Solution:/i.test(lines[j])) {
           colB.push(lines[j]);
           j++;
         }
