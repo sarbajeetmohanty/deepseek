@@ -21,10 +21,7 @@ async function gtranslate(text: string, source: string, target: string): Promise
   }
 }
 
-// Cheap language detector — Devanagari means Hindi, otherwise treat as English.
-function detectLang(text: string): "hi" | "en" {
-  return /[\u0900-\u097F]/.test(text) ? "hi" : "en";
-}
+
 
 // Re-force canonical labels + question number after translation. Google Translate
 // sometimes reorders/renames "Answer:", "Solution:", "Column A:" — restore them.
@@ -78,20 +75,14 @@ export const translateBatchToOpposite = createServerFn({ method: "POST" })
     if (error) throw new Error(`Could not load questions: ${error.message}`);
     if (!rows || rows.length === 0) throw new Error("Nothing to translate — no completed questions.");
 
-    // Decide the batch's target language from the majority of source rows,
-    // so the download button label matches what the user will actually get.
-    const langCounts = { hi: 0, en: 0 };
-    for (const r of rows) langCounts[detectLang(r.formatted_output ?? "")]++;
-    const majoritySource: "hi" | "en" = langCounts.hi >= langCounts.en ? "hi" : "en";
-    const majorityTarget: "hi" | "en" = majoritySource === "hi" ? "en" : "hi";
+    // The target language is always English now since the original solution is always in Hindi.
+    const majorityTarget = "en";
 
     const translated = await mapLimit(rows, 8, async (r) => {
       const src = (r.formatted_output ?? "").trim();
       if (!src) return { idx: r.idx, formatted_output: "" };
-      const sourceLang = detectLang(src);
-      const targetLang: "hi" | "en" = sourceLang === "hi" ? "en" : "hi";
       try {
-        const out = await gtranslate(src, sourceLang, targetLang);
+        const out = await gtranslate(src, "auto", "en");
         return { idx: r.idx, formatted_output: normalizeTranslated(out, r.idx) };
       } catch (e) {
         console.error("translate failed for idx", r.idx, e);

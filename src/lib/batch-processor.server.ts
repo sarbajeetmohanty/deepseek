@@ -129,21 +129,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
           let job = dedupe.get(key);
           const wasNew = !job;
           if (!job) {
-            job = (async () => {
-              let textToFormat = q.raw_text;
-              try {
-                // Perform free English translation via google-translate-api-x
-                // before passing to DeepSeek to save tokens and keep it optimized.
-                const { translate } = await import("google-translate-api-x");
-                const res = await translate(q.raw_text, { to: "en" });
-                if (res && res.text) {
-                  textToFormat = res.text;
-                }
-              } catch (e) {
-                console.error("Free translation failed, falling back to original text", e);
-              }
-              return formatQuestionWithDeepSeek({ raw: textToFormat, idx: q.idx, subjectType, solutionLength });
-            })();
+            job = formatQuestionWithDeepSeek({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength });
             dedupe.set(key, job);
           }
           let output = await job;

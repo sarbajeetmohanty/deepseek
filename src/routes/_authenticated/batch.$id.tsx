@@ -380,20 +380,20 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       i = j - 1;
       continue;
     }
-    const optMatch = line.match(/^(\(?[a-dA-D]\)?|[a-dA-D][.)])(?:\s+(.*))?$/);
+    const optMatch = line.match(/^(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+(.*))?$/);
     if (optMatch) {
       inSolution = false;
       const options: { label: string; text: string }[] = [];
       let j = i;
       while (j < lines.length) {
-        const m = lines[j].match(/^(\(?[a-dA-D]\)?|[a-dA-D][.)])(?:\s+(.*))?$/);
+        const m = lines[j].match(/^(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+(.*))?$/);
         if (m) {
           const label = m[1];
           let text = m[2] ? m[2].trim() : "";
           j++;
           while (
             j < lines.length &&
-            !/^(\(?[a-dA-D]\)?|[a-dA-D][.)])(?:\s+|$)/.test(lines[j]) &&
+            !/^(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+|$)/.test(lines[j]) &&
             !/^Answer:/i.test(lines[j]) &&
             !/^Solution:/i.test(lines[j])
           ) {

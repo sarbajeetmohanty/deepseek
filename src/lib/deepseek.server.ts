@@ -1,16 +1,13 @@
 // Server-only DeepSeek client used to format a single MCQ.
 import { latexToText } from "./latex-to-text";
 
-// LANGUAGE RULE (applies to every prompt): the AI must write the question,
-// options, and solution in the SAME language as the input question. Only the
-// labels "Answer:" and "Solution:" are always English. If the input mixes
-// languages, use the dominant one.
+// LANGUAGE RULE: the AI must write the question and options in the original language,
+// but the solution must ALWAYS be in Hindi. Only the labels "Answer:" and "Solution:" 
+// are always English.
 const LANG_RULE = `\n\nLANGUAGE RULE (STRICT):
-- Detect the language of the input question and write the ENTIRE output (question, options, solution steps, bullets) in that SAME language.
-- If the question is in Hindi, write output in Hindi. If English, write in English. If any other language, use that language.
-- For Hindi solutions, ensure all explanatory text is in pure Hindi, but keep digits (0-9) and mathematical symbols (+, -, =) exactly as they are.
-- ONLY the labels "Answer:" and "Solution:" must always be in English.
-- Do NOT translate the question. Preserve its original language exactly.`;
+- The question text and options MUST remain exactly in their original language (do NOT translate them).
+- The solution steps and explanation MUST always be written in pure Hindi. Keep digits (0-9) and mathematical symbols (+, -, =) exactly as they are.
+- ONLY the labels "Answer:" and "Solution:" must always be in English.`;
 
 const PROMPT_GK = `You are an expert teacher writing SSC / competitive-exam MCQ solutions.
 
@@ -28,13 +25,13 @@ a. <item>
 b. <item>
 c. <item>
 d. <item>
-Do NOT change the original matching order. Then give A/B/C/D options.
-A. <option 1>
-B. <option 2>
-C. <option 3>
-D. <option 4>
+Do NOT change the original matching order. Then give the 4 options EXACTLY preserving their original labels (e.g., (a), b., 1), A., etc.).
+<option label 1> <option 1>
+<option label 2> <option 2>
+<option label 3> <option 3>
+<option label 4> <option 4>
 
-Answer: <A/B/C/D>
+Answer: <matching option label>
 Solution:
 1 <point 1>
 2 <point 2>
@@ -48,7 +45,7 @@ Solution:
 Strict rules:
 1. Facts must be 100% accurate. Solve the question yourself, then match against the options.
 2. If the input contains LaTeX (\\cot, \\theta, ^2, \\frac …), convert it to clean Unicode. No \\ or { } in output.
-3. Options must be "A. " "B. " "C. " "D. " — no brackets, dot flush.
+3. Preserve the original option labels exactly as they were in the input (e.g., (a), b., 1), A., etc.). Each option on its own line.
 4. Question number then ". " then question text. No extra numbering.
 5. Do NOT include exam tags (SSC CGL … etc.) in the output.
 6. "Answer" and "Solution" labels are always English; everything else follows the LANGUAGE RULE.
@@ -61,12 +58,12 @@ const PROMPT_MATH = `You are a math teacher. Write the MCQ in MS-Word-friendly f
 Output EXACTLY this format — no markdown, no brackets around option letters, no extra blank lines:
 
 <question number>. <full question text — no LaTeX, no backslash, no $. Use Unicode superscript ² ³ for powers. Remove decorative () brackets. Clean Unicode for square / root.>
-A. <option>
-B. <option>
-C. <option>
-D. <option>
+<option label 1> <option 1>
+<option label 2> <option 2>
+<option label 3> <option 3>
+<option label 4> <option 4>
 
-Answer: <A/B/C/D>
+Answer: <matching option label>
 Solution:
 - <step 1 — what is given / what to find>
 - <step 2 — write the formula>
@@ -76,7 +73,7 @@ Solution:
 Strict rules:
 1. Math must be 100% accurate. Solve first, then match to options.
 2. Every solution step starts with "- " (dash + space). NEVER use "1.", "2.", "Step 1", etc. Each step on its own line.
-3. Options A. B. C. D. each on its own line, dot flush.
+3. Preserve the original option labels exactly as they were in the input (e.g., (a), b., 1), A., etc.). Each option on its own line.
 4. Solution ALWAYS as dash-bulleted steps (never a paragraph). Maximum 10 steps total. Each point must be very concise (normally 1 line, absolute maximum 3 lines). Each step on a new line starting with "- ".
 5. Squares as ², cubes as ³ — never "^2".
 6. "Answer" and "Solution" labels are always English; everything else follows the LANGUAGE RULE.
@@ -107,13 +104,13 @@ function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" 
   // canonical anchors (options A-D, Answer:, Solution:, bullet points).
   if (!s.includes("\n")) {
     s = s
-      .replace(/\s+(?=[ABCD]\.\s)/g, "\n")
+      .replace(/\s+(?=(?:\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])\s)/g, "\n")
       .replace(/\s+(?=Answer:)/gi, "\n\n")
       .replace(/\s+(?=Solution:)/gi, "\n")
       .replace(/\s+(?=\*\s+महत्वपूर्ण)/g, "\n");
   }
-  // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9")
-  s = s.replace(/^([A-D]\.)\s*\n\s*/gm, "$1 ");
+  // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9" or "(1)\nValue" -> "(1) Value")
+  s = s.replace(/^(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])\s*\n\s*/gm, "$1 ");
   // Normalize "Step 1:" / "चरण 1:" -> "1 " on its own line inside the Solution.
   s = s.replace(/(?:^|\n)\s*(?:Step|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/g, "\n$1 ");
   // Remove dots from all numbered list items at the start of any line (e.g. " 1. " -> " 1 ")
