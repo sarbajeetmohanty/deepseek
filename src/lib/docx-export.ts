@@ -35,16 +35,16 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       continue;
     }
 
-    if (/^(?:Column|कॉलम|स्तंभ)\s+A:/i.test(line)) {
+    if (/^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|I|1)[:.\-]?\s*$/i.test(line)) {
       inSolution = false;
       const colA: string[] = [];
       const colB: string[] = [];
       let j = i + 1;
-      while (j < lines.length && !/^(?:Column|कॉलम|स्तंभ)\s+B:/i.test(lines[j])) {
+      while (j < lines.length && !/^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?\s*$/i.test(lines[j])) {
         colA.push(lines[j]);
         j++;
       }
-      if (j < lines.length && /^(?:Column|कॉलम|स्तंभ)\s+B:/i.test(lines[j])) {
+      if (j < lines.length && /^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?\s*$/i.test(lines[j])) {
         j++;
         while (j < lines.length && colB.length < colA.length && !/^Answer:/i.test(lines[j]) && !/^Solution:/i.test(lines[j])) {
           colB.push(lines[j]);
