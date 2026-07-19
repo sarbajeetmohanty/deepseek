@@ -59,7 +59,7 @@ function BatchView() {
     // processing (in case the realtime socket dropped). Terminal → stop.
     refetchInterval: (query) => {
       const b = query.state.data as { status?: string } | undefined;
-      return b && b.status !== "processing" ? false : 2000;
+      return b && b.status !== "processing" ? false : 15000;
     },
     refetchOnWindowFocus: false,
     retry: 1,
@@ -80,7 +80,7 @@ function BatchView() {
     // Realtime pushes UPDATEs → invalidates this query. Slow safety poll only.
     refetchInterval: () => {
       const b = qc.getQueryData<{ status?: string }>(["batch", id]);
-      return b && b.status !== "processing" ? false : 2000;
+      return b && b.status !== "processing" ? false : 15000;
     },
     refetchOnWindowFocus: false,
     retry: 1,
@@ -323,7 +323,9 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
   const isMath = subjectType === "math";
   
   // Pre-process to unglue headers that might be stuck on the same line as the previous option
-  let cleanText = text.replace(/(?<=\S)[ \t]+(?=(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I|II|1|2)[\s.:\-]*)/gi, "\n");
+  let cleanText = text.replace(/(?<=\S)[ \t]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
+  cleanText = cleanText.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[ \t]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
+  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[ \t]+(?=(?:\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])\s)/g, "\n");
   
   const lines = cleanText.split("\n").map((l) => l.replace(/\s+$/g, "")).filter((l) => l.trim().length > 0);
   const blocks: React.ReactNode[] = [];

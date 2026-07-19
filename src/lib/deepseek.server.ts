@@ -105,8 +105,12 @@ function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" 
   s = s.replace(/\s+(?=Answer:)/gi, "\n\n");
   s = s.replace(/\s+(?=Solution:)/gi, "\n");
   
+  // Fix column headers glued to the end of a line or to their first item
+  s = s.replace(/(?<=\S)[ \t]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
+  s = s.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[ \t]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
+  
   // Also split options (A-D) if they were output on the same line horizontally.
-  s = s.replace(/(?<=\S)[ \t]+(?=(?:\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])\s)/g, "\n");
+  s = s.replace(/(?<!Answer:)(?<=\S)[ \t]+(?=(?:\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])\s)/g, "\n");
   // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9" or "(1)\nValue" -> "(1) Value")
   s = s.replace(/^(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])\s*\n\s*/gm, "$1 ");
   // Normalize "Step 1:" / "चरण 1:" -> "1 " on its own line inside the Solution.
@@ -268,8 +272,10 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
       if (isNonRetryableDeepSeekError(e)) throw e;
       if (e instanceof Error && e.name === "AbortError" && signal?.aborted) throw e;
       if (i < MAX_RETRIES - 1) {
-        // Exponential backoff with jitter to optimize API usage under extreme concurrency
-        const backoff = Math.pow(2, i) * 1000 + Math.random() * 500;
+        // Apply a much harsher penalty for 429 Rate Limits
+        const isRateLimit = e instanceof DeepSeekProviderError && e.status === 429;
+        const baseDelay = isRateLimit ? 5000 : 1000;
+        const backoff = Math.pow(2, i) * baseDelay + Math.random() * 500;
         await new Promise((r) => setTimeout(r, backoff));
       }
     }

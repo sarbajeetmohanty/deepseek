@@ -39,9 +39,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // User requested at least 50 concurrency if possible, up to 100.
-    const CONCURRENCY = Math.min(100, Math.max(50, pending.length));
-    // Wait, to perfectly match "less than 50 do that many", we cap at pending.length:
+    // Set concurrency to a safer limit (e.g. 30) to avoid DeepSeek API 429 rate limits.
+    const CONCURRENCY = Math.min(30, pending.length);
     const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
     // Flush UI counters periodically instead of every completion to reduce DB bottlenecks.
     const COUNTER_FLUSH_EVERY = 20;
@@ -66,15 +65,29 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     const providerBlock: { message?: string } = {};
     // In-batch dedupe: identical raw_text reuses the first result instead of re-calling the API.
     const dedupe = new Map<string, Promise<string>>();
+    
+    type QuestionPatch = {
+      status?: string;
+      formatted_output?: string | null;
+      error?: string | null;
+    };
+    const pendingUpdates: any[] = [];
+    
     let doneSinceFlush = 0;
     let failedSinceFlush = 0;
     let apiCallsSinceFlush = 0;
     const flushCounters = async () => {
-      if (doneSinceFlush === 0 && failedSinceFlush === 0 && apiCallsSinceFlush === 0) return;
+      if (doneSinceFlush === 0 && failedSinceFlush === 0 && apiCallsSinceFlush === 0 && pendingUpdates.length === 0) return;
       const d = doneSinceFlush, f = failedSinceFlush;
       const c = apiCallsSinceFlush;
-      doneSinceFlush = 0; failedSinceFlush = 0; apiCallsSinceFlush = 0;
+      const updatesToFlush = [...pendingUpdates];
+      doneSinceFlush = 0; failedSinceFlush = 0; apiCallsSinceFlush = 0; pendingUpdates.length = 0;
       try {
+        if (updatesToFlush.length > 0) {
+          const { error: uErr } = await supabaseAdmin.from("questions").upsert(updatesToFlush);
+          if (uErr) console.error("bulk upsert failed", uErr.message);
+        }
+
         // Recount authoritatively (cheap with idx_questions_batch_status index).
         const [done, failed] = await Promise.all([
           countStatus(batchId, "done"),
@@ -95,21 +108,18 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       } catch (e) {
         console.error("counter flush failed", e);
         doneSinceFlush += d; failedSinceFlush += f; apiCallsSinceFlush += c; // put back
+        pendingUpdates.push(...updatesToFlush);
       }
     };
 
-    type QuestionPatch = {
-      status?: string;
-      formatted_output?: string | null;
-      error?: string | null;
-    };
-    const updateRow = async (id: string, patch: QuestionPatch) => {
-      try {
-        const { error: uErr } = await supabaseAdmin.from("questions").update(patch).eq("id", id);
-        if (uErr) console.error(`update question ${id} failed`, uErr.message);
-      } catch (e) {
-        console.error(`update question ${id} threw`, e);
-      }
+    const updateRow = (q: any, patch: QuestionPatch) => {
+      pendingUpdates.push({
+        id: q.id,
+        batch_id: batchId,
+        idx: q.idx,
+        raw_text: q.raw_text,
+        ...patch,
+      });
     };
 
     const worker = async () => {
@@ -137,13 +147,13 @@ export async function processBatchInternal(batchId: string): Promise<void> {
           if (wasNew) apiCallsSinceFlush++;
           // If reused, re-run the idx replacement so the number matches this row.
           output = output.replace(/^\s*\d{1,4}\.\s+/, `${q.idx}. `);
-          await updateRow(q.id, { status: "done", formatted_output: output, error: null });
+          updateRow(q, { status: "done", formatted_output: output, error: null });
           doneSinceFlush++;
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           // Count failed API attempts too (unless it was a dedupe cache hit).
           apiCallsSinceFlush++;
-          await updateRow(q.id, { status: "failed", error: msg.slice(0, 500) });
+          updateRow(q, { status: "failed", error: msg.slice(0, 500) });
           failedSinceFlush++;
           if (isNonRetryableDeepSeekError(e)) {
             providerBlock.message = msg;
