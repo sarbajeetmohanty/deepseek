@@ -325,12 +325,14 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
   // Pre-process to unglue headers that might be stuck on the same line as the previous option
   let cleanText = text.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
   cleanText = cleanText.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
-  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Da-d1-4]\.|\([a-d1-4]\))[^\S\r\n])/g, "\n");
+  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h1-8]\.|\([a-h1-8]\))[^\S\r\n])/g, "\n");
   
   const lines = cleanText.split("\n").map((l) => l.replace(/\s+$/g, "")).filter((l) => l.trim().length > 0);
   const blocks: React.ReactNode[] = [];
   let seenQuestion = false;
   let inSolution = false;
+  let seenAnswer = false;
+  let seenSolution = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -395,20 +397,20 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       i = j - 1;
       continue;
     }
-    const optMatch = line.match(/^\s*((?:[A-Da-d1-4]\.)|(?:\([a-d1-4]\)))(?:\s+(.*))?$/);
+    const optMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))(?:\s+(.*))?$/) : null;
     if (optMatch) {
       inSolution = false;
       const options: { label: string; text: string }[] = [];
       let j = i;
       while (j < lines.length) {
-        const m = lines[j].match(/^\s*((?:[A-Da-d1-4]\.)|(?:\([a-d1-4]\)))(?:\s+(.*))?$/);
+        const m = (!seenAnswer && !seenSolution) ? lines[j].match(/^\s*((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))(?:\s+(.*))?$/) : null;
         if (m) {
           const label = m[1];
           let text = m[2] ? m[2].trim() : "";
           j++;
           while (
             j < lines.length &&
-            !/^\s*((?:[A-Da-d1-4]\.)|(?:\([a-d1-4]\)))(?:\s+|$)/.test(lines[j]) &&
+            !/^\s*((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))(?:\s+|$)/.test(lines[j]) &&
             !/^\s*Answer:/i.test(lines[j]) &&
             !/^\s*Solution:/i.test(lines[j])
           ) {
@@ -435,6 +437,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
     }
     if (/^\s*Answer:/i.test(line)) {
       inSolution = false;
+      seenAnswer = true;
       blocks.push(
         <p key={i} className="text-[15px] leading-7 mt-4">
           <span className="font-semibold">Answer:</span> {line.replace(/^Answer:\s*/i, "")}
@@ -444,6 +447,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
     }
     if (/^\s*Solution:/i.test(line)) {
       inSolution = true;
+      seenSolution = true;
       const rest = line.replace(/^\s*Solution:\s*/i, "");
       blocks.push(
         <p key={i} className="text-[15px] leading-7 mt-2">

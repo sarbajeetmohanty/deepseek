@@ -109,10 +109,10 @@ function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" 
   s = s.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
   s = s.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
   
-  // Also split options (A-D) if they were output on the same line horizontally.
-  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Da-d1-4]\.|\([a-d1-4]\))[^\S\r\n])/g, "\n");
+  // Also split options (A-H) if they were output on the same line horizontally.
+  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h1-8]\.|\([a-h1-8]\))[^\S\r\n])/g, "\n");
   // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9" or "(1)\nValue" -> "(1) Value")
-  s = s.replace(/^((?:[A-Da-d1-4]\.)|(?:\([a-d1-4]\)))\s*\n\s*/gm, "$1 ");
+  s = s.replace(/^((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
   // Normalize "Step 1:" / "चरण 1:" -> "1. " on its own line inside the Solution.
   s = s.replace(/(?:^|\n)\s*(?:Step|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/g, "\n$1. ");
   // Force the main question number to the caller-supplied idx with a dot,

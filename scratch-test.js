@@ -1,22 +1,47 @@
-const text = `C. 1 और 2 दोनों D. न तो 1 और न ही 2
+const text = `1. What is 2+2?
+E. 4
+F. 5
+Answer: E
 Solution:
-1 मैनोमीटर एक उपकरण है...
-2 डेनसिटीमीटर...
-3 कथन 1 में मैनोमीटर...
-4 कथन`;
+1. It is 4.
+2. Because math.
+E. is the letter E.`;
 
-let cleanText = text.replace(/(?<!Answer:|Solution:)(?<=\S)[^\S\r\n]+(?=(?:[A-Da-d1-4]\.|\([a-d1-4]\))[^\S\r\n])/g, "\n");
-console.log("=== AFTER SPLIT ===");
-console.log(cleanText);
+const lines = text.split('\n');
 
-const lines = cleanText.split("\n");
-const strictOptPattern = /^\s*((?:[A-Da-d1-4]\.)|(?:\([a-d1-4]\)))(?:\s+(.*))?$/;
+let seenQuestion = false;
+let inSolution = false;
+let seenAnswer = false;
+let seenSolution = false;
 
-for (let line of lines) {
-  const optMatch = line.match(strictOptPattern);
-  if (optMatch) {
-    console.log(`OPTION: [${optMatch[1]}] text: ${optMatch[2]}`);
-  } else {
-    console.log(`TEXT: ${line}`);
+for (let i = 0; i < lines.length; i++) {
+  const line = lines[i];
+  
+  if (/^\s*Answer:/i.test(line)) {
+    inSolution = false;
+    seenAnswer = true;
+    console.log("ANSWER:", line);
+    continue;
   }
+  
+  if (/^\s*Solution:/i.test(line)) {
+    inSolution = true;
+    seenSolution = true;
+    console.log("SOLUTION:", line);
+    continue;
+  }
+  
+  const optMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))(?:\s+(.*))?$/) : null;
+  if (optMatch) {
+    console.log("OPTION:", optMatch[1], optMatch[2]);
+    continue;
+  }
+  
+  const step = inSolution ? line.match(/^\s*(\d{1,2})\.\s+(.*)$/) : null;
+  if (step) {
+    console.log("STEP:", step[1], step[2]);
+    continue;
+  }
+  
+  console.log("TEXT:", line);
 }
