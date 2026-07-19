@@ -37,3 +37,6 @@ lovable-*.zip
 earthpuls-project.zip
 dist_zip/
 
+# Secrets
+.env
+supabase-env.txt

@@ -100,15 +100,13 @@ function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" 
   s = s.replace(/__(.+?)__/g, "$1");
   // Normalize line endings.
   s = s.replace(/\r\n?/g, "\n");
-  // If the whole response arrived on one line, re-insert breaks before the
-  // canonical anchors (options A-D, Answer:, Solution:, bullet points).
-  if (!s.includes("\n")) {
-    s = s
-      .replace(/\s+(?=(?:\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])\s)/g, "\n")
-      .replace(/\s+(?=Answer:)/gi, "\n\n")
-      .replace(/\s+(?=Solution:)/gi, "\n")
-      .replace(/\s+(?=\*\s+महत्वपूर्ण)/g, "\n");
-  }
+  // Re-insert breaks before canonical anchors (Answer:, Solution:) in case they got 
+  // glued to previous text or have messy leading whitespace.
+  s = s.replace(/\s+(?=Answer:)/gi, "\n\n");
+  s = s.replace(/\s+(?=Solution:)/gi, "\n");
+  
+  // Also split options (A-D) if they were output on the same line horizontally.
+  s = s.replace(/(?<=\S)[ \t]+(?=(?:\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])\s)/g, "\n");
   // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9" or "(1)\nValue" -> "(1) Value")
   s = s.replace(/^(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])\s*\n\s*/gm, "$1 ");
   // Normalize "Step 1:" / "चरण 1:" -> "1 " on its own line inside the Solution.

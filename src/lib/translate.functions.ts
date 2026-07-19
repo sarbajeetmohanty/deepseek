@@ -30,7 +30,7 @@ function normalizeTranslated(text: string, idx: number): string {
   s = s.replace(/^\s*\d{1,4}\s*[\.\)]\s+/, `${idx}. `);
   s = s.replace(/^\s*(Ans(?:wer)?|उत्तर)\s*[:.-]\s*/gim, "Answer: ");
   s = s.replace(/^\s*(Sol(?:ution)?|समाधान|हल)\s*[:.-]\s*/gim, "Solution: ");
-  s = s.replace(/^\s*Column\s*([AB])\s*[:.-]?\s*$/gim, "Column $1:");
+  s = s.replace(/^\s*(?:Column|कॉलम|स्तंभ)\s*([AB])\s*[:.-]?\s*$/gim, "Column $1:");
   // Normalize step labels emitted by translation ("Step 1:" etc.) back to "1. "
   s = s.replace(/(?:^|\n)\s*(?:Step|Chran|Pad)\s*(\d+)\s*[:.\-)]\s*/gi, "\n$1. ");
   // Break inline numbered steps onto their own line ("... .  2. ..." -> newline)
