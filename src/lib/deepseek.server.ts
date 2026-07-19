@@ -113,10 +113,8 @@ function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" 
   s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Da-d1-4]\.|\([a-d1-4]\))[^\S\r\n])/g, "\n");
   // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9" or "(1)\nValue" -> "(1) Value")
   s = s.replace(/^((?:[A-Da-d1-4]\.)|(?:\([a-d1-4]\)))\s*\n\s*/gm, "$1 ");
-  // Normalize "Step 1:" / "चरण 1:" -> "1 " on its own line inside the Solution.
-  s = s.replace(/(?:^|\n)\s*(?:Step|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/g, "\n$1 ");
-  // Remove dots from all numbered list items at the start of any line (e.g. " 1. " -> " 1 ")
-  s = s.replace(/^([ \t]*\d+)\.\s+/gm, "$1 ");
+  // Normalize "Step 1:" / "चरण 1:" -> "1. " on its own line inside the Solution.
+  s = s.replace(/(?:^|\n)\s*(?:Step|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/g, "\n$1. ");
   // Force the main question number to the caller-supplied idx with a dot,
   // matching the first occurrence of a number at the top of the string.
   s = s.replace(/^\s*(?:#+\s*)?(?:(?:[Qq](?:uestion)?|प्रश्न|प्र\.?)[ \t]*[.-]?[ \t]*)?\d{1,4}[.:\-)\]\s]+\s*/i, `${idx}. `);
