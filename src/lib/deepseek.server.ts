@@ -110,9 +110,9 @@ function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" 
   s = s.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
   
   // Also split options (A-D) if they were output on the same line horizontally.
-  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])[^\S\r\n])/g, "\n");
+  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Da-d1-4]\.|\([a-d1-4]\))[^\S\r\n])/g, "\n");
   // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9" or "(1)\nValue" -> "(1) Value")
-  s = s.replace(/^(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])\s*\n\s*/gm, "$1 ");
+  s = s.replace(/^((?:[A-Da-d1-4]\.)|(?:\([a-d1-4]\)))\s*\n\s*/gm, "$1 ");
   // Normalize "Step 1:" / "चरण 1:" -> "1 " on its own line inside the Solution.
   s = s.replace(/(?:^|\n)\s*(?:Step|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/g, "\n$1 ");
   // Remove dots from all numbered list items at the start of any line (e.g. " 1. " -> " 1 ")
