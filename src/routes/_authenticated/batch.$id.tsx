@@ -360,25 +360,34 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
         }
       }
       blocks.push(
-        <div key={i} className="flex flex-row gap-8 w-full my-3 px-4">
-          <div className="flex-1 space-y-1">
-            <div className="font-semibold underline mb-1">Column A</div>
-            {colA.map((c, idx) => {
-              const m = c.match(/^(\(?[1-9a-hA-H]\)?|[1-9a-hA-H][.)]?)\s+(.*)$/);
-              return m
-                ? <div key={idx} className="text-[15px] leading-7"><span className="font-semibold">{m[1]} </span>{m[2]}</div>
-                : <div key={idx} className="text-[15px] leading-7">{c}</div>;
-            })}
-          </div>
-          <div className="flex-1 space-y-1">
-            <div className="font-semibold underline mb-1">Column B</div>
-            {colB.map((c, idx) => {
-              const m = c.match(/^(\(?[1-9a-hA-H]\)?|[1-9a-hA-H][.)]?)\s+(.*)$/);
-              return m
-                ? <div key={idx} className="text-[15px] leading-7"><span className="font-semibold">{m[1]} </span>{m[2]}</div>
-                : <div key={idx} className="text-[15px] leading-7">{c}</div>;
-            })}
-          </div>
+        <div key={i} className="my-6 rounded-md overflow-hidden border border-gray-300 dark:border-gray-700">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-300 dark:border-gray-700">
+                <th className="p-4 font-semibold text-[15px] border-r border-gray-300 dark:border-gray-700 w-1/2">Column A</th>
+                <th className="p-4 font-semibold text-[15px] w-1/2">Column B</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: Math.max(colA.length, colB.length) }).map((_, idx) => {
+                const cellA = colA[idx] || "";
+                const cellB = colB[idx] || "";
+                const matchA = cellA.match(/^(\(?[1-9a-hA-H]\)?|[1-9a-hA-H][.)]?)\s+(.*)$/);
+                const matchB = cellB.match(/^(\(?[1-9a-hA-H]\)?|[1-9a-hA-H][.)]?)\s+(.*)$/);
+                
+                return (
+                  <tr key={idx} className="border-b last:border-b-0 border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900">
+                    <td className="p-4 text-[15px] leading-7 border-r border-gray-300 dark:border-gray-700 align-top">
+                      {matchA ? <><span className="font-semibold">{matchA[1]} </span>{matchA[2]}</> : cellA}
+                    </td>
+                    <td className="p-4 text-[15px] leading-7 align-top">
+                      {matchB ? <><span className="font-semibold">{matchB[1]} </span>{matchB[2]}</> : cellB}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       );
       i = j - 1;
