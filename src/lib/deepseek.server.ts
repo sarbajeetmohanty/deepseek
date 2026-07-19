@@ -106,11 +106,11 @@ function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" 
   s = s.replace(/\s+(?=Solution:)/gi, "\n");
   
   // Fix column headers glued to the end of a line or to their first item
-  s = s.replace(/(?<=\S)[ \t]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
-  s = s.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[ \t]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
+  s = s.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
+  s = s.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
   
   // Also split options (A-D) if they were output on the same line horizontally.
-  s = s.replace(/(?<!Answer:)(?<=\S)[ \t]+(?=(?:\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])\s)/g, "\n");
+  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])[^\S\r\n])/g, "\n");
   // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9" or "(1)\nValue" -> "(1) Value")
   s = s.replace(/^(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])\s*\n\s*/gm, "$1 ");
   // Normalize "Step 1:" / "चरण 1:" -> "1 " on its own line inside the Solution.

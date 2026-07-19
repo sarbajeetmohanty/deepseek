@@ -1,42 +1,6 @@
-const text = `39. सूची-I का सूची-II से सुमेलित कीजिए:
-सूची-I:
-a. डायनेमोमीटर (Dynamometer)
-b. कैलोरीमीटर (Calorimeter)
-c. गैल्वेनोमीटर (Galvanometer)
-d. पाइरोमीटर (Pyrometer) सूची-II:
-1 ऊष्मा की मात्रा
-2 इंजन की शक्ति
-3 दूर स्थित वस्तु का ताप
-4 विद्युत परिपथ में धारा की दिशा/मात्रा
-A. a-2, b-1, c-4, d-3`;
+const text1 = `d. लाइटिंग कण्डक्टर (Lighting conductor) सूची-II 1 विद्युतीय तथा यांत्रिक कम्पनों को ग्राफ़ पर चित्रित करना 2 आवेशित कणों को त्वरित करना 3 बिजली के प्रभाव से इमारतों को सुरक्षित रखना 4 विद्युत्-वाहक बलों की तुलना करना कूट: A. a-2, b-1, c-4, d-3 B. a-1, b-2, c-3, d-4 C. a-2, b-4, c-1, d-3 D. a-4, b-3, c-2, d-1`;
 
-let cleanText = text.replace(/(?<=\S)[ \t]+(?=(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I|II|1|2)[\s.:\-]*)/gi, "\n");
-const lines = cleanText.split("\n").map((l) => l.replace(/\s+$/g, "")).filter((l) => l.trim().length > 0);
+const regex = /(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])[^\S\r\n])/g;
 
-const colA = [];
-const colB = [];
-
-let i = 0;
-while (i < lines.length) {
-  const line = lines[i];
-  if (/^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|I|1)[:.\-]?\s*$/i.test(line)) {
-    console.log("MATCHED COLUMN A", line);
-    let j = i + 1;
-    while (j < lines.length && !/^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?\s*$/i.test(lines[j])) {
-      colA.push(lines[j]);
-      j++;
-    }
-    if (j < lines.length && /^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?\s*$/i.test(lines[j])) {
-      console.log("MATCHED COLUMN B", lines[j]);
-      j++; // skip Column B header
-      while (j < lines.length && colB.length < colA.length && !/^Answer:/i.test(lines[j]) && !/^Solution:/i.test(lines[j])) {
-        colB.push(lines[j]);
-        j++;
-      }
-    }
-    console.log("ColA items:", colA);
-    console.log("ColB items:", colB);
-    i = j - 1;
-  }
-  i++;
-}
+console.log("Original:", text1);
+console.log("Replaced:", text1.replace(regex, "\n"));
