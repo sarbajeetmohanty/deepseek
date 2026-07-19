@@ -325,7 +325,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
   // Pre-process to unglue headers that might be stuck on the same line as the previous option
   let cleanText = text.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
   cleanText = cleanText.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
-  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h1-8]\.|\([a-h1-8]\))[^\S\r\n])/g, "\n");
+  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-h1-8]\))[^\S\r\n])/g, "\n");
   
   const lines = cleanText.split("\n").map((l) => l.replace(/\s+$/g, "")).filter((l) => l.trim().length > 0);
   const blocks: React.ReactNode[] = [];
@@ -397,20 +397,20 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       i = j - 1;
       continue;
     }
-    const optMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))(?:\s+(.*))?$/) : null;
+    const optMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))(?:\s+(.*))?$/) : null;
     if (optMatch) {
       inSolution = false;
       const options: { label: string; text: string }[] = [];
       let j = i;
       while (j < lines.length) {
-        const m = (!seenAnswer && !seenSolution) ? lines[j].match(/^\s*((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))(?:\s+(.*))?$/) : null;
+        const m = (!seenAnswer && !seenSolution) ? lines[j].match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))(?:\s+(.*))?$/) : null;
         if (m) {
           const label = m[1];
           let text = m[2] ? m[2].trim() : "";
           j++;
           while (
             j < lines.length &&
-            !/^\s*((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))(?:\s+|$)/.test(lines[j]) &&
+            !/^\s*((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))(?:\s+|$)/.test(lines[j]) &&
             !/^\s*Answer:/i.test(lines[j]) &&
             !/^\s*Solution:/i.test(lines[j])
           ) {
