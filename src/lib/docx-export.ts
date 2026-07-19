@@ -25,7 +25,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     // Question line: "374. ..."
-    const q = line.match(/^(\d{1,4})\.\s+(.*)$/);
+    const q = line.match(/^\s*(\d{1,4})\.\s+(.*)$/);
     if (q && !seenQuestion) {
       seenQuestion = true;
       inSolution = false;
@@ -38,18 +38,18 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       continue;
     }
 
-    if (/^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|I|1)[:.\-]?/i.test(line)) {
+    if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|I|1)[:.\-]?/i.test(line)) {
       inSolution = false;
       const colA: string[] = [];
       const colB: string[] = [];
       let j = i + 1;
-      while (j < lines.length && !/^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j])) {
+      while (j < lines.length && !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j])) {
         colA.push(lines[j]);
         j++;
       }
-      if (j < lines.length && /^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j])) {
+      if (j < lines.length && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j])) {
         j++;
-        while (j < lines.length && colB.length < colA.length && !/^Answer:/i.test(lines[j]) && !/^Solution:/i.test(lines[j])) {
+        while (j < lines.length && colB.length < colA.length && !/^\s*Answer:/i.test(lines[j]) && !/^\s*Solution:/i.test(lines[j])) {
           colB.push(lines[j]);
           j++;
         }
@@ -106,22 +106,22 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     }
 
     // Option line: "A. ..."
-    const optMatch = line.match(/^(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+(.*))?$/);
+    const optMatch = line.match(/^\s*(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+(.*))?$/);
     if (optMatch) {
       inSolution = false;
       const options: { label: string; text: string }[] = [];
       let j = i;
       while (j < lines.length) {
-        const m = lines[j].match(/^(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+(.*))?$/);
+        const m = lines[j].match(/^\s*(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+(.*))?$/);
         if (m) {
           const label = m[1];
           let text = m[2] ? m[2].trim() : "";
           j++;
           while (
             j < lines.length &&
-            !/^(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+|$)/.test(lines[j]) &&
-            !/^Answer:/i.test(lines[j]) &&
-            !/^Solution:/i.test(lines[j])
+            !/^\s*(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+|$)/.test(lines[j]) &&
+            !/^\s*Answer:/i.test(lines[j]) &&
+            !/^\s*Solution:/i.test(lines[j])
           ) {
             text += (text ? " " : "") + lines[j].trim();
             j++;
@@ -145,21 +145,21 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     }
 
     // Answer
-    if (/^Answer:/i.test(line)) {
+    if (/^\s*Answer:/i.test(line)) {
       inSolution = false;
       paragraphs.push(
         new Paragraph({
           spacing: { before: 200, after: 80, line: 320 },
-          children: [run("Answer: ", true), run(line.replace(/^Answer:\s*/i, ""))],
+          children: [run("Answer: ", true), run(line.replace(/^\s*Answer:\s*/i, ""))],
         }),
       );
       continue;
     }
 
     // Solution
-    if (/^Solution:/i.test(line)) {
+    if (/^\s*Solution:/i.test(line)) {
       inSolution = true;
-      const rest = line.replace(/^Solution:\s*/i, "");
+      const rest = line.replace(/^\s*Solution:\s*/i, "");
       paragraphs.push(
         new Paragraph({
           spacing: { before: 80, after: 120, line: 320 },
@@ -172,7 +172,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     }
 
     // Solution step "1. …" inside Solution block
-    const step = inSolution ? line.match(/^(\d{1,2})\.\s+(.*)$/) : null;
+    const step = inSolution ? line.match(/^\s*(\d{1,2})\.\s+(.*)$/) : null;
     if (step) {
       if (isMath) {
         paragraphs.push(
@@ -198,7 +198,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     }
 
     // Dash-bulleted solution step "- ..." (math). Red dash marker.
-    const dashStep = inSolution ? line.match(/^-\s+(.*)$/) : null;
+    const dashStep = inSolution ? line.match(/^\s*-\s+(.*)$/) : null;
     if (dashStep) {
       paragraphs.push(
         new Paragraph({
@@ -214,7 +214,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     }
 
     // Bullet line "* ..."
-    const bullet = line.match(/^\*\s+(.*)$/);
+    const bullet = line.match(/^\s*\*\s+(.*)$/);
     if (bullet) {
       inSolution = false;
       paragraphs.push(

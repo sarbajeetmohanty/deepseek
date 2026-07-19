@@ -334,7 +334,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const q = line.match(/^(\d{1,4})\.\s+(.*)$/);
+    const q = line.match(/^\s*(\d{1,4})\.\s+(.*)$/);
     if (q && !seenQuestion) {
       seenQuestion = true;
       inSolution = false;
@@ -345,18 +345,18 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       );
       continue;
     }
-    if (/^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|I|1)[:.\-]?/i.test(line)) {
+    if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|I|1)[:.\-]?/i.test(line)) {
       inSolution = false;
       const colA: string[] = [];
       const colB: string[] = [];
       let j = i + 1;
-      while (j < lines.length && !/^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j])) {
+      while (j < lines.length && !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j])) {
         colA.push(lines[j]);
         j++;
       }
-      if (j < lines.length && /^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j])) {
+      if (j < lines.length && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j])) {
         j++; // skip Column B:
-        while (j < lines.length && colB.length < colA.length && !/^Answer:/i.test(lines[j]) && !/^Solution:/i.test(lines[j])) {
+        while (j < lines.length && colB.length < colA.length && !/^\s*Answer:/i.test(lines[j]) && !/^\s*Solution:/i.test(lines[j])) {
           colB.push(lines[j]);
           j++;
         }
@@ -395,22 +395,22 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       i = j - 1;
       continue;
     }
-    const optMatch = line.match(/^(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+(.*))?$/);
+    const optMatch = line.match(/^\s*(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+(.*))?$/);
     if (optMatch) {
       inSolution = false;
       const options: { label: string; text: string }[] = [];
       let j = i;
       while (j < lines.length) {
-        const m = lines[j].match(/^(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+(.*))?$/);
+        const m = lines[j].match(/^\s*(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+(.*))?$/);
         if (m) {
           const label = m[1];
           let text = m[2] ? m[2].trim() : "";
           j++;
           while (
             j < lines.length &&
-            !/^(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+|$)/.test(lines[j]) &&
-            !/^Answer:/i.test(lines[j]) &&
-            !/^Solution:/i.test(lines[j])
+            !/^\s*(\(?[a-dA-D1-4]\)?|[a-dA-D1-4][.)])(?:\s+|$)/.test(lines[j]) &&
+            !/^\s*Answer:/i.test(lines[j]) &&
+            !/^\s*Solution:/i.test(lines[j])
           ) {
             text += (text ? " " : "") + lines[j].trim();
             j++;
@@ -433,7 +433,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       i = j - 1;
       continue;
     }
-    if (/^Answer:/i.test(line)) {
+    if (/^\s*Answer:/i.test(line)) {
       inSolution = false;
       blocks.push(
         <p key={i} className="text-[15px] leading-7 mt-4">
@@ -442,9 +442,9 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       );
       continue;
     }
-    if (/^Solution:/i.test(line)) {
+    if (/^\s*Solution:/i.test(line)) {
       inSolution = true;
-      const rest = line.replace(/^Solution:\s*/i, "");
+      const rest = line.replace(/^\s*Solution:\s*/i, "");
       blocks.push(
         <p key={i} className="text-[15px] leading-7 mt-2">
           <span className="font-semibold">Solution:</span>{rest ? ` ${rest}` : ""}
@@ -452,7 +452,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       );
       continue;
     }
-    const step = inSolution ? line.match(/^(\d{1,2})\.\s+(.*)$/) : null;
+    const step = inSolution ? line.match(/^\s*(\d{1,2})\.\s+(.*)$/) : null;
     if (step) {
       if (isMath) {
         // Retroactively render math numbered steps as red-dash bullets.
@@ -471,7 +471,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       );
       continue;
     }
-    const dashStep = inSolution ? line.match(/^-\s+(.*)$/) : null;
+    const dashStep = inSolution ? line.match(/^\s*-\s+(.*)$/) : null;
     if (dashStep) {
       blocks.push(
         <div key={i} className="flex gap-2 text-[15px] leading-7 pl-4 my-1">
@@ -481,7 +481,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       );
       continue;
     }
-    const b = line.match(/^\*\s+(.*)$/);
+    const b = line.match(/^\s*\*\s+(.*)$/);
     if (b) {
       inSolution = false;
       blocks.push(
