@@ -12,7 +12,8 @@ function run(text: string, bold = false): TextRun {
 function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
   const paragraphs: (Paragraph | Table)[] = [];
   // Normalize: strip blank lines from source, we control spacing via paragraph spacing.
-  const lines = text
+  let cleanText = text.replace(/(?<=\S)[ \t]+(?=(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I|II|1|2)[\s.:\-]*)/gi, "\n");
+  const lines = cleanText
     .split("\n")
     .map((l) => l.replace(/\s+$/g, ""))
     .filter((l) => l.trim().length > 0);

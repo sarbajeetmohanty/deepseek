@@ -321,7 +321,11 @@ function formatQuestionError(error: string): string {
 
 const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { text: string; subjectType?: "gk_english" | "math" }) {
   const isMath = subjectType === "math";
-  const lines = text.split("\n").map((l) => l.replace(/\s+$/g, "")).filter((l) => l.trim().length > 0);
+  
+  // Pre-process to unglue headers that might be stuck on the same line as the previous option
+  let cleanText = text.replace(/(?<=\S)[ \t]+(?=(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I|II|1|2)[\s.:\-]*)/gi, "\n");
+  
+  const lines = cleanText.split("\n").map((l) => l.replace(/\s+$/g, "")).filter((l) => l.trim().length > 0);
   const blocks: React.ReactNode[] = [];
   let seenQuestion = false;
   let inSolution = false;
