@@ -1,4 +1,4 @@
-const regex = /^\s*((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))(?:\s+(.*))?$/;
+const regex = /^\s*((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))(?:\s+(.*))?$/;
 console.log("1. एक ड्रैम:", regex.test("1. एक ड्रैम"));
 console.log("A. केवल 1 और 2:", regex.test("A. केवल 1 और 2"));
 console.log("(a) test:", regex.test("(a) test"));

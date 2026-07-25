@@ -229,7 +229,7 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: "deepseek-chat",
+          model: "deepseek-v4-flash",
           temperature: 0,
           top_p: 0.1,
           max_tokens: maxTokens,
