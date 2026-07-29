@@ -15,6 +15,35 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
   let cleanText = text.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
   cleanText = cleanText.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
   cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h1-8]\.|\([a-h1-8]\))[^\S\r\n])/g, "\n");
+
+  // Fix interleaved match-the-column items (a., 1., b., 2.) that missed Column headers
+  let cleanLines = cleanText.split("\n");
+  for (let i = 0; i < cleanLines.length - 3; i++) {
+    const m1 = cleanLines[i].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
+    const m2 = cleanLines[i+1].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
+    const m3 = cleanLines[i+2].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
+    const m4 = cleanLines[i+3].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
+    if (m1 && m2 && m3 && m4) {
+      let colA = [];
+      let colB = [];
+      let j = i;
+      while (j < cleanLines.length - 1) {
+        const mA = cleanLines[j].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
+        const mB = cleanLines[j+1].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
+        if (mA && mB) {
+          colA.push(cleanLines[j]);
+          colB.push(cleanLines[j+1]);
+          j += 2;
+        } else {
+          break;
+        }
+      }
+      const replacement = ["Column A:", ...colA, "Column B:", ...colB];
+      cleanLines.splice(i, j - i, ...replacement);
+      i += replacement.length - 1;
+    }
+  }
+  cleanText = cleanLines.join("\n");
   const lines = cleanText
     .split("\n")
     .map((l) => l.replace(/\s+$/g, ""))
