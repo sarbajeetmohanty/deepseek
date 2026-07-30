@@ -349,9 +349,15 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           break;
         }
       }
+      let startIndex = i;
+      let countToRemove = j - i;
+      while (startIndex > 0 && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[:.\-]?/i.test(cleanLines[startIndex - 1])) {
+        startIndex--;
+        countToRemove++;
+      }
       const replacement = ["Column A:", ...colA, "Column B:", ...colB];
-      cleanLines.splice(i, j - i, ...replacement);
-      i += replacement.length - 1;
+      cleanLines.splice(startIndex, countToRemove, ...replacement);
+      i = startIndex + replacement.length - 1;
     }
   }
   cleanText = cleanLines.join("\n");
