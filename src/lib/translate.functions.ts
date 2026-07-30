@@ -78,7 +78,7 @@ export const translateBatchToOpposite = createServerFn({ method: "POST" })
     if (!rows || rows.length === 0) throw new Error("Nothing to translate — no completed questions.");
 
     // The target language is always English now since the original solution is always in Hindi.
-    const majorityTarget = "en";
+    const majorityTarget = "en" as "en" | "hi";
 
     const translated = await mapLimit(rows, 8, async (r) => {
       const src = (r.formatted_output ?? "").trim();
