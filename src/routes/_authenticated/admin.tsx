@@ -2,7 +2,7 @@ import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { inviteUser, listInvitations, listTeam, revokeInvite, setUserAdmin, getMyRole, listTeamStats, removeTeamMember } from "@/lib/invitations.functions";
-import { getDeepseekKeyStatus, setDeepseekApiKey, clearDeepseekApiKey, revealDeepseekApiKey } from "@/lib/settings.functions";
+import { getDeepseekKeyStatus, setDeepseekApiKey, clearDeepseekApiKey, revealDeepseekApiKey, getGeminiKeyStatus, setGeminiApiKeys, clearGeminiApiKeys, revealGeminiApiKeys } from "@/lib/settings.functions";
 import { listQuotas, setUserQuota } from "@/lib/quotas.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -253,7 +253,8 @@ function AdminPage() {
   const clearKey = useMutation({
     mutationFn: () => clearDeepseekApiKey({ data: {} } as any),
     onSuccess: () => {
-      toast.success("API key cleared");
+      toast.success("DeepSeek API key cleared");
+      setRevealed(null);
       qc.invalidateQueries({ queryKey: ["deepseek-key-status"] });
     },
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not clear key"),
@@ -262,18 +263,61 @@ function AdminPage() {
   const [revealed, setRevealed] = useState<string | null>(null);
   const revealKey = useMutation({
     mutationFn: () => revealDeepseekApiKey({ data: {} } as any),
-    onSuccess: async (res) => {
+    onSuccess: (res) => {
       setRevealed(res.value);
-      try {
-        await navigator.clipboard.writeText(res.value);
-        toast.success("Key copied to clipboard — hides in 20s");
-      } catch {
-        toast.success("Key revealed — hides in 20s");
-      }
-      setTimeout(() => setRevealed(null), 20_000);
+      navigator.clipboard.writeText(res.value).then(
+        () => toast.success(`Key from ${res.source} copied to clipboard`),
+        () => toast.success(`Key revealed but could not copy to clipboard`),
+      );
+      setTimeout(() => setRevealed(null), 20000);
     },
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not reveal key"),
   });
+
+  // GEMINI API KEYS
+  const { data: geminiKeyStatus, error: geminiKeyErr } = useQuery({
+    queryKey: ["gemini-key-status"],
+    queryFn: () => getGeminiKeyStatus({ data: {} } as any),
+    staleTime: 30_000,
+    retry: 1,
+  });
+
+  const [geminiApiKeys, setGeminiApiKeysState] = useState("");
+  
+  const saveGeminiKeys = useMutation({
+    mutationFn: (v: string) => setGeminiApiKeys({ data: { apiKeys: v } }),
+    onSuccess: (res) => {
+      toast.success(`Saved ${res?.count} Gemini API keys.`);
+      setGeminiApiKeysState("");
+      qc.invalidateQueries({ queryKey: ["gemini-key-status"] });
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not save Gemini keys"),
+  });
+
+  const clearGeminiKeys = useMutation({
+    mutationFn: () => clearGeminiApiKeys({ data: {} } as any),
+    onSuccess: () => {
+      toast.success("Gemini API keys cleared");
+      setGeminiRevealed(null);
+      qc.invalidateQueries({ queryKey: ["gemini-key-status"] });
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not clear Gemini keys"),
+  });
+
+  const [geminiRevealed, setGeminiRevealed] = useState<string | null>(null);
+  const revealGeminiKeys = useMutation({
+    mutationFn: () => revealGeminiApiKeys({ data: {} } as any),
+    onSuccess: (res) => {
+      setGeminiRevealed(res.value);
+      navigator.clipboard.writeText(res.value).then(
+        () => toast.success(`Keys from ${res.source} copied to clipboard`),
+        () => toast.success(`Keys revealed but could not copy to clipboard`),
+      );
+      setTimeout(() => setGeminiRevealed(null), 20000);
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not reveal Gemini keys"),
+  });
+
 
   const adminCount = (team ?? []).filter((p: any) => (p.roles ?? []).includes("admin")).length;
 
@@ -378,6 +422,87 @@ function AdminPage() {
           )}
           <p className="text-xs text-muted-foreground">
             Get a key at platform.deepseek.com → API Keys. Any batch already running uses whichever key was active when it started; new batches use the latest saved key.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Gemini API Keys</CardTitle>
+          <CardDescription>
+            Provide one or more Google Gemini API keys separated by commas. These are used for ultra-fast PDF extraction. 
+            The system automatically rotates them to prevent rate limits.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {geminiKeyErr && <p className="text-sm text-destructive mb-2">Could not load Gemini key status: {geminiKeyErr instanceof Error ? geminiKeyErr.message : String(geminiKeyErr)}</p>}
+          <div className="mb-4 text-sm">
+            Status:{" "}
+            {geminiKeyStatus?.configured ? (
+              <span className="font-medium text-green-600 dark:text-green-400">
+                Configured ({geminiKeyStatus.keyCount} active keys via {geminiKeyStatus.source})
+              </span>
+            ) : (
+              <span className="font-medium text-amber-600 dark:text-amber-400">Not configured</span>
+            )}
+            {geminiKeyStatus?.updatedAt && (
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Last updated {new Date(geminiKeyStatus.updatedAt).toLocaleString()}
+                {geminiKeyStatus.updatedByEmail ? ` by ${geminiKeyStatus.updatedByEmail}` : ""}
+              </div>
+            )}
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (geminiApiKeys.trim()) saveGeminiKeys.mutate(geminiApiKeys);
+            }}
+            className="flex flex-col gap-2"
+          >
+            <div className="flex gap-2">
+              <Input
+                type="password"
+                placeholder="AIzaSy..., AIzaSy..., AIzaSy..."
+                value={geminiApiKeys}
+                onChange={(e) => setGeminiApiKeysState(e.target.value)}
+                autoComplete="off"
+              />
+              <Button type="submit" disabled={saveGeminiKeys.isPending || !geminiApiKeys.trim()}>
+                {saveGeminiKeys.isPending ? "…" : "Save Keys"}
+              </Button>
+              {geminiKeyStatus?.configured && geminiKeyStatus.source === "database" && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={clearGeminiKeys.isPending}
+                  onClick={() => {
+                    if (!window.confirm("Remove the saved Gemini keys? PDF extraction will stop until new keys are saved.")) return;
+                    clearGeminiKeys.mutate();
+                  }}
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                >{clearGeminiKeys.isPending ? "…" : "Clear"}</Button>
+              )}
+            </div>
+          </form>
+          {geminiKeyStatus?.configured && (
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={revealGeminiKeys.isPending}
+                onClick={() => {
+                  if (!window.confirm("Reveal the current Gemini keys? They will be shown here and copied to your clipboard for 20 seconds.")) return;
+                  revealGeminiKeys.mutate();
+                }}
+              >{revealGeminiKeys.isPending ? "…" : geminiRevealed ? "Re-copy" : "Reveal & copy keys"}</Button>
+              {geminiRevealed && (
+                <code className="font-mono text-xs bg-muted px-2 py-1 rounded break-all max-w-full overflow-hidden text-ellipsis">{geminiRevealed}</code>
+              )}
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground mt-2">
+            Get free keys at aistudio.google.com. Paste as many as you want, separated by commas.
           </p>
         </CardContent>
       </Card>
