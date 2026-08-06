@@ -171,3 +171,145 @@ export const revealDeepseekApiKey = createServerFn({ method: "POST" })
     }
     return { source: "database" as const, value: stored };
   });
+
+// ============================================================================
+// GEMINI API KEYS (Multi-key Support)
+// ============================================================================
+
+const GEMINI_KEYS_SETTING = "gemini_api_keys";
+
+let geminiCached: { value: string[]; fetchedAt: number } | null = null;
+
+export async function getGeminiApiKeys(): Promise<string[]> {
+  if (geminiCached && Date.now() - geminiCached.fetchedAt < CACHE_TTL_MS) return geminiCached.value;
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { data, error } = await supabaseAdmin
+    .from("app_settings")
+    .select("value")
+    .eq("key", GEMINI_KEYS_SETTING)
+    .maybeSingle();
+  if (error) throw new Error(`Could not load Gemini keys: ${error.message}`);
+  
+  const stored = data?.value?.trim();
+  const fallback = process.env.GEMINI_API_KEYS?.trim();
+  const value = stored || fallback;
+  
+  if (!value) {
+    throw new Error("No Gemini API keys are configured. An admin can paste them on the Team page.");
+  }
+  
+  const keys = value.split(",").map(k => k.trim()).filter(Boolean);
+  if (keys.length === 0) {
+    throw new Error("No valid Gemini API keys found.");
+  }
+
+  geminiCached = { value: keys, fetchedAt: Date.now() };
+  return keys;
+}
+
+function invalidateGeminiCache() {
+  geminiCached = null;
+}
+
+export const getGeminiKeyStatus = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await ensureAdmin(context.supabase, context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("app_settings")
+      .select("value, updated_at, updated_by")
+      .eq("key", GEMINI_KEYS_SETTING)
+      .maybeSingle();
+    if (error) throw new Error(`Could not load Gemini key status: ${error.message}`);
+    
+    if (!data) {
+      const envConfigured = Boolean(process.env.GEMINI_API_KEYS?.trim());
+      return {
+        configured: envConfigured,
+        source: envConfigured ? ("env" as const) : ("none" as const),
+        keyCount: envConfigured ? process.env.GEMINI_API_KEYS!.split(",").filter(Boolean).length : 0,
+        updatedAt: null as string | null,
+        updatedByEmail: null as string | null,
+      };
+    }
+    
+    let updatedByEmail: string | null = null;
+    if (data.updated_by) {
+      const { data: p } = await supabaseAdmin.from("profiles").select("email").eq("id", data.updated_by).maybeSingle();
+      updatedByEmail = p?.email ?? null;
+    }
+    
+    const keyCount = data.value.split(",").map((k: string) => k.trim()).filter(Boolean).length;
+    
+    return {
+      configured: true,
+      source: "database" as const,
+      keyCount,
+      updatedAt: data.updated_at as string,
+      updatedByEmail,
+    };
+  });
+
+export const setGeminiApiKeys = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: { apiKeys: string }) => {
+    const keysRaw = String(data?.apiKeys ?? "").trim();
+    if (!keysRaw) throw new Error("API keys are required");
+    // Validate comma separated list
+    const keys = keysRaw.split(",").map(k => k.trim()).filter(Boolean);
+    if (keys.length === 0) throw new Error("No valid keys provided");
+    for (const key of keys) {
+      if (key.length < 20) throw new Error(`Key starting with ${key.substring(0, 4)}... looks invalid`);
+    }
+    return { keysString: keys.join(",") };
+  })
+  .handler(async ({ data, context }) => {
+    await ensureAdmin(context.supabase, context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin
+      .from("app_settings")
+      .upsert(
+        {
+          key: GEMINI_KEYS_SETTING,
+          value: data.keysString,
+          updated_by: context.userId,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "key" },
+      );
+    if (error) throw new Error(`Could not save Gemini keys: ${error.message}`);
+    invalidateGeminiCache();
+    return { ok: true, count: data.keysString.split(",").length };
+  });
+
+export const clearGeminiApiKeys = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await ensureAdmin(context.supabase, context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.from("app_settings").delete().eq("key", GEMINI_KEYS_SETTING);
+    if (error) throw new Error(`Could not clear keys: ${error.message}`);
+    invalidateGeminiCache();
+    return { ok: true };
+  });
+
+export const revealGeminiApiKeys = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }) => {
+    await ensureAdmin(context.supabase, context.userId);
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { data, error } = await supabaseAdmin
+      .from("app_settings")
+      .select("value")
+      .eq("key", GEMINI_KEYS_SETTING)
+      .maybeSingle();
+    if (error) throw new Error(`Could not read Gemini keys: ${error.message}`);
+    const stored = data?.value?.trim();
+    if (!stored) {
+      const envKey = process.env.GEMINI_API_KEYS?.trim();
+      if (envKey) return { source: "env" as const, value: envKey };
+      throw new Error("No Gemini keys are configured");
+    }
+    return { source: "database" as const, value: stored };
+  });
