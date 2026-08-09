@@ -139,17 +139,7 @@ function Dashboard() {
       setPdfProgress({ done: 0, total: totalPages });
 
       const activePrompt = prompts.find(p => p.id === selectedPromptId)?.text;
-      const hasCustomPrompt = selectedPromptId !== "default" && !!activePrompt;
-
-      const strictPrompt = hasCustomPrompt ? activePrompt + `
-          
-CRITICAL FORMATTING INSTRUCTION: 
-You MUST number every single generated question sequentially using the exact prefix 'Q1.', 'Q2.', 'Q3.', etc. (e.g. Q1. What is...). Do NOT use any other numbering format like '1.' or just 'Q.'. You must include the 'Q' followed by the number and a dot. Do NOT use markdown bold/italics for the question numbering (e.g. do NOT write **Q1.**, just write plain Q1.). This is strictly required for our parser to detect the questions.
-
-CRITICAL ACCURACY INSTRUCTION:
-1. You MUST extract the options (A, B, C, D) exactly as they appear in the source text. DO NOT alter, swap, or rephrase them.
-2. You MUST provide the 100% correct Answer. Look for the answer key in the text and match it perfectly. Do NOT hallucinate or guess the answer.
-3. If you are generating new questions based on the text, the facts, options, and answers MUST be 100% logically sound and strictly derived from the provided context.` : undefined;
+      const isTwoPhase = selectedPromptId !== "default" && !!activePrompt;
 
       const images: { pageNum: number, url: string }[] = [];
       for (let i = 1; i <= totalPages; i++) {
@@ -176,7 +166,7 @@ CRITICAL ACCURACY INSTRUCTION:
           const { pageNum, url } = images[currentIndex]!;
           
           const responseText = await extractTextFromImage({ 
-            data: { data: url, customPrompt: strictPrompt }
+            data: { data: url, customPrompt: undefined }
           });
           
           const text = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
@@ -189,10 +179,36 @@ CRITICAL ACCURACY INSTRUCTION:
       const workers = Array.from({ length: Math.min(MAX_CONCURRENCY, images.length) }, () => worker());
       await Promise.all(workers);
 
-      const finalOutput = phase1Pages
-        .sort((a, b) => a.pageNumber - b.pageNumber)
-        .map(p => p.text)
-        .join("\n\n---\n\n");
+      let finalOutput = "";
+
+      if (isTwoPhase) {
+        setPdfStatus("working_phase2");
+        const fullContext = phase1Pages
+          .sort((a, b) => a.pageNumber - b.pageNumber)
+          .map(p => `--- PAGE ${p.pageNumber} ---\n${p.text}`)
+          .join("\n\n");
+          
+        const strictPrompt = activePrompt + `
+          
+CRITICAL FORMATTING INSTRUCTION: 
+You MUST number every single generated question sequentially using the exact prefix 'Q1.', 'Q2.', 'Q3.', etc. (e.g. Q1. What is...). Do NOT use any other numbering format like '1.' or just 'Q.'. You must include the 'Q' followed by the number and a dot. Do NOT use markdown bold/italics for the question numbering (e.g. do NOT write **Q1.**, just write plain Q1.). This is strictly required for our parser to detect the questions.
+
+CRITICAL ACCURACY INSTRUCTION:
+1. You MUST extract the options (A, B, C, D) exactly as they appear in the source text. DO NOT alter, swap, or rephrase them.
+2. You MUST provide the 100% correct Answer. Look for the answer key in the text and match it perfectly. Do NOT hallucinate or guess the answer.
+3. If you are generating new questions based on the text, the facts, options, and answers MUST be 100% logically sound and strictly derived from the provided context.`;
+        
+        const responseText = await generateFromContext({
+          data: { contextText: fullContext, customPrompt: strictPrompt }
+        });
+        
+        finalOutput = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
+      } else {
+        finalOutput = phase1Pages
+          .sort((a, b) => a.pageNumber - b.pageNumber)
+          .map(p => p.text)
+          .join("\n\n---\n\n");
+      }
 
       setRawText(finalOutput);
       const finalTitle = title || file.name.replace(/\.[^/.]+$/, "");
