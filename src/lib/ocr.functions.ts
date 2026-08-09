@@ -52,7 +52,7 @@ Do not translate it, do not summarize it. Return only the raw extracted text.`;
     ];
 
     let lastError = null;
-    const MAX_RETRIES = 3;
+    const MAX_RETRIES = 12;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       const activeKeys = getAvailableKeys(allKeys);
@@ -95,8 +95,8 @@ Do not translate it, do not summarize it. Return only the raw extracted text.`;
       
       // If we exhausted all keys, wait a bit before trying the whole list again (if not the last attempt)
       if (attempt < MAX_RETRIES) {
-        console.warn(`All keys exhausted or rate-limited on attempt ${attempt}. Waiting 5s before retrying...`);
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        console.warn(`All keys exhausted or rate-limited on attempt ${attempt}. Waiting 10s before retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 10000));
       }
     }
 
@@ -117,7 +117,7 @@ export const generateFromContext = createServerFn({ method: "POST" })
     const prompt = `${payload.customPrompt}\n\nIMPORTANT: Return ONLY the requested content based on the instructions above. Do not include any conversational filler, markdown code blocks, or greetings. Output exactly what is requested.\n\n--- DOCUMENT CONTEXT START ---\n${payload.contextText}\n--- DOCUMENT CONTEXT END ---`;
 
     let lastError = null;
-    const MAX_RETRIES = 3;
+    const MAX_RETRIES = 12;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       const activeKeys = getAvailableKeys(allKeys);
@@ -156,8 +156,8 @@ export const generateFromContext = createServerFn({ method: "POST" })
       }
 
       if (attempt < MAX_RETRIES) {
-        console.warn(`All keys exhausted on attempt ${attempt}. Waiting 5s before retrying...`);
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        console.warn(`All keys exhausted on attempt ${attempt}. Waiting 10s before retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 10000));
       }
     }
 
