@@ -138,7 +138,7 @@ function Dashboard() {
       const totalPages = pdf.numPages;
       setPdfProgress({ done: 0, total: totalPages });
 
-      const activePrompt = prompts.find(p => p.id === selectedPromptId)?.text;
+      const activePrompt = prompts.find((p: any) => p.id === selectedPromptId)?.text;
       const isTwoPhase = selectedPromptId !== "default" && !!activePrompt;
 
       const images: { pageNum: number, url: string }[] = [];
@@ -372,7 +372,7 @@ CRITICAL ACCURACY INSTRUCTION:
                 >
                   Default (No extra prompt)
                 </Button>
-                {prompts.map(p => (
+                {prompts.map((p: any) => (
                   <div key={p.id} className="relative group flex items-center">
                     <Button 
                       type="button" 
@@ -494,7 +494,7 @@ CRITICAL ACCURACY INSTRUCTION:
             <Button
               size="lg"
               disabled={!rawText.trim() || create.isPending || overLimit}
-              onClick={() => create.mutate()}
+              onClick={() => create.mutate({})}
             >
               {create.isPending ? "Starting…" : "Process batch"}
             </Button>
