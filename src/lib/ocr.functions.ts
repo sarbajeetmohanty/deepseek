@@ -95,8 +95,8 @@ Do not translate it, do not summarize it. Return only the raw extracted text.`;
       
       // If we exhausted all keys, wait a bit before trying the whole list again (if not the last attempt)
       if (attempt < MAX_RETRIES) {
-        console.warn(`All keys exhausted or rate-limited on attempt ${attempt}. Waiting 2s before retrying...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        console.warn(`All keys exhausted or rate-limited on attempt ${attempt}. Waiting 5s before retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
       }
     }
 
@@ -156,8 +156,8 @@ export const generateFromContext = createServerFn({ method: "POST" })
       }
 
       if (attempt < MAX_RETRIES) {
-        console.warn(`All keys exhausted on attempt ${attempt}. Waiting 2s before retrying...`);
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        console.warn(`All keys exhausted on attempt ${attempt}. Waiting 5s before retrying...`);
+        await new Promise(resolve => setTimeout(resolve, 5000));
       }
     }
 
