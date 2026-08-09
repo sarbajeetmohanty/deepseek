@@ -156,7 +156,7 @@ function Dashboard() {
         page.cleanup();
       }
 
-      const MAX_CONCURRENCY = 15; 
+      const MAX_CONCURRENCY = 12; 
       let queueIndex = 0;
       let phase1Pages: { pageNumber: number, text: string }[] = [];
 
