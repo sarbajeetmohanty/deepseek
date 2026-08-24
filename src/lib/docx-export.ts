@@ -14,7 +14,13 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
   // Normalize: strip blank lines from source, we control spacing via paragraph spacing.
   let cleanText = text.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
   cleanText = cleanText.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
-  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h1-8]\.|\([a-h1-8]\))[^\S\r\n])/g, "\n");
+  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
+  cleanText = cleanText.replace(/^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
+  cleanText = cleanText.replace(/(?<![A-Za-z0-9])([A-Ha-h]\.)(?=\S)/g, "$1 ");
+  cleanText = cleanText.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
+  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
+  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h][.)]|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
+  cleanText = cleanText.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
 
   // Fix interleaved match-the-column items (a., 1., b., 2.) that missed Column headers
   let cleanLines = cleanText.split("\n");
@@ -142,21 +148,45 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       continue;
     }
 
-    // Option line: "A. ..."
-    const optMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))(?:\s+(.*))?$/) : null;
-    if (optMatch) {
+    // Code header: "कूट :", "Code:", "उत्तर कूट:"
+    if (/^\s*(?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(line)) {
       inSolution = false;
+      paragraphs.push(
+        new Paragraph({
+          spacing: { before: 120, after: 60, line: 300 },
+          children: [run(line, true)],
+        }),
+      );
+      continue;
+    }
+
+    // Check if line is a sub-statement (1), (2), (3), (4) or (i), (ii), etc.
+    const statementMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\))\s*(.*)$/i) : null;
+
+    // Check if line is an option A., B., C., D. or (a), (b), (c), (d) or A) Option
+    const letterOptMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s*(.*)$/) : null;
+
+    // Check if line is a numeric option 1., 2., 3., 4. (when no letters exist and not a statement)
+    const numOptMatch = (!seenAnswer && !seenSolution && !statementMatch) ? line.match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/) : null;
+
+    if (letterOptMatch || numOptMatch) {
+      inSolution = false;
+      const isLetter = !!letterOptMatch;
       const options: { label: string; text: string }[] = [];
       let j = i;
       while (j < lines.length) {
-        const m = (!seenAnswer && !seenSolution) ? lines[j].match(/^\s*((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))(?:\s+(.*))?$/) : null;
+        const currLine = lines[j];
+        const m = isLetter
+          ? currLine.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s*(.*)$/)
+          : currLine.match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
         if (m) {
           const label = m[1];
           let text = m[2] ? m[2].trim() : "";
           j++;
           while (
             j < lines.length &&
-            !/^\s*((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))(?:\s+|$)/.test(lines[j]) &&
+            !/^\s*(?:(?:[A-Ha-h]\.)|(?:\([a-hA-H1-8]\))|(?:[A-Ha-h]\))|(?:[1-8]\.))\s+/i.test(lines[j]) &&
+            !/^\s*(?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(lines[j]) &&
             !/^\s*Answer:/i.test(lines[j]) &&
             !/^\s*Solution:/i.test(lines[j])
           ) {
@@ -178,6 +208,18 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         );
       }
       i = j - 1;
+      continue;
+    }
+
+    if (statementMatch) {
+      inSolution = false;
+      paragraphs.push(
+        new Paragraph({
+          spacing: { before: 40, after: 40, line: 300 },
+          indent: { left: 360 },
+          children: [run(`${statementMatch[1]} `, true), run(statementMatch[2])],
+        }),
+      );
       continue;
     }
 
@@ -210,8 +252,8 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       continue;
     }
 
-    // Solution step "1. …" inside Solution block
-    const step = inSolution ? line.match(/^\s*(\d{1,2})\.\s+(.*)$/) : null;
+    // Solution step "1. …" or "1 …" inside Solution block
+    const step = inSolution ? line.match(/^\s*(\d{1,2})[.)]?\s+(.*)$/) : null;
     if (step) {
       if (isMath) {
         paragraphs.push(
@@ -230,7 +272,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         new Paragraph({
           spacing: { before: 40, after: 40, line: 300 },
           indent: { left: 540, hanging: 220 },
-          children: [run(`${step[1]}. `, true), run(step[2])],
+          children: [run(`${step[1]} `, true), run(step[2])],
         }),
       );
       continue;
@@ -238,6 +280,19 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
 
     // Dash-bulleted solution step "- ..." (math). Red dash marker.
     const dashStep = inSolution ? line.match(/^\s*-\s+(.*)$/) : null;
+    if (dashStep) {
+      paragraphs.push(
+        new Paragraph({
+          spacing: { before: 40, after: 40, line: 300 },
+          indent: { left: 540, hanging: 220 },
+          children: [
+            new TextRun({ text: "-  ", bold: true, font: FONT, color: "C00000" }),
+            run(dashStep[1]),
+          ],
+        }),
+      );
+      continue;
+    }
     if (dashStep) {
       paragraphs.push(
         new Paragraph({

@@ -194,15 +194,24 @@ CRITICAL FORMATTING INSTRUCTION:
 You MUST number every single generated question sequentially using the exact prefix 'Q1.', 'Q2.', 'Q3.', etc. (e.g. Q1. What is...). Do NOT use any other numbering format like '1.' or just 'Q.'. You must include the 'Q' followed by the number and a dot. Do NOT use markdown bold/italics for the question numbering (e.g. do NOT write **Q1.**, just write plain Q1.). This is strictly required for our parser to detect the questions.
 
 CRITICAL ACCURACY INSTRUCTION:
-1. You MUST extract the options (A, B, C, D) exactly as they appear in the source text. DO NOT alter, swap, or rephrase them.
-2. You MUST provide the 100% correct Answer. Look for the answer key in the text and match it perfectly. Do NOT hallucinate or guess the answer.
-3. If you are generating new questions based on the text, the facts, options, and answers MUST be 100% logically sound and strictly derived from the provided context.`;
+1. You MUST extract the options (A, B, C, D) exactly as they appear in the source text. DO NOT alter, swap, or rephrase them. Each option must be on its own separate line (A., B., C., D.).
+2. For questions with statements (1), (2), (3), (4) or match columns, place each statement on its own line and place 'कूट :' or 'Code:' on its own line before the 4 options.
+3. You MUST provide the 100% correct Answer. Look for the answer key in the text and match it perfectly. Do NOT hallucinate or guess the answer.
+4. If you are generating new questions based on the text, the facts, options, and answers MUST be 100% logically sound and strictly derived from the provided context.`;
         
-        const responseText = await generateFromContext({
-          data: { contextText: fullContext, customPrompt: strictPrompt }
-        });
-        
-        finalOutput = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
+        try {
+          const responseText = await generateFromContext({
+            data: { contextText: fullContext, customPrompt: strictPrompt }
+          });
+          finalOutput = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
+        } catch (phase2Err) {
+          console.warn("Phase 2 prompt formatting failed, falling back to raw OCR text:", phase2Err);
+          toast.warning("Custom prompt formatting encountered a filter; loaded raw OCR text instead.");
+          finalOutput = phase1Pages
+            .sort((a, b) => a.pageNumber - b.pageNumber)
+            .map(p => p.text)
+            .join("\n\n---\n\n");
+        }
       } else {
         finalOutput = phase1Pages
           .sort((a, b) => a.pageNumber - b.pageNumber)

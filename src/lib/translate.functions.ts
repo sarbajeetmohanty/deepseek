@@ -33,6 +33,16 @@ function normalizeTranslated(text: string, idx: number): string {
   s = s.replace(/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*([ABI12]|II)\s*[:.-]?\s*$/gim, (m, p1) => {
     return `Column ${/A|I|1/i.test(p1) ? 'A' : 'B'}:`;
   });
+  
+  // Fix "Code:" / "कूट :" glued to previous text or to options
+  s = s.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
+  s = s.replace(/^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
+  s = s.replace(/(?<![A-Za-z0-9])([A-Ha-h]\.)(?=\S)/g, "$1 ");
+  s = s.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
+  s = s.replace(/(?<=\S)[^\S\r\n]+(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
+  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h][.)]|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
+  s = s.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
+
   // Normalize step labels emitted by translation ("Step 1:" etc.) back to "1. "
   s = s.replace(/(?:^|\n)\s*(?:Step|Chran|Pad)\s*(\d+)\s*[:.\-)]\s*/gi, "\n$1. ");
   // Break inline numbered steps onto their own line ("... .  2. ..." -> newline)

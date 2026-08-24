@@ -322,10 +322,16 @@ function formatQuestionError(error: string): string {
 const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { text: string; subjectType?: "gk_english" | "math" }) {
   const isMath = subjectType === "math";
   
-  // Pre-process to unglue headers that might be stuck on the same line as the previous option
+  // Pre-process to unglue headers that might be stuck on the same line as the previous option or statements
   let cleanText = text.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
   cleanText = cleanText.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
-  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h1-8]\.|\([a-h1-8]\))[^\S\r\n])/g, "\n");
+  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
+  cleanText = cleanText.replace(/^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
+  cleanText = cleanText.replace(/(?<![A-Za-z0-9])([A-Ha-h]\.)(?=\S)/g, "$1 ");
+  cleanText = cleanText.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
+  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
+  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h][.)]|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
+  cleanText = cleanText.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
   
   // Fix interleaved match-the-column items (a., 1., b., 2.) that missed Column headers
   let cleanLines = cleanText.split("\n");
@@ -432,20 +438,45 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       i = j - 1;
       continue;
     }
-    const optMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))(?:\s+(.*))?$/) : null;
-    if (optMatch) {
+
+    // Code header: "कूट :", "Code:", "उत्तर कूट:"
+    if (/^\s*(?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(line)) {
       inSolution = false;
+      blocks.push(
+        <p key={i} className="text-[15px] leading-7 font-semibold mt-2 mb-1">
+          {line}
+        </p>
+      );
+      continue;
+    }
+
+    // Check if line is a sub-statement (1), (2), (3), (4) or (i), (ii), etc.
+    const statementMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\))\s*(.*)$/i) : null;
+
+    // Check if line is an option A., B., C., D. or (a), (b), (c), (d) or A) Option
+    const letterOptMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s*(.*)$/) : null;
+
+    // Check if line is a numeric option 1., 2., 3., 4. (when no letters exist and not a statement)
+    const numOptMatch = (!seenAnswer && !seenSolution && !statementMatch) ? line.match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/) : null;
+
+    if (letterOptMatch || numOptMatch) {
+      inSolution = false;
+      const isLetter = !!letterOptMatch;
       const options: { label: string; text: string }[] = [];
       let j = i;
       while (j < lines.length) {
-        const m = (!seenAnswer && !seenSolution) ? lines[j].match(/^\s*((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))(?:\s+(.*))?$/) : null;
+        const currLine = lines[j];
+        const m = isLetter
+          ? currLine.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s*(.*)$/)
+          : currLine.match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
         if (m) {
           const label = m[1];
           let text = m[2] ? m[2].trim() : "";
           j++;
           while (
             j < lines.length &&
-            !/^\s*((?:[A-Ha-h1-8]\.)|(?:\([a-h1-8]\)))(?:\s+|$)/.test(lines[j]) &&
+            !/^\s*(?:(?:[A-Ha-h]\.)|(?:\([a-hA-H1-8]\))|(?:[A-Ha-h]\))|(?:[1-8]\.))\s+/i.test(lines[j]) &&
+            !/^\s*(?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(lines[j]) &&
             !/^\s*Answer:/i.test(lines[j]) &&
             !/^\s*Solution:/i.test(lines[j])
           ) {
@@ -470,6 +501,17 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       i = j - 1;
       continue;
     }
+
+    if (statementMatch) {
+      inSolution = false;
+      blocks.push(
+        <p key={i} className="text-[15px] leading-7 pl-4 my-1">
+          <span className="font-semibold">{statementMatch[1]} </span>{statementMatch[2]}
+        </p>
+      );
+      continue;
+    }
+
     if (/^\s*Answer:/i.test(line)) {
       inSolution = false;
       seenAnswer = true;
@@ -491,7 +533,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       );
       continue;
     }
-    const step = inSolution ? line.match(/^\s*(\d{1,2})\.\s+(.*)$/) : null;
+    const step = inSolution ? line.match(/^\s*(\d{1,2})[.)]?\s+(.*)$/) : null;
     if (step) {
       if (isMath) {
         // Retroactively render math numbered steps as red-dash bullets.
@@ -505,7 +547,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       }
       blocks.push(
         <p key={i} className="text-[15px] leading-7 pl-6 my-1">
-          <span className="font-semibold">{step[1]}.</span> {step[2]}
+          <span className="font-semibold">{step[1]}</span> {step[2]}
         </p>,
       );
       continue;

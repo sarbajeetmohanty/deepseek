@@ -14,6 +14,13 @@ const PROMPT_GK = `You are an expert teacher writing SSC / competitive-exam MCQ 
 Output EXACTLY this format — no markdown, no extra blank lines, no greetings:
 
 <question number>. <full question text in clean Unicode — no LaTeX, no $, no backslashes. Use ², ³ Unicode superscripts for powers. Greek letters directly: θ, α, φ, π. Fractions as (a)/(b). √x for square roots.>
+If the question contains numbered/lettered statements (e.g., (1), (2), (3), (4) or (i), (ii), (iii), (iv)), write each statement on its own line:
+(1) <statement 1>
+(2) <statement 2>
+(3) <statement 3>
+(4) <statement 4>
+If the question includes a code / selection header (e.g., 'कूट :', 'Code:'), place it on its own line:
+कूट :
 For Match-the-Column questions, immediately after the question write two columns on separate lines like this —
 Column A:
 1. <item>
@@ -26,6 +33,7 @@ b. <item>
 c. <item>
 d. <item>
 Do NOT change the original matching order. Then give the 4 options EXACTLY preserving their original labels (e.g., (a), b., 1), A., etc.).
+ALWAYS write each of the 4 options on its own separate line with a space after the label:
 <option label 1> <option 1>
 <option label 2> <option 2>
 <option label 3> <option 3>
@@ -45,7 +53,7 @@ Solution:
 Strict rules:
 1. Facts must be 100% accurate. Solve the question yourself, then match against the options.
 2. If the input contains LaTeX (\\cot, \\theta, ^2, \\frac …), convert it to clean Unicode. No \\ or { } in output.
-3. Preserve the original option labels exactly as they were in the input (e.g., (a), b., 1), A., etc.). Each option on its own line.
+3. Preserve the original option labels exactly as they were in the input (e.g., (a), b., 1), A., etc.). Each option MUST be on its own line below the question/statements/code. NEVER merge options onto the same line.
 4. Question number then ". " then question text. No extra numbering.
 5. Do NOT include exam tags (SSC CGL … etc.) in the output.
 6. "Answer" and "Solution" labels are always English; everything else follows the LANGUAGE RULE.
@@ -102,24 +110,50 @@ function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" 
   s = s.replace(/\r\n?/g, "\n");
   // Re-insert breaks before canonical anchors (Answer:, Solution:) in case they got 
   // glued to previous text or have messy leading whitespace.
-  s = s.replace(/\s+(?=Answer:)/gi, "\n\n");
-  s = s.replace(/\s+(?=Solution:)/gi, "\n");
+  s = s.replace(/(?<=\S)[^\S\r\n]*(?=Answer:)/gi, "\n\n");
+  s = s.replace(/(?<=\S)[^\S\r\n]*(?=Solution:)/gi, "\n\n");
+  s = s.replace(/^(Answer:.*)$/gim, "\n$1");
+  s = s.replace(/^(Solution:.*)$/gim, "\n$1");
   
   // Fix column headers glued to the end of a line or to their first item
   s = s.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
   s = s.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
   
-  // Also split options (A-H) if they were output on the same line horizontally.
-  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-h1-8]\))[^\S\r\n])/g, "\n");
+  // Fix "कूट :" / "Code:" glued to previous text or to options
+  s = s.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
+  s = s.replace(/^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
+
+  // Add missing space after option label if stuck directly to content (e.g. "A.2, 3" -> "A. 2, 3", "(a)Delhi" -> "(a) Delhi")
+  s = s.replace(/(?<![A-Za-z0-9])([A-Ha-h]\.)(?=\S)/g, "$1 ");
+  s = s.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
+
+  // Also split sub-statements like (1), (2), (3), (4) or (i), (ii), (iii), (iv) if on same line
+  s = s.replace(/(?<=\S)[^\S\r\n]+(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
+
+  // Split options (A-H, (a)-(h), etc.) if they were output on the same line horizontally.
+  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h][.)]|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
+  
   // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9" or "(1)\nValue" -> "(1) Value")
   s = s.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
-  // Normalize "Step 1:" / "चरण 1:" -> "1 " on its own line inside the Solution.
+  
+  // Normalize "Step 1:" / "चरण 1:" inside Solution to new line
+  s = s.replace(/(?<=\S)[^\S\r\n]+(?=(?:Step|चरण|पद)\s*\d+\s*[:.\-)])/gi, "\n");
   s = s.replace(/(?:^|\n)\s*(?:Step|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/g, "\n$1 ");
-  // Remove dots from all numbered list items at the start of any line (e.g. " 1. " -> " 1 ")
-  s = s.replace(/^([ \t]*\d+)\.\s+/gm, "$1 ");
+
+  // Split inline numbered solution steps e.g. "Solution: 1 Point A 2 Point B" and clean step dots in Solution
+  const solMatch = s.match(/(Solution:[\s\S]*)/i);
+  if (solMatch) {
+    let solText = solMatch[1];
+    solText = solText.replace(/^(Solution:\s*)(?=[1-9]\s+|-\s+)/i, "Solution:\n");
+    solText = solText.replace(/(?<=\S)[^\S\r\n]+(?=(?:[1-9]|10)\s+)/g, "\n");
+    solText = solText.replace(/^([ \t]*\d+)\.\s+/gm, "$1 ");
+    s = s.slice(0, solMatch.index) + solText;
+  }
+
   // Force the main question number to the caller-supplied idx with a dot,
   // matching the first occurrence of a number at the top of the string.
   s = s.replace(/^\s*(?:#+\s*)?(?:(?:[Qq](?:uestion)?|प्रश्न|प्र\.?)[ \t]*[.-]?[ \t]*)?\d{1,4}[.:\-)\]\s]+\s*/i, `${idx}. `);
+
   // For math, convert numbered solution steps into dash bullets so they
   // render as red "- " markers instead of "1. 2. 3.".
   if (subjectType === "math") {
