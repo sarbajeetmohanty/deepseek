@@ -40,3 +40,14 @@ dist_zip/
 # Secrets
 .env
 supabase-env.txt
+
+# Scratch and test files
+scratch/
+diff*.txt
+part_1_code.zip
+test_*.js
+test-*.js
+test-*.ts
+test-text.txt
+set_keys.js
+scratch-test.js

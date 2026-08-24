@@ -135,11 +135,24 @@ export async function processBatchInternal(batchId: string): Promise<void> {
         if (!q) return;
 
         try {
-          const key = q.raw_text.trim();
+          const key = q.raw_text.trim().replace(/\s+/g, " ");
           let job = dedupe.get(key);
           const wasNew = !job;
           if (!job) {
-            job = formatQuestionWithDeepSeek({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength });
+            job = (async () => {
+              try {
+                return await formatQuestionWithDeepSeek({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength });
+              } catch (dsErr) {
+                // If DeepSeek runs out of balance, rate limits, or fails, attempt Gemini solver pool
+                console.warn(`DeepSeek error for question ${q.idx}, attempting Gemini fallback solver...`, dsErr);
+                try {
+                  const { formatQuestionWithGemini } = await import("./gemini.server");
+                  return await formatQuestionWithGemini({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength });
+                } catch (gemErr) {
+                  throw dsErr; // re-throw original DeepSeek error if fallback also fails
+                }
+              }
+            })();
             dedupe.set(key, job);
           }
           let output = await job;

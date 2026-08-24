@@ -1,95 +1,64 @@
 // Server-only DeepSeek client used to format a single MCQ.
 import { latexToText } from "./latex-to-text";
 
-// LANGUAGE RULE: the AI must write the question and options in the original language,
-// but the solution must ALWAYS be in Hindi. Only the labels "Answer:" and "Solution:" 
-// are always English.
-const LANG_RULE = `\n\nLANGUAGE RULE (STRICT):
-- The question text and options MUST remain exactly in their original language (do NOT translate them).
-- The solution steps and explanation MUST always be written in pure Hindi. Keep digits (0-9) and mathematical symbols (+, -, =) exactly as they are.
-- ONLY the labels "Answer:" and "Solution:" must always be in English.`;
+// LANGUAGE RULE: Original language for question/options; Hindi for solution; English for labels.
+export const LANG_RULE = `\nLANGUAGE RULE (STRICT):
+- Question text and options MUST remain in their original language.
+- Solution steps MUST always be in pure Hindi (preserve digits 0-9, math symbols).
+- "Answer:" and "Solution:" labels MUST be English.`;
 
-const PROMPT_GK = `You are an expert teacher writing SSC / competitive-exam MCQ solutions.
+export const PROMPT_GK = `Expert competitive-exam MCQ solver. Output clean plain text ONLY (no markdown, no blank lines, no greetings):
 
-Output EXACTLY this format — no markdown, no extra blank lines, no greetings:
-
-<question number>. <full question text in clean Unicode — no LaTeX, no $, no backslashes. Use ², ³ Unicode superscripts for powers. Greek letters directly: θ, α, φ, π. Fractions as (a)/(b). √x for square roots.>
-If the question contains numbered/lettered statements (e.g., (1), (2), (3), (4) or (i), (ii), (iii), (iv)), write each statement on its own line:
-(1) <statement 1>
-(2) <statement 2>
-(3) <statement 3>
-(4) <statement 4>
-If the question includes a code / selection header (e.g., 'कूट :', 'Code:'), place it on its own line:
-कूट :
-For Match-the-Column questions, immediately after the question write two columns on separate lines like this —
-Column A:
-1. <item>
-2. <item>
-3. <item>
-4. <item>
-Column B:
-a. <item>
-b. <item>
-c. <item>
-d. <item>
-Do NOT change the original matching order. Then give the 4 options EXACTLY preserving their original labels (e.g., (a), b., 1), A., etc.).
-ALWAYS write each of the 4 options on its own separate line with a space after the label:
-<option label 1> <option 1>
-<option label 2> <option 2>
-<option label 3> <option 3>
-<option label 4> <option 4>
+<number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
+[If statements: (1) ... (2) ... on separate lines]
+[If code header: 'कूट :' or 'Code:' on separate line]
+[If Match Column: Column A: 1. ... 2. ... Column B: a. ... b. ...]
+<option 1>
+<option 2>
+<option 3>
+<option 4>
 
 Answer: <matching option label>
 Solution:
-1 <point 1>
-2 <point 2>
-3 <point 3>
-4 <point 4>
-5 <point 5>
-6 <point 6>
-7 <point 7>
-8 <point 8>
+1 <fact/point 1>
+2 <fact/point 2>
+3 <fact/point 3>
+4 <fact/point 4>
+5 <fact/point 5>
+6 <fact/point 6>
+7 <fact/point 7>
+8 <fact/point 8>
 
-Strict rules:
-1. Facts must be 100% accurate. Solve the question yourself, then match against the options.
-2. If the input contains LaTeX (\\cot, \\theta, ^2, \\frac …), convert it to clean Unicode. No \\ or { } in output.
-3. Preserve the original option labels exactly as they were in the input (e.g., (a), b., 1), A., etc.). Each option MUST be on its own line below the question/statements/code. NEVER merge options onto the same line.
-4. Question number then ". " then question text. No extra numbering.
-5. Do NOT include exam tags (SSC CGL … etc.) in the output.
-6. "Answer" and "Solution" labels are always English; everything else follows the LANGUAGE RULE.
-7. Keep formulas compact so MS Word copy-paste does not break.
-8. Output ONLY the format above — no greeting, no explanation before or after.
-9. Every solution step on its own line as "1 ", "2 ", "3 " — never a paragraph. The solution MUST contain exactly 8 to 10 detailed points covering the complete background and relevant facts.`;
+Rules:
+1. 100% accurate facts. Solve and match options.
+2. Clean Unicode formulas (², ³, √x, θ, α, π).
+3. Preserve original option labels on separate lines.
+4. Solution MUST be exactly 8 to 10 points in pure Hindi, numbered "1 ", "2 " (never paragraph).
+5. Output ONLY the required format above.`;
 
-const PROMPT_MATH = `You are a math teacher. Write the MCQ in MS-Word-friendly format so copy-paste never breaks numbering or spacing.
+export const PROMPT_MATH = `Expert Math MCQ solver. Output clean plain text ONLY (no markdown, no greetings):
 
-Output EXACTLY this format — no markdown, no brackets around option letters, no extra blank lines:
-
-<question number>. <full question text — no LaTeX, no backslash, no $. Use Unicode superscript ² ³ for powers. Remove decorative () brackets. Clean Unicode for square / root.>
-<option label 1> <option 1>
-<option label 2> <option 2>
-<option label 3> <option 3>
-<option label 4> <option 4>
+<number>. <Question in clean Unicode - no LaTeX/$, superscripts ², ³, fractions (a)/(b), √x>
+<option 1>
+<option 2>
+<option 3>
+<option 4>
 
 Answer: <matching option label>
 Solution:
-- <step 1 — what is given / what to find>
-- <step 2 — write the formula>
-- <step 3 — substitute values>
-- <final step — final answer>
+- <step 1 - given / formula>
+- <step 2 - calculation>
+- <final step - final answer>
 
-Strict rules:
-1. Math must be 100% accurate. Solve first, then match to options.
-2. Every solution step starts with "- " (dash + space). NEVER use "1.", "2.", "Step 1", etc. Each step on its own line.
-3. Preserve the original option labels exactly as they were in the input (e.g., (a), b., 1), A., etc.). Each option on its own line.
-4. Solution ALWAYS as dash-bulleted steps (never a paragraph). Maximum 10 steps total. Each point must be very concise (normally 1 line, absolute maximum 3 lines). Each step on a new line starting with "- ".
-5. Squares as ², cubes as ³ — never "^2".
-6. "Answer" and "Solution" labels are always English; everything else follows the LANGUAGE RULE.
-7. No decorative "()" brackets in the question; brackets only for real mathematical grouping.
-8. Return the whole output in one shot — no greeting, no explanation.`;
+Rules:
+1. 100% accurate math. Solve first, then match options.
+2. Clean Unicode formulas (², ³, √x).
+3. Preserve original option labels on separate lines.
+4. Solution MUST be dash-bulleted steps starting with "- " in pure Hindi. Maximum 10 steps.
+5. Output ONLY the required format above.`;
 
-const LENGTH_NORMAL = `\n\nSolution length: 2–4 short steps only. Keep it brief.`;
-const LENGTH_LONG = `\n\nSolution length: 5–10 detailed steps maximum. First step recalls the relevant formula, then show every intermediate calculation, last step is the final answer. One step per line, never a paragraph. Each step must be concise (1 line normally, absolute maximum 3 lines).`;
+export const LENGTH_NORMAL = `\nSolution length: 2-4 short steps.`;
+export const LENGTH_LONG = `\nSolution length: 5-10 detailed steps.`;
 
 export interface DeepSeekOptions {
   raw: string;
@@ -101,7 +70,7 @@ export interface DeepSeekOptions {
 
 // Post-process AI output so it matches the strict target format even if the
 // model slips in markdown, wrong numbering, or squashed lines.
-function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" | "math"): string {
+export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" | "math"): string {
   let s = text;
   // Strip markdown bold/italics that the model sometimes emits despite the prompt.
   s = s.replace(/\*\*(.+?)\*\*/g, "$1");
@@ -227,6 +196,12 @@ function parseDeepSeekError(status: number, text: string): DeepSeekProviderError
   });
 }
 
+// DeepSeek API Configuration
+// - Model: deepseek-chat (DeepSeek-V3) is the cheapest and fastest flagship model ($0.14/1M input, $0.014 on cache hit, $0.28/1M output).
+// - DeepSeek Context Caching: By keeping the system prompt static and user prompt structure standardized, prompt tokens achieve a 90% discount on cache hits.
+const DEEPSEEK_MODEL = "deepseek-chat";
+const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
+
 export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType, solutionLength }: DeepSeekOptions): Promise<string> {
   // Prefer the admin-managed key from app_settings; falls back to the env
   // secret. Cached in-memory (60s) so this is not a DB round-trip per call.
@@ -240,30 +215,41 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
     cleaned = raw;
   }
   if (!cleaned.trim()) throw new Error("Empty question text");
+
+  // Keep system prompt static and clean to maximize DeepSeek Context / Prompt Caching hits across batch calls
   const basePrompt = subjectType === "math" ? PROMPT_MATH : PROMPT_GK;
   const lengthRule = subjectType === "math" ? (solutionLength === "long" ? LENGTH_LONG : LENGTH_NORMAL) : "";
   const systemPrompt = basePrompt + LANG_RULE + lengthRule;
-  const maxTokens = solutionLength === "long" || subjectType === "gk_english" ? 1800 : 1200;
-  const userPrompt = `Format question number ${idx} in the required format. Original question:\n\n${cleaned}\n\nReminder: verify correctness, follow the format exactly, and write the output in the SAME language as the question above.`;
+
+  // Optimized max tokens: solutions are strictly concise points (GK: 8-10 points, Math: 2-10 steps),
+  // preventing runaway token generation and keeping costs at the absolute minimum.
+  const maxTokens = subjectType === "math" 
+    ? (solutionLength === "long" ? 1000 : 600)
+    : 1000;
+
+  // Standardized user prompt structure for optimal prompt prefix caching
+  const userPrompt = `Solve and format the following MCQ:\n\n${cleaned}\n\nReminder: Output strictly in the required format. Question must begin with "${idx}."`;
 
   const attempt = async () => {
     const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 60_000);
+    const timer = setTimeout(() => ctl.abort(), 45_000);
     const onCallerAbort = () => ctl.abort();
     if (signal) {
       if (signal.aborted) ctl.abort();
       else signal.addEventListener("abort", onCallerAbort, { once: true });
     }
     try {
-      const res = await fetch("https://api.deepseek.com/v1/chat/completions", {
+      const res = await fetch(DEEPSEEK_API_URL, {
         method: "POST",
         signal: ctl.signal,
         headers: {
           "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Connection": "keep-alive",
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify({
-          model: "deepseek-chat",
+          model: DEEPSEEK_MODEL,
           temperature: 0,
           top_p: 0.1,
           max_tokens: maxTokens,
@@ -306,9 +292,9 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
       if (isNonRetryableDeepSeekError(e)) throw e;
       if (e instanceof Error && e.name === "AbortError" && signal?.aborted) throw e;
       if (i < MAX_RETRIES - 1) {
-        // Apply a much harsher penalty for 429 Rate Limits
+        // Apply a harsher penalty for 429 Rate Limits with exponential backoff and jitter
         const isRateLimit = e instanceof DeepSeekProviderError && e.status === 429;
-        const baseDelay = isRateLimit ? 5000 : 1000;
+        const baseDelay = isRateLimit ? 4000 : 1000;
         const backoff = Math.pow(2, i) * baseDelay + Math.random() * 500;
         await new Promise((r) => setTimeout(r, backoff));
       }
