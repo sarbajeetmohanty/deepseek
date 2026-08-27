@@ -329,8 +329,8 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
   cleanText = cleanText.replace(/^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
   cleanText = cleanText.replace(/(?<![A-Za-z0-9])([A-Ha-h]\.)(?=\S)/g, "$1 ");
   cleanText = cleanText.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
-  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
-  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h][.)]|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
+  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
+  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=(?:[A-Ha-h][.)]|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
   cleanText = cleanText.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
   
   // Fix interleaved match-the-column items (a., 1., b., 2.) that missed Column headers
@@ -491,8 +491,8 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       blocks.push(
         <div key={i} className="flex flex-col gap-y-3 pl-4 my-4">
           {options.map((o, idx) => (
-            <div key={idx} className="flex items-start text-[15px] leading-7 font-semibold">
-              <span className="shrink-0 w-8">{o.label}</span>
+            <div key={idx} className="flex items-start text-[15px] leading-7">
+              <span className="shrink-0 w-8 font-semibold">{o.label}</span>
               <span>{o.text}</span>
             </div>
           ))}
