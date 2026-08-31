@@ -13,10 +13,10 @@ export const PROMPT_GK = `Expert competitive-exam MCQ solver. Output clean plain
 [If statements: (1) ... (2) ... on separate lines]
 [If code header: 'कूट :' or 'Code:' on separate line]
 [If Match Column: Column A: 1. ... 2. ... Column B: a. ... b. ...]
-A. <option 1>
-B. <option 2>
-C. <option 3>
-D. <option 4>
+A <option 1>
+B <option 2>
+C <option 3>
+D <option 4>
 
 Answer: <matching option label>
 Solution:
@@ -32,17 +32,17 @@ Solution:
 Rules:
 1. 100% accurate facts. Solve and match options.
 2. Clean Unicode formulas (², ³, √x, θ, α, π).
-3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (add them if missing from input).
+3. ALWAYS prefix the options exactly with A, B, C, D (no dot) on separate lines (add them if missing from input).
 4. Solution MUST be exactly 8 to 10 points in pure Hindi, numbered "1 ", "2 " (never paragraph).
 5. Output ONLY the required format above.`;
 
 export const PROMPT_MATH = `Expert Math MCQ solver. Output clean plain text ONLY (no markdown, no greetings):
 
 <number>. <Question in clean Unicode - no LaTeX/$, superscripts ², ³, fractions (a)/(b), √x>
-A. <option 1>
-B. <option 2>
-C. <option 3>
-D. <option 4>
+A <option 1>
+B <option 2>
+C <option 3>
+D <option 4>
 
 Answer: <matching option label>
 Solution:
@@ -53,7 +53,7 @@ Solution:
 Rules:
 1. 100% accurate math. Solve first, then match options.
 2. Clean Unicode formulas (², ³, √x).
-3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (add them if missing from input).
+3. ALWAYS prefix the options exactly with A, B, C, D (no dot) on separate lines (add them if missing from input).
 4. Solution MUST be dash-bulleted steps starting with "- " in pure Hindi. Maximum 10 steps.
 5. Output ONLY the required format above.`;
 
@@ -89,21 +89,21 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   s = s.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
 
   // Fix "कूट :" / "Code:" glued to previous text or to options
-  s = s.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
-  s = s.replace(/^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
+  s = s.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.?|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
+  s = s.replace(/^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.?|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
 
-  // Add missing space after option label if stuck directly to content (e.g. "A.2, 3" -> "A. 2, 3", "(a)Delhi" -> "(a) Delhi")
-  s = s.replace(/(?<![A-Za-z0-9])([A-Ha-h]\.)(?=\S)/g, "$1 ");
+  // Add missing space after option label if stuck directly to content (e.g. "A.2, 3" -> "A. 2, 3", "A2, 3" -> "A 2, 3", "(a)Delhi" -> "(a) Delhi")
+  s = s.replace(/(?<![A-Za-z0-9])([A-Ha-h]\.?)(?=\S)/g, "$1 ");
   s = s.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
 
   // Also split sub-statements like (1), (2), (3), (4) or (i), (ii), (iii), (iv) if on same line
   s = s.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
 
   // Split options (A-H, (a)-(h), etc.) if they were output on the same line horizontally.
-  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=(?:[A-Ha-h][.)]|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
+  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=(?:[A-Ha-h][.)]?|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
 
-  // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9" or "(1)\nValue" -> "(1) Value")
-  s = s.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
+  // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9", "A\n4:9" -> "A 4:9" or "(1)\nValue" -> "(1) Value")
+  s = s.replace(/^((?:[A-Ha-h]\.?)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
 
   // Normalize "Step 1:" / "चरण 1:" inside Solution to new line
   s = s.replace(/(?<=\S)[^\S\r\n]+(?=(?:Step|चरण|पद)\s*\d+\s*[:.\-)])/gi, "\n");
