@@ -109,8 +109,10 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   // Also split sub-statements like (1), (2), (3), (4) or (i), (ii), (iii), (iv) if on same line
   s = s.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
 
-  // Split options (A-H, (a)-(h), etc.) if they were output on the same line horizontally.
-  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h][.)]|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
+  // Split options (A-H) if they were output on the same line horizontally.
+  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=[A-Ha-h][.)](?:\s+|$))/g, "\n");
+  // For bracketed options like (a) or (1), require at least 2 spaces to avoid splitting normal text like "केवल (1) और (2)".
+  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=\([a-hA-H1-8]\)(?:\s+|$))/g, "\n");
 
   // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9" or "(1)\nValue" -> "(1) Value")
   s = s.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
