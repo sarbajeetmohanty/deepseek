@@ -333,8 +333,46 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
   cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=(?:[A-Ha-h][.)]|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
   cleanText = cleanText.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
   
-  // Fix interleaved match-the-column items (a., 1., b., 2.) that missed Column headers
   let cleanLines = cleanText.split("\n");
+
+  // Fix pipe-separated match-the-column items (e.g. "a. Item | 1. Item")
+  for (let i = 0; i < cleanLines.length; i++) {
+    if (cleanLines[i].includes("|")) {
+      const parts = cleanLines[i].split(/\s*\|\s*/);
+      if (parts.length === 2 && /^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*/.test(parts[0])) {
+        let startIndex = i;
+        while (startIndex > 0 && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|I|1)[:.\-]?/i.test(cleanLines[startIndex - 1])) {
+          startIndex--;
+        }
+        let j = i;
+        const newColA = [];
+        const newColB = [];
+        while (
+          j < cleanLines.length &&
+          cleanLines[j].includes("|") &&
+          !/^\s*(?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(cleanLines[j]) &&
+          !/^\s*(?:A\.|B\.|C\.|D\.)\s+/i.test(cleanLines[j]) &&
+          !/^\s*Answer:/i.test(cleanLines[j])
+        ) {
+          const p = cleanLines[j].split(/\s*\|\s*/);
+          if (p.length === 2) {
+            newColA.push(p[0].trim());
+            newColB.push(p[1].trim());
+          } else {
+            break;
+          }
+          j++;
+        }
+        if (newColB.length > 0) {
+          const replacement = ["Column A:", ...newColA, "Column B:", ...newColB];
+          cleanLines.splice(startIndex, j - startIndex, ...replacement);
+          i = startIndex + replacement.length - 1;
+        }
+      }
+    }
+  }
+
+  // Fix interleaved match-the-column items (a., 1., b., 2.) that missed Column headers
   for (let i = 0; i < cleanLines.length - 3; i++) {
     const m1 = cleanLines[i].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
     const m2 = cleanLines[i+1].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);

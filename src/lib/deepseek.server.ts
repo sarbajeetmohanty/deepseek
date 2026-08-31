@@ -12,7 +12,7 @@ export const PROMPT_GK = `Expert competitive-exam MCQ solver. Output clean plain
 <number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
 [If statements: 1 <text> ... 2 <text> ... on separate lines]
 [If code header: 'कूट :' or 'Code:' on separate line]
-[If Match Column: Column A: 1. ... 2. ... Column B: a. ... b. ...]
+[If Match Column: You MUST output two separate lists perfectly: "Column A:" followed by items, and "Column B:" followed by items. NEVER combine them with '|'.]
 A. <option 1>
 B. <option 2>
 C. <option 3>
