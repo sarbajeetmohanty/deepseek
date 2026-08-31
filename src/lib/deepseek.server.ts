@@ -106,6 +106,9 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   // Add missing space after sub-statement number if stuck directly to content (e.g. "1वैगनर" -> "1 वैगनर")
   s = s.replace(/^([1-9]|10)(?=[^\s\d.\)])/gm, "$1 ");
 
+  // Remove dots from sub-statement numbers (e.g., "1. वैगनर" -> "1 वैगनर"), skipping the first line (question number)
+  s = s.replace(/(?<=\n)\s*([1-9]|10)\.\s+/g, "$1 ");
+
   // Also split sub-statements like (1), (2), (3), (4) or (i), (ii), (iii), (iv) if on same line
   s = s.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
 
