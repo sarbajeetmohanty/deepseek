@@ -13,10 +13,10 @@ export const PROMPT_GK = `Expert competitive-exam MCQ solver. Output clean plain
 [If statements: (1) ... (2) ... on separate lines]
 [If code header: 'कूट :' or 'Code:' on separate line]
 [If Match Column: Column A: 1. ... 2. ... Column B: a. ... b. ...]
-<option 1>
-<option 2>
-<option 3>
-<option 4>
+A. <option 1>
+B. <option 2>
+C. <option 3>
+D. <option 4>
 
 Answer: <matching option label>
 Solution:
@@ -32,17 +32,17 @@ Solution:
 Rules:
 1. 100% accurate facts. Solve and match options.
 2. Clean Unicode formulas (², ³, √x, θ, α, π).
-3. Preserve original option labels on separate lines.
+3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (add them if missing from input).
 4. Solution MUST be exactly 8 to 10 points in pure Hindi, numbered "1 ", "2 " (never paragraph).
 5. Output ONLY the required format above.`;
 
 export const PROMPT_MATH = `Expert Math MCQ solver. Output clean plain text ONLY (no markdown, no greetings):
 
 <number>. <Question in clean Unicode - no LaTeX/$, superscripts ², ³, fractions (a)/(b), √x>
-<option 1>
-<option 2>
-<option 3>
-<option 4>
+A. <option 1>
+B. <option 2>
+C. <option 3>
+D. <option 4>
 
 Answer: <matching option label>
 Solution:
@@ -53,7 +53,7 @@ Solution:
 Rules:
 1. 100% accurate math. Solve first, then match options.
 2. Clean Unicode formulas (², ³, √x).
-3. Preserve original option labels on separate lines.
+3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (add them if missing from input).
 4. Solution MUST be dash-bulleted steps starting with "- " in pure Hindi. Maximum 10 steps.
 5. Output ONLY the required format above.`;
 
