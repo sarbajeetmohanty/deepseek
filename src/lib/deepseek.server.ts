@@ -74,6 +74,11 @@ export interface DeepSeekOptions {
 // model slips in markdown, wrong numbering, or squashed lines.
 export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" | "math"): string {
   let s = text;
+  // Clean up OCR spacing glitches in labels and options (e.g., "A nswer:" -> "Answer:", "A . " -> "A. ")
+  s = s.replace(/\bA\s+nswer:/gi, "Answer:");
+  s = s.replace(/\bS\s+olution:/gi, "Solution:");
+  s = s.replace(/(?<![A-Za-z0-9])([A-Ha-h])\s+\./g, "$1.");
+
   // Strip markdown bold/italics that the model sometimes emits despite the prompt.
   s = s.replace(/\*\*(.+?)\*\*/g, "$1");
   s = s.replace(/__(.+?)__/g, "$1");
@@ -91,11 +96,11 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   s = s.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
 
   // Fix "कूट :" / "Code:" glued to previous text or to options
-  s = s.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.?|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
-  s = s.replace(/^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.?|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
+  s = s.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
+  s = s.replace(/^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
 
-  // Add missing space after option label if stuck directly to content (e.g. "A.2, 3" -> "A. 2, 3", "A2, 3" -> "A 2, 3", "(a)Delhi" -> "(a) Delhi")
-  s = s.replace(/(?<![A-Za-z0-9])([A-Ha-h]\.?)(?=\S)/g, "$1 ");
+  // Add missing space after option label if stuck directly to content (e.g. "A.2, 3" -> "A. 2, 3", "(a)Delhi" -> "(a) Delhi")
+  s = s.replace(/(?<![A-Za-z0-9])([A-Ha-h]\.)(?=\S)/g, "$1 ");
   s = s.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
 
   // Add missing space after sub-statement number if stuck directly to content (e.g. "1वैगनर" -> "1 वैगनर")
@@ -105,10 +110,10 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   s = s.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
 
   // Split options (A-H, (a)-(h), etc.) if they were output on the same line horizontally.
-  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=(?:[A-Ha-h][.)]?|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
+  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h][.)]|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
 
-  // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9", "A\n4:9" -> "A 4:9" or "(1)\nValue" -> "(1) Value")
-  s = s.replace(/^((?:[A-Ha-h]\.?)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
+  // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9" or "(1)\nValue" -> "(1) Value")
+  s = s.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
 
   // Normalize "Step 1:" / "चरण 1:" inside Solution to new line
   s = s.replace(/(?<=\S)[^\S\r\n]+(?=(?:Step|चरण|पद)\s*\d+\s*[:.\-)])/gi, "\n");
