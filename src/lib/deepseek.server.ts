@@ -10,7 +10,7 @@ export const LANG_RULE = `\nLANGUAGE RULE (STRICT):
 export const PROMPT_GK = `Expert competitive-exam MCQ solver. Output clean plain text ONLY (no markdown, no blank lines, no greetings):
 
 <number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
-[If statements: (1) ... (2) ... on separate lines]
+[If statements: 1 <text> ... 2 <text> ... on separate lines]
 [If code header: 'कूट :' or 'Code:' on separate line]
 [If Match Column: Column A: 1. ... 2. ... Column B: a. ... b. ...]
 A. <option 1>
@@ -33,8 +33,9 @@ Rules:
 1. 100% accurate facts. Solve and match options.
 2. Clean Unicode formulas (², ³, √x, θ, α, π).
 3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (add them if missing from input).
-4. Solution MUST be exactly 8 to 10 points in pure Hindi, numbered "1 ", "2 " (never paragraph).
-5. Output ONLY the required format above.`;
+4. Sub-statements must have a space after their number (e.g., "1 <text>").
+5. Solution MUST be exactly 8 to 10 points in pure Hindi, numbered "1 ", "2 " (never paragraph).
+6. Output ONLY the required format above.`;
 
 export const PROMPT_MATH = `Expert Math MCQ solver. Output clean plain text ONLY (no markdown, no greetings):
 
@@ -54,8 +55,9 @@ Rules:
 1. 100% accurate math. Solve first, then match options.
 2. Clean Unicode formulas (², ³, √x).
 3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (add them if missing from input).
-4. Solution MUST be dash-bulleted steps starting with "- " in pure Hindi. Maximum 10 steps.
-5. Output ONLY the required format above.`;
+4. Sub-statements must have a space after their number (e.g., "1 <text>").
+5. Solution MUST be dash-bulleted steps starting with "- " in pure Hindi. Maximum 10 steps.
+6. Output ONLY the required format above.`;
 
 export const LENGTH_NORMAL = `\nSolution length: 2-4 short steps.`;
 export const LENGTH_LONG = `\nSolution length: 5-10 detailed steps.`;
@@ -95,6 +97,9 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   // Add missing space after option label if stuck directly to content (e.g. "A.2, 3" -> "A. 2, 3", "A2, 3" -> "A 2, 3", "(a)Delhi" -> "(a) Delhi")
   s = s.replace(/(?<![A-Za-z0-9])([A-Ha-h]\.?)(?=\S)/g, "$1 ");
   s = s.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
+
+  // Add missing space after sub-statement number if stuck directly to content (e.g. "1वैगनर" -> "1 वैगनर")
+  s = s.replace(/^([1-9]|10)(?=[^\s\d.\)])/gm, "$1 ");
 
   // Also split sub-statements like (1), (2), (3), (4) or (i), (ii), (iii), (iv) if on same line
   s = s.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
