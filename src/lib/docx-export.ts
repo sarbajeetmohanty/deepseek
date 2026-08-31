@@ -163,7 +163,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     // Check if line is a sub-statement (1), (2), (3), (4) or (i), (ii), etc.
     const statementMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\))\s*(.*)$/i) : null;
 
-    // Check if line is an option A, B, C, D or (a), (b), (c), (d) or A) Option
+    // Check if line is an option A., B., C., D. or (a), (b), (c), (d) or A) Option
     const letterOptMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*((?:[A-Ha-h]\.?)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s*(.*)$/) : null;
 
     // Check if line is a numeric option 1., 2., 3., 4. (when no letters exist and not a statement)
