@@ -73,7 +73,7 @@ export const extractTextFromImage = createServerFn({ method: "POST" })
     const prompt = payload.customPrompt
       ? `${payload.customPrompt}\n\nIMPORTANT: Return ONLY the requested content based on the instructions above. Do not include any conversational filler, markdown code blocks, or greetings. Output exactly what is requested.`
       : `Transcribe and digitize all text and questions from this document image accurately.
-- Preserve the layout, question numbers, statements (e.g. (1), (2), (3), (4)), and options (A, B, C, D) exactly.
+- Preserve the layout, question numbers, statements (ensure a space after statement numbers, e.g., 1 <text>, 2 <text>), and options (A., B., C., D.) exactly.
 - Each statement, code header ('कूट :', 'Code:'), and option (A., B., C., D. or (a), (b), (c), (d)) MUST be on its own separate line.
 - Return only the raw extracted text.`;
 
