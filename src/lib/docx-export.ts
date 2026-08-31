@@ -164,7 +164,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     const statementMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\))\s*(.*)$/i) : null;
 
     // Check if line is an option A., B., C., D. or (a), (b), (c), (d) or A) Option
-    const letterOptMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*((?:[A-Ha-h]\.?)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s*(.*)$/) : null;
+    const letterOptMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s*(.*)$/) : null;
 
     // Check if line is a numeric option 1., 2., 3., 4. (when no letters exist and not a statement)
     const numOptMatch = (!seenAnswer && !seenSolution && !statementMatch) ? line.match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/) : null;
@@ -280,19 +280,6 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
 
     // Dash-bulleted solution step "- ..." (math). Red dash marker.
     const dashStep = inSolution ? line.match(/^\s*-\s+(.*)$/) : null;
-    if (dashStep) {
-      paragraphs.push(
-        new Paragraph({
-          spacing: { before: 40, after: 40, line: 300 },
-          indent: { left: 540, hanging: 220 },
-          children: [
-            new TextRun({ text: "-  ", bold: true, font: FONT, color: "C00000" }),
-            run(dashStep[1]),
-          ],
-        }),
-      );
-      continue;
-    }
     if (dashStep) {
       paragraphs.push(
         new Paragraph({
