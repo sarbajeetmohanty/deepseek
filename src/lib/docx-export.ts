@@ -27,33 +27,62 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
 
   // Fix pipe-separated match-the-column items (e.g. "a. Item | 1. Item")
   for (let i = 0; i < cleanLines.length; i++) {
-    if (cleanLines[i].includes("|")) {
-      const parts = cleanLines[i].split(/\s*\|\s*/);
-      if (parts.length === 2 && /^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*/.test(parts[0])) {
+    let line = cleanLines[i].trim();
+    if (line.startsWith("|") && line.endsWith("|")) {
+      line = line.substring(1, line.length - 1).trim();
+    }
+    
+    if (line.includes("|") || line.includes("｜") || line.includes("│")) {
+      const parts = line.split(/\s*[|｜│]\s*/);
+      
+      if (parts.length >= 2 && /^\s*([a-hA-H1-9]\.|I{1,3}\.|IV\.|V\.|VI\.|\([a-hA-H1-9]\)|\(I{1,3}\)|\(IV\)|\(V\)|\(VI\)|[a-hA-H1-9]\)|I{1,3}\)|IV\)|V\)|VI\))\s*/i.test(parts[0])) {
         let startIndex = i;
-        while (startIndex > 0 && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|I|1)[:.\-]?/i.test(cleanLines[startIndex - 1])) {
-          startIndex--;
+        while (startIndex > 0) {
+          const prev = cleanLines[startIndex - 1].trim();
+          if (/^\s*(?:\|\s*)?(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|I|1)[:.\-]?/i.test(prev)) {
+            startIndex--;
+            break;
+          }
+          if (prev === "" || /^\s*\|?[\s\-:]+\|[\s\-:|]+\s*$/.test(prev)) {
+            startIndex--;
+            continue;
+          }
+          if (/^\s*(?:\|\s*)?(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(prev)) {
+            startIndex--;
+            continue;
+          }
+          break;
         }
+
         let j = i;
         const newColA = [];
         const newColB = [];
-        while (
-          j < cleanLines.length &&
-          cleanLines[j].includes("|") &&
-          !/^\s*(?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(cleanLines[j]) &&
-          !/^\s*(?:A\.|B\.|C\.|D\.)\s+/i.test(cleanLines[j]) &&
-          !/^\s*Answer:/i.test(cleanLines[j])
-        ) {
-          const p = cleanLines[j].split(/\s*\|\s*/);
-          if (p.length === 2) {
+        
+        while (j < cleanLines.length) {
+          let currLine = cleanLines[j].trim();
+          
+          if (/^\s*(?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(currLine) || /^\s*(?:Answer|Solution):/i.test(currLine)) {
+            break;
+          }
+
+          if (currLine.startsWith("|") && currLine.endsWith("|")) {
+            currLine = currLine.substring(1, currLine.length - 1).trim();
+          }
+
+          const p = currLine.split(/\s*[|｜│]\s*/);
+          if (p.length >= 2) {
             newColA.push(p[0].trim());
-            newColB.push(p[1].trim());
+            newColB.push(p.slice(1).join(" | ").trim());
+          } else if (p.length === 1 && p[0] === "") {
+            j++;
+            continue;
           } else {
             break;
           }
           j++;
         }
-        if (newColB.length > 0) {
+        
+        if (newColA.length > 0) {
           const replacement = ["Column A:", ...newColA, "Column B:", ...newColB];
           cleanLines.splice(startIndex, j - startIndex, ...replacement);
           i = startIndex + replacement.length - 1;
