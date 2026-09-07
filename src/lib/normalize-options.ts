@@ -1,8 +1,10 @@
-// Canonical Option, Statement, and Answer Normalizer
-// Enforces A., B., C., D. Latin option prefixes across all questions,
-// prevents Hindi letters (उ., ख., क., अ., ए., बी., सी., डी., etc.) from appearing as options,
-// splits inline/horizontal options, unglues sub-statements ("1वैगनर" -> "1 वैगनर"),
-// and normalizes Assertion-Reason headers and Answer: labels end-to-end.
+// Canonical Option, Statement, Table, and Answer Normalizer
+// - Enforces A., B., C., D. Latin option prefixes across all questions
+// - Preserves lowercase (a., b., c., d.) for Column A match-the-column items ("a chota aaye bas")
+// - Unglues Column B and numbered items into side-by-side table rows ("amnae samne")
+// - Prevents Hindi letters (उ., ख., क., अ., ए., बी., सी., डी., etc.) from appearing as options
+// - Splits inline/horizontal options, unglues sub-statements ("1वैगनर" -> "1 वैगनर")
+// - Normalizes Assertion-Reason headers and Answer: labels end-to-end.
 
 export function normalizeOptionsInText(text: string): string {
   let s = text;
@@ -20,7 +22,65 @@ export function normalizeOptionsInText(text: string): string {
   // 3. Add space after sub-statement number if stuck directly to Devanagari text (e.g. "1वैगनर" -> "1 वैगनर")
   s = s.replace(/(?:^|\n)\s*([1-9]|10)(?=[^\s\d.\)])/gm, "\n$1 ");
 
-  // 4. Split horizontal options on the same line (e.g. "...है। बी. ..." or "...है। B. ..." or "(a) Opt 1   (b) Opt 2")
+  // 4. Match-The-Column Normalization:
+  // Unglue Column B if stuck to end of Column A item (e.g. "...हड़प्पा कॉलम बी: 1 बढ़िया...")
+  s = s.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]\s*)/gim, "\n$1\n");
+
+  // Normalize standalone Column A and Column B headers
+  s = s.replace(/(?:^|\n)\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:A|I|1|ए)\)?(?:\([^\)\n]+\))?\s*[:.-]\s*/gim, "\nColumn A:\n");
+  s = s.replace(/(?:^|\n)\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]\s*/gim, "\nColumn B:\n");
+
+  // Split inline numbered items in Column B (e.g. "1 item 2 item 3 item 4 item")
+  const colLines = s.split("\n");
+  let inColB = false;
+  for (let i = 0; i < colLines.length; i++) {
+    const l = colLines[i].trim();
+    if (/^Column\s*B:/i.test(l)) {
+      inColB = true;
+      continue;
+    }
+    if (inColB && (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(l) || /^\s*[A-D]\.\s+\d/i.test(l) || /^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(l))) {
+      inColB = false;
+      continue;
+    }
+    if (inColB) {
+      if (/(?:^|\s*)1\s+[^\d]+(?:\s+)2\s+/i.test(l)) {
+        let splitItems = l
+          .replace(/(?:^|\s*)1\s+([^\d]+)/, "\n1. $1")
+          .replace(/\s+2\s+([^\d]+)/, "\n2. $1")
+          .replace(/\s+3\s+([^\d]+)/, "\n3. $1")
+          .replace(/\s+4\s+([^\d]+)/, "\n4. $1")
+          .trim();
+        colLines[i] = splitItems;
+      }
+    }
+  }
+  s = colLines.join("\n");
+
+  // Ensure Column A items use lowercase letters: a., b., c., d. ("a chota aaye bas")
+  const colLines2 = s.split("\n");
+  let inColA = false;
+  for (let i = 0; i < colLines2.length; i++) {
+    const l = colLines2[i].trim();
+    if (/^Column\s*A:/i.test(l)) {
+      inColA = true;
+      continue;
+    }
+    if (/^Column\s*B:/i.test(l)) {
+      inColA = false;
+      continue;
+    }
+    if (inColA) {
+      colLines2[i] = colLines2[i].replace(/^\s*([A-Da-d])\s*[:.\)]\s*/, (m, letter) => `${letter.toLowerCase()}. `);
+      colLines2[i] = colLines2[i].replace(/^\s*क\s*[:.\)]\s*/, "a. ");
+      colLines2[i] = colLines2[i].replace(/^\s*ख\s*[:.\)]\s*/, "b. ");
+      colLines2[i] = colLines2[i].replace(/^\s*ग\s*[:.\)]\s*/, "c. ");
+      colLines2[i] = colLines2[i].replace(/^\s*घ\s*[:.\)]\s*/, "d. ");
+    }
+  }
+  s = colLines2.join("\n");
+
+  // 5. Split horizontal options on the same line (e.g. "...है। बी. ..." or "...है। B. ..." or "(a) Opt 1   (b) Opt 2")
   const splitPattern = /(?<!Answer:)(?:(?<=[।\?!;])\s*|(?<=[^A-Da-d0-9]\.)\s*|(?<=\S)[^\S\r\n]{2,})(?=(?:[B-Db-d][.)](?!\s*[A-Za-z]\.)|\([b-dB-D]\)|[B-Db-d]\)|(?:[खबगसघद]|बी|सी|डी)[.)]|\((?:[खबगसघद]|बी|सी|डी)\)|(?:[खबगसघद]|बी|सी|डी)\))\s+)/g;
   s = s.replace(splitPattern, "\n");
 
@@ -33,8 +93,8 @@ export function normalizeOptionsInText(text: string): string {
     const line = lines[i];
     const trimmed = line.trim();
 
-    // Column table detection: ignore lines inside Column A/B table
-    if (/^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:A|I|1)\)?/i.test(trimmed)) {
+    // Column table detection: ignore lines inside Column A/B table so items (a., b., c., d.) remain lowercase
+    if (/^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:A|I|1|ए)\)?/i.test(trimmed)) {
       inColumn = true;
       continue;
     }

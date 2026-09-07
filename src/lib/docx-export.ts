@@ -245,7 +245,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       continue;
     }
 
-    if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1)\)?/i.test(line)) {
+    if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?/i.test(line)) {
       inSolution = false;
       let headerA = line.replace(/[:.\-]+$/, "").trim() || "Column A";
       let headerB = "Column B";
@@ -254,7 +254,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       let j = i + 1;
       while (
         j < lines.length &&
-        !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(lines[j]) &&
+        !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2|बी)\)?/i.test(lines[j]) &&
         !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
         !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
         !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j])
@@ -262,7 +262,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         colA.push(lines[j]);
         j++;
       }
-      if (j < lines.length && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(lines[j])) {
+      if (j < lines.length && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2|बी)\)?/i.test(lines[j])) {
         headerB = lines[j].replace(/[:.\-]+$/, "").trim() || "Column B";
         j++;
         while (

@@ -16,8 +16,7 @@ export const PROMPT_GK = `Expert competitive-exam MCQ solver. Output clean plain
 
 <number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
 [If statements: 1 <text> ... 2 <text> ... on separate lines]
-[If code header: 'कूट :' or 'Code:' on separate line]
-[If Match Column: You MUST output two separate lists: "Column A:" followed by items (a., b., c., d.), and "Column B:" followed by items (1., 2., 3., 4.). NEVER put Column B items on the same line as Column A (do NOT use '-' or '|' between columns).]
+[If Match Column: You MUST output two separate lists: "Column A:" followed by items (a., b., c., d.) with lowercase letters, and "Column B:" followed by items (1., 2., 3., 4.) with numbers. NEVER put Column B items on the same line as Column A (do NOT use '-' or '|' between columns). The MCQ options below must be capital A., B., C., D.]
 A. <option 1>
 B. <option 2>
 C. <option 3>
@@ -71,8 +70,7 @@ export const PROMPT_GK_EN = `Expert competitive-exam MCQ solver. Output clean pl
 
 <number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
 [If statements: 1 <text> ... 2 <text> ... on separate lines]
-[If code header: 'Code:' on separate line]
-[If Match Column: You MUST output two separate lists: "Column A:" followed by items (a., b., c., d.), and "Column B:" followed by items (1., 2., 3., 4.). NEVER put Column B items on the same line as Column A.]
+[If Match Column: You MUST output two separate lists: "Column A:" followed by items (a., b., c., d.) with lowercase letters, and "Column B:" followed by items (1., 2., 3., 4.) with numbers. NEVER put Column B items on the same line as Column A. The MCQ options below must be capital A., B., C., D.]
 A. <option 1>
 B. <option 2>
 C. <option 3>
