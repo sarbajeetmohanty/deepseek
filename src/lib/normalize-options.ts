@@ -33,7 +33,7 @@ export function normalizeOptionsInText(text: string): string {
   s = s.replace(/(?:^|\n)\s*([1-9]|10)(?=[\u0900-\u097FA-Za-z])/gm, "\n$1 ");
 
   // 4. Match-The-Column Normalization:
-  // Unglue Column B if stuck to end of Column A item (e.g. "...हड़प्पा कॉलम बी: 1 बढ़िया...")
+  // Unglue Column B if stuck to end of Column A item (e.g. "...हड़प्पा कॉलम बी: 1 बढ़िया..." or "...बदला Column B:")
   s = s.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]\s*)/gim, "\n$1\n");
 
   // Normalize standalone Column A and Column B headers

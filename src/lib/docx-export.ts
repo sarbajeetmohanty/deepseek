@@ -258,9 +258,15 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2|बी)\)?/i.test(lines[j]) &&
         !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
         !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
-        !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j]) &&
-        !/^\s*(?:[A-D]\.\s+\S|\([A-Da-d]\)|[_*]*OPT[_\s\-]*[A-D])/i.test(lines[j])
+        !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j])
       ) {
+        // If this line has an embedded "Column B:" header, split it!
+        const colBMatch = lines[j].match(/^(.*?)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*)$/i);
+        if (colBMatch) {
+          if (colBMatch[1].trim()) colA.push(colBMatch[1].trim());
+          lines[j] = colBMatch[2].trim();
+          break;
+        }
         colA.push(lines[j]);
         j++;
       }
@@ -273,7 +279,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
           !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
           !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j]) &&
           !/^\s*[A-D]\.\s+\S/.test(lines[j]) &&
-          !/^\s*\([A-Da-d]\)\s+(?:[a-dA-D1-4]\s*[-–—]|\d\s*,\s*\d|\S+)/.test(lines[j]) &&
+          !/^\s*\([A-D]\)\s+(?:[a-dA-D1-4]\s*[-–—]|\d\s*,\s*\d|\S+)/.test(lines[j]) &&
           !/^\s*[_*]*OPT[_\s\-]*[A-D]/i.test(lines[j])
         ) {
           colB.push(lines[j]);
@@ -281,22 +287,31 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         }
       }
 
-      // If Column B is empty, attempt to split colA items that contain embedded dash-separated Column B items
+      // If Column B is empty, check if colA contains numbered items belonging to Column B or embedded dash items
       if (colB.length === 0 && colA.length > 0) {
-        const canSplit = colA.some(item => dashSplitRegex.test(item));
-        if (canSplit) {
-          const splitColA: string[] = [];
-          for (const item of colA) {
-            const parts = item.split(dashSplitRegex);
-            if (parts.length >= 2) {
-              splitColA.push(parts[0].trim());
-              colB.push(parts.slice(1).join(" - ").trim());
-            } else {
-              splitColA.push(item);
-            }
+        const firstNumIdx = colA.findIndex((item, idx) => idx > 0 && /^\s*(?:\(?\d{1,2}\)?|\d{1,2}[.)])\s+/.test(item));
+        if (firstNumIdx > 0) {
+          const itemsForB = colA.splice(firstNumIdx);
+          colB.push(...itemsForB);
+          if (colA.length > 0) {
+            colA[colA.length - 1] = colA[colA.length - 1].replace(/[^\S\r\n]*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*$/i, "").trim();
           }
-          colA.length = 0;
-          colA.push(...splitColA);
+        } else {
+          const canSplit = colA.some(item => dashSplitRegex.test(item));
+          if (canSplit) {
+            const splitColA: string[] = [];
+            for (const item of colA) {
+              const parts = item.split(dashSplitRegex);
+              if (parts.length >= 2) {
+                splitColA.push(parts[0].trim());
+                colB.push(parts.slice(1).join(" - ").trim());
+              } else {
+                splitColA.push(item);
+              }
+            }
+            colA.length = 0;
+            colA.push(...splitColA);
+          }
         }
       }
 
@@ -309,6 +324,18 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
           headerA = m1[1];
           headerB = m2[1];
         }
+      }
+
+      // Ensure lowercase letters for Column A items and numbers for Column B items
+      const colALetters = ["a. ", "b. ", "c. ", "d. ", "e. "];
+      const colBNumbers = ["1. ", "2. ", "3. ", "4. ", "5. "];
+      for (let k = 0; k < colA.length; k++) {
+        const stripped = colA[k].replace(/^\s*(?:[A-Da-d1-5][.)\s]|\([A-Da-d1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
+        if (k < colALetters.length) colA[k] = colALetters[k] + stripped;
+      }
+      for (let k = 0; k < colB.length; k++) {
+        const stripped = colB[k].replace(/^\s*(?:[A-Da-d1-5][.)\s]|\([A-Da-d1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
+        if (k < colBNumbers.length) colB[k] = colBNumbers[k] + stripped;
       }
 
       const maxRows = Math.max(colA.length, colB.length);
