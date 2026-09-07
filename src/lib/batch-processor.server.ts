@@ -1,6 +1,18 @@
 
 
+// Active batches lock to prevent multiple workers from running simultaneously on the same batch
+const activeBatches = new Set<string>();
+
+// Cross-batch in-memory solution cache to prevent duplicate DeepSeek API billing for identical questions
+const persistentQuestionCache = new Map<string, string>();
+
 export async function processBatchInternal(batchId: string): Promise<void> {
+  if (activeBatches.has(batchId)) {
+    console.log(`[BatchProcessor] Batch ${batchId} is already actively processing. Skipping duplicate worker.`);
+    return;
+  }
+  activeBatches.add(batchId);
+
   try {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
     const { formatQuestionWithDeepSeek, isNonRetryableDeepSeekError } = await import("./deepseek.server");
@@ -39,11 +51,11 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // Set concurrency to a safer limit (e.g. 30) to avoid DeepSeek API 429 rate limits.
-    const CONCURRENCY = Math.min(30, pending.length);
+    // Set concurrency to optimal throughput (12 parallel requests) to avoid DeepSeek 429 rate limits & retry storms.
+    const CONCURRENCY = Math.min(12, pending.length);
     const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
-    // Flush UI counters periodically instead of every completion to reduce DB bottlenecks.
-    const COUNTER_FLUSH_EVERY = 20;
+    // Flush UI counters periodically to reduce DB bottlenecks while keeping UI responsive.
+    const COUNTER_FLUSH_EVERY = 10;
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
     for (let i = 0; i < pending.length; i += 400) {
@@ -63,7 +75,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     const queue = [...pending];
     const workers: Promise<void>[] = [];
     const providerBlock: { message?: string } = {};
-    // In-batch dedupe: identical raw_text reuses the first result instead of re-calling the API.
+    // In-batch dedupe: identical raw_text reuses the in-flight promise instead of re-calling the API.
     const dedupe = new Map<string, Promise<string>>();
     
     type QuestionPatch = {
@@ -135,36 +147,34 @@ export async function processBatchInternal(batchId: string): Promise<void> {
         if (!q) return;
 
         try {
-          const key = q.raw_text.trim().replace(/\s+/g, " ");
-          let job = dedupe.get(key);
-          const wasNew = !job;
-          if (!job) {
-            job = (async () => {
-              try {
-                return await formatQuestionWithDeepSeek({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength });
-              } catch (dsErr) {
-                // If DeepSeek runs out of balance, rate limits, or fails, attempt Gemini solver pool
-                console.warn(`DeepSeek error for question ${q.idx}, attempting Gemini fallback solver...`, dsErr);
-                try {
-                  const { formatQuestionWithGemini } = await import("./gemini.server");
-                  return await formatQuestionWithGemini({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength });
-                } catch (gemErr) {
-                  throw dsErr; // re-throw original DeepSeek error if fallback also fails
-                }
-              }
-            })();
-            dedupe.set(key, job);
+          const key = `${subjectType}:${solutionLength}:${q.raw_text.trim().replace(/\s+/g, " ")}`;
+          let output: string;
+
+          // 1. Check cross-batch session persistent cache (0 tokens / $0.00 cost)
+          if (persistentQuestionCache.has(key)) {
+            output = persistentQuestionCache.get(key)!;
+          } else {
+            // 2. Check in-flight batch deduplication
+            let job = dedupe.get(key);
+            const wasNew = !job;
+            if (!job) {
+              job = formatQuestionWithDeepSeek({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength });
+              dedupe.set(key, job);
+            }
+            output = await job;
+            if (wasNew) {
+              apiCallsSinceFlush++;
+              persistentQuestionCache.set(key, output);
+            }
           }
-          let output = await job;
-          // Only count the *actual* API call once (dedupe hits are free).
-          if (wasNew) apiCallsSinceFlush++;
-          // If reused, re-run the idx replacement so the number matches this row.
+
+          // Re-run the idx replacement so the question number matches this specific row.
           output = output.replace(/^\s*\d{1,4}\.\s+/, `${q.idx}. `);
           updateRow(q, { status: "done", formatted_output: output, error: null });
           doneSinceFlush++;
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          // Count failed API attempts too (unless it was a dedupe cache hit).
+          // Count failed API attempts too
           apiCallsSinceFlush++;
           updateRow(q, { status: "failed", error: msg.slice(0, 500) });
           failedSinceFlush++;
@@ -211,6 +221,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     } catch (inner) {
       console.error("fatal recovery failed", inner);
     }
+  } finally {
+    activeBatches.delete(batchId);
   }
 }
 

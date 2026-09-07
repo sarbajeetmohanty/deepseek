@@ -9,17 +9,48 @@ function run(text: string, bold = false): TextRun {
   return new TextRun({ text, bold, font: FONT });
 }
 
+function runsFromMarkdown(text: string, defaultBold = false): TextRun[] {
+  if (!text) return [new TextRun({ text: "", font: FONT })];
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  const runs: TextRun[] = [];
+  for (const part of parts) {
+    if (!part) continue;
+    if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
+      runs.push(new TextRun({ text: part.slice(2, -2), bold: true, font: FONT }));
+    } else {
+      runs.push(new TextRun({ text: part, bold: defaultBold, font: FONT }));
+    }
+  }
+  return runs.length > 0 ? runs : [new TextRun({ text, bold: defaultBold, font: FONT })];
+}
+
 function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
   const paragraphs: (Paragraph | Table)[] = [];
   // Normalize: strip blank lines from source, we control spacing via paragraph spacing.
-  let cleanText = text.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
+  let cleanText = text;
+
+  // Reunite orphaned numbers that are on a line by themselves: "1\nText..." -> "1 Text..."
+  cleanText = cleanText.replace(/(?:^|\n)\s*(\((?:[1-9]|10|i{1,3}|iv|v)\)|[1-9]|10)[.)]?\s*\n\s*(?=\S)/g, "\n$1 ");
+
+  // Break inline numbered statements inside question body before options
+  cleanText = cleanText.replace(/([:：])\s*(?=(?:[1-9]|10|\((?:[1-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g, "$1\n");
+  cleanText = cleanText.replace(/([।\.\?!;]\s*)(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g, "$1\n");
+  cleanText = cleanText.replace(/([।\.\?!;]\s*)(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi, "$1\n");
+
+  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
   cleanText = cleanText.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
-  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
-  cleanText = cleanText.replace(/^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
-  cleanText = cleanText.replace(/(?<![A-Za-z0-9])([A-Ha-h]\.)(?=\S)/g, "$1 ");
+  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
+  cleanText = cleanText.replace(/^((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
+
+  // Only add space after option label if at line start or after 2+ spaces, and NOT followed by period or digit (avoids breaking B.C., A.D., C.E., B.C.E., or A.1)
+  cleanText = cleanText.replace(/(?:^|[^\S\r\n]{2,})([A-Ha-h]\.)([^\s.0-9])/gm, (m, g1, g2) => {
+    return m.slice(0, m.length - g1.length - g2.length) + g1 + " " + g2;
+  });
   cleanText = cleanText.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
   cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
-  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=[A-Ha-h][.)](?:\s+|$))/g, "\n");
+
+  // Split options (A-H) horizontally, with negative lookahead to protect abbreviations (B.C., A.D., C.E., etc.)
+  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=[A-Ha-h][.)](?!\s*[A-Za-z]\.)(?:\s+|$))/g, "\n");
   cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=\([a-hA-H1-8]\)(?:\s+|$))/g, "\n");
   cleanText = cleanText.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
 
@@ -61,7 +92,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         while (j < cleanLines.length) {
           let currLine = cleanLines[j].trim();
           
-          if (/^\s*(?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(currLine) || /^\s*(?:Answer|Solution):/i.test(currLine)) {
+          if (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(currLine) || /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(currLine)) {
             break;
           }
 
@@ -143,7 +174,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       paragraphs.push(
         new Paragraph({
           spacing: { before: 240, after: 160, line: 320 },
-          children: [run(`${q[1]}. ${q[2]}`, true)],
+          children: [run(`${q[1]}. `, true), ...runsFromMarkdown(q[2], true)],
         }),
       );
       continue;
@@ -151,20 +182,84 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
 
     if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|I|1)[:.\-]?/i.test(line)) {
       inSolution = false;
+      const headerA = line.replace(/[:.\-]+$/, "").trim() || "Column A";
+      let headerB = "Column B";
       const colA: string[] = [];
       const colB: string[] = [];
       let j = i + 1;
-      while (j < lines.length && !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j])) {
+      while (
+        j < lines.length &&
+        !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j]) &&
+        !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
+        !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
+        !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j])
+      ) {
         colA.push(lines[j]);
         j++;
       }
       if (j < lines.length && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j])) {
+        headerB = lines[j].replace(/[:.\-]+$/, "").trim() || "Column B";
         j++;
-        while (j < lines.length && colB.length < colA.length && !/^\s*Answer:/i.test(lines[j]) && !/^\s*Solution:/i.test(lines[j])) {
+        while (
+          j < lines.length &&
+          !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
+          !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
+          !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j]) &&
+          !/^\s*[A-D]\.\s+\S/.test(lines[j]) &&
+          !/^\s*\([A-Da-d]\)\s+(?:[a-dA-D1-4]\s*[-–—]|\d\s*,\s*\d|\S+)/.test(lines[j])
+        ) {
           colB.push(lines[j]);
           j++;
         }
       }
+
+      const maxRows = Math.max(colA.length, colB.length);
+      const labelRegex = /^(\(?(?:[0-9]{1,2}|[a-zA-Z]|[ivxIVX]{1,4})\)?|[0-9]{1,2}[.)]?|[a-zA-Z][.)]|[ivxIVX]{1,4}[.)]?)\s+(.*)$/;
+      const tableRows: TableRow[] = [
+        new TableRow({
+          children: [
+            new TableCell({
+              width: { size: 50, type: WidthType.PERCENTAGE },
+              children: [new Paragraph({ spacing: { before: 120, after: 60, line: 300 }, children: [run(headerA, true)] })],
+            }),
+            new TableCell({
+              width: { size: 50, type: WidthType.PERCENTAGE },
+              children: [new Paragraph({ spacing: { before: 120, after: 60, line: 300 }, children: [run(headerB, true)] })],
+            }),
+          ],
+        }),
+        ...Array.from({ length: maxRows }).map((_, rIdx) => {
+          const itemA = colA[rIdx] || "";
+          const itemB = colB[rIdx] || "";
+          const mA = itemA ? itemA.match(labelRegex) : null;
+          const mB = itemB ? itemB.match(labelRegex) : null;
+          return new TableRow({
+            children: [
+              new TableCell({
+                width: { size: 50, type: WidthType.PERCENTAGE },
+                children: [
+                  new Paragraph({
+                    spacing: { before: 30, after: 30, line: 300 },
+                    indent: { left: 360 },
+                    children: mA ? [run(`${mA[1]} `, true), ...runsFromMarkdown(mA[2])] : runsFromMarkdown(itemA),
+                  }),
+                ],
+              }),
+              new TableCell({
+                width: { size: 50, type: WidthType.PERCENTAGE },
+                children: [
+                  new Paragraph({
+                    spacing: { before: 30, after: 30, line: 300 },
+                    indent: { left: 360 },
+                    children: mB ? [run(`${mB[1]} `, true), ...runsFromMarkdown(mB[2])] : runsFromMarkdown(itemB),
+                  }),
+                ],
+              }),
+            ],
+          });
+        }),
+      ];
+
       paragraphs.push(
         new Table({
           width: { size: 100, type: WidthType.PERCENTAGE },
@@ -176,77 +271,58 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
             insideHorizontal: { style: BorderStyle.NONE, size: 0, color: "auto" },
             insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
           },
-          rows: [
-            new TableRow({
-              children: [
-                new TableCell({
-                  width: { size: 50, type: WidthType.PERCENTAGE },
-                  children: [
-                    new Paragraph({ spacing: { before: 120, after: 60, line: 300 }, children: [run("Column A", true)] }),
-                    ...colA.map(c => {
-                       const m = c.match(/^(\(?[1-9a-hA-H]\)?|[1-9a-hA-H][.)]?)\s+(.*)$/);
-                       return new Paragraph({
-                         spacing: { before: 30, after: 30, line: 300 },
-                         indent: { left: 360 },
-                         children: m ? [run(`${m[1]} `, true), run(m[2])] : [run(c)],
-                       });
-                    }),
-                  ],
-                }),
-                new TableCell({
-                  width: { size: 50, type: WidthType.PERCENTAGE },
-                  children: [
-                    new Paragraph({ spacing: { before: 120, after: 60, line: 300 }, children: [run("Column B", true)] }),
-                    ...colB.map(c => {
-                       const m = c.match(/^(\(?[1-9a-hA-H]\)?|[1-9a-hA-H][.)]?)\s+(.*)$/);
-                       return new Paragraph({
-                         spacing: { before: 30, after: 30, line: 300 },
-                         indent: { left: 360 },
-                         children: m ? [run(`${m[1]} `, true), run(m[2])] : [run(c)],
-                       });
-                    }),
-                  ],
-                }),
-              ],
-            }),
-          ],
+          rows: tableRows,
         })
       );
       i = j - 1;
       continue;
     }
 
-    // Code header: "कूट :", "Code:", "उत्तर कूट:"
-    if (/^\s*(?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(line)) {
+    // Code header: "कूट :", "Code:", "उत्तर कूट:", "सही कूट:"
+    const isCodeHeader = /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)(?:\s*\([a-zA-Z]+\))?\s*[:.\-]/i.test(line) || /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(line);
+    if (isCodeHeader) {
       inSolution = false;
       paragraphs.push(
         new Paragraph({
           spacing: { before: 120, after: 60, line: 300 },
-          children: [run(line, true)],
+          children: runsFromMarkdown(line, true),
         }),
       );
       continue;
     }
 
-    // Check if line is a sub-statement (1), (2), (3), (4) or (i), (ii), etc.
-    const statementMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\))\s*(.*)$/i) : null;
+    // Assertion / Reason: "कथन (A):", "कारण (R):", "अभिकथन (A):", "कथन-I:", "कथन II:", "Statement I:"
+    const assertionRegex = /^(\s*(?:अभिकथन|कथन|कारण|दलील|Assertion|Reason|Statement)\s*(?:[\-–—\s]*(?:I{1,3}|IV|V|[A-Za-z0-9])|\([A-Za-z0-9]+\))\s*[:.\-]?)\s*(.*)$/i;
+    const isAssertionReason = (!seenAnswer && !seenSolution) && assertionRegex.test(line);
+    if (isAssertionReason) {
+      inSolution = false;
+      const m = line.match(assertionRegex);
+      paragraphs.push(
+        new Paragraph({
+          spacing: { before: 40, after: 40, line: 300 },
+          indent: { left: 360 },
+          children: m ? [run(`${m[1]} `, true), ...runsFromMarkdown(m[2])] : runsFromMarkdown(line, true),
+        }),
+      );
+      continue;
+    }
+
+    // Check if line starts with an abbreviation like B.C., B. C., A.D., C.E., B.C.E. (not an option)
+    const isAbbrev = /^\s*[A-Za-z]\.(?:\s*[A-Za-z]\.)+/i.test(line);
 
     // Check if line is an option A., B., C., D. or (a), (b), (c), (d) or A) Option
-    const letterOptMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s*(.*)$/) : null;
+    const letterOptMatch = (!seenAnswer && !seenSolution && !isAbbrev) ? line.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s+(.*)$/) : null;
 
-    // Check if line is a numeric option 1., 2., 3., 4. (when no letters exist and not a statement)
-    const numOptMatch = (!seenAnswer && !seenSolution && !statementMatch) ? line.match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/) : null;
+    // Check if line is a sub-statement (1), (2), (3), (4) or (i), (ii), etc. or "1 ", "2 " before options
+    const statementMatch = (!seenAnswer && !seenSolution && !letterOptMatch) ? line.match(/^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\)|(?:[1-9]|10)[.)]?|(?:i{1,3}|iv|v|vi)[.)])\s+(.*)$/i) : null;
 
-    if (letterOptMatch || numOptMatch) {
+    if (letterOptMatch) {
       inSolution = false;
-      const isLetter = !!letterOptMatch;
       const options: { label: string; text: string }[] = [];
       let j = i;
       while (j < lines.length) {
         const currLine = lines[j];
-        const m = isLetter
-          ? currLine.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s*(.*)$/)
-          : currLine.match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
+        const m = currLine.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s*(.*)$/);
         if (m) {
           const label = m[1];
           let text = m[2] ? m[2].trim() : "";
@@ -254,9 +330,9 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
           while (
             j < lines.length &&
             !/^\s*(?:(?:[A-Ha-h]\.)|(?:\([a-hA-H1-8]\))|(?:[A-Ha-h]\))|(?:[1-8]\.))\s+/i.test(lines[j]) &&
-            !/^\s*(?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(lines[j]) &&
-            !/^\s*Answer:/i.test(lines[j]) &&
-            !/^\s*Solution:/i.test(lines[j])
+            !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j]) &&
+            !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
+            !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j])
           ) {
             text += (text ? " " : "") + lines[j].trim();
             j++;
@@ -271,7 +347,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
           new Paragraph({
             spacing: { before: 120, after: 120, line: 300 },
             indent: { left: 720, hanging: 360 },
-            children: [run(`${o.label}   `, true), run(o.text)],
+            children: [run(`${o.label}   `, true), ...runsFromMarkdown(o.text)],
           }),
         );
       }
@@ -285,35 +361,36 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         new Paragraph({
           spacing: { before: 40, after: 40, line: 300 },
           indent: { left: 360 },
-          children: [run(`${statementMatch[1]} `, true), run(statementMatch[2])],
+          children: [run(`${statementMatch[1]} `, true), ...runsFromMarkdown(statementMatch[2])],
         }),
       );
       continue;
     }
 
-    // Answer
-    if (/^\s*Answer:/i.test(line)) {
+    // Answer: Answer:, Ans:, उत्तर:
+    if (/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(line)) {
       inSolution = false;
       seenAnswer = true;
+      const ansVal = line.replace(/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]\s*/i, "");
       paragraphs.push(
         new Paragraph({
           spacing: { before: 200, after: 80, line: 320 },
-          children: [run("Answer: ", true), run(line.replace(/^\s*Answer:\s*/i, ""))],
+          children: [run("Answer: ", true), ...runsFromMarkdown(ansVal)],
         }),
       );
       continue;
     }
 
-    // Solution
-    if (/^\s*Solution:/i.test(line)) {
+    // Solution: Solution:, Sol:, हल:, समाधान:
+    if (/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(line)) {
       inSolution = true;
       seenSolution = true;
-      const rest = line.replace(/^\s*Solution:\s*/i, "");
+      const rest = line.replace(/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]\s*/i, "");
       paragraphs.push(
         new Paragraph({
           spacing: { before: 80, after: 120, line: 320 },
           children: rest
-            ? [run("Solution: ", true), run(rest)]
+            ? [run("Solution: ", true), ...runsFromMarkdown(rest)]
             : [run("Solution:", true)],
         }),
       );
@@ -330,7 +407,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
             indent: { left: 540, hanging: 220 },
             children: [
               new TextRun({ text: "-  ", bold: true, font: FONT, color: "C00000" }),
-              run(step[2]),
+              ...runsFromMarkdown(step[2]),
             ],
           }),
         );
@@ -340,7 +417,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         new Paragraph({
           spacing: { before: 40, after: 40, line: 300 },
           indent: { left: 540, hanging: 220 },
-          children: [run(`${step[1]} `, true), run(step[2])],
+          children: [run(`${step[1]} `, true), ...runsFromMarkdown(step[2])],
         }),
       );
       continue;
@@ -355,7 +432,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
           indent: { left: 540, hanging: 220 },
           children: [
             new TextRun({ text: "-  ", bold: true, font: FONT, color: "C00000" }),
-            run(dashStep[1]),
+            ...runsFromMarkdown(dashStep[1]),
           ],
         }),
       );
@@ -370,7 +447,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         new Paragraph({
           numbering: { reference: "bullets", level: 0 },
           spacing: { before: 40, after: 40, line: 300 },
-          children: [run(bullet[1])],
+          children: runsFromMarkdown(bullet[1]),
         }),
       );
       continue;
@@ -379,7 +456,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     paragraphs.push(
       new Paragraph({
         spacing: { line: 320 },
-        children: [run(line)],
+        children: runsFromMarkdown(line),
       }),
     );
   }
@@ -427,7 +504,7 @@ export async function downloadBatchAsDocx(
     sections: [{
       properties: {
         page: {
-          size: { width: 12240, height: 15840 },
+          size: { width: 11906, height: 16838 }, // Standard A4 (210mm x 297mm)
           margin: { top: 1080, bottom: 1080, left: 1080, right: 1080 },
         },
       },

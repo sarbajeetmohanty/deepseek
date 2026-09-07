@@ -34,28 +34,69 @@ const GREEK: Record<string, string> = {
 export function latexToText(input: string): string {
   let s = input;
 
-  // Strip \text{...}, \mathrm{...}
-  s = s.replace(/\\(text|mathrm|operatorname)\s*\{([^{}]*)\}/g, "$2");
-  // \frac{a}{b} -> (a)/(b)  (keep readable)
-  s = s.replace(/\\frac\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g, "($1)/($2)");
+  // Protect literal escaped characters before processing math delimiters and tabular &
+  s = s.replace(/\\\$/g, "@@DOLLAR@@");
+  s = s.replace(/\\&/g, "@@AMP@@");
+  s = s.replace(/\\%/g, "%");
+  s = s.replace(/\\_/g, "@@UNDERSCORE@@");
+  s = s.replace(/\\#/g, "#");
+
+  // Clean matrix environments
+  s = s.replace(/\\begin\s*\{(?:pmatrix|bmatrix|vmatrix|matrix|align|aligned|equation|gather)\*?\}/g, "");
+  s = s.replace(/\\end\s*\{(?:pmatrix|bmatrix|vmatrix|matrix|align|aligned|equation|gather)\*?\}/g, "");
+  s = s.replace(/\\\\/g, "\n");
+  s = s.replace(/&/g, "  ");
+
+  // Strip font/accent wrappers: \text{...}, \mathrm{...}, \vec{...}, \bar{...}, etc.
+  s = s.replace(/\\(text|mathrm|operatorname|mathbf|mathit|overline|bar|vec|hat|tilde)\s*\{([^{}]*)\}/g, "$2");
+
+  // Strip \left, \right
+  s = s.replace(/\\(left|right)\s*/g, "");
+
+  // \frac{a}{b}, \dfrac{a}{b}, \tfrac{a}{b} -> (a)/(b) (handles nested fractions up to 3 passes)
+  for (let iter = 0; iter < 3; iter++) {
+    if (!/\\(frac|dfrac|tfrac)\s*\{/.test(s)) break;
+    s = s.replace(/\\(frac|dfrac|tfrac)\s*\{\s*([^{}]*?)\s*\}\s*\{\s*([^{}]*?)\s*\}/g, (_, _cmd, a, b) => `(${a.trim()})/(${b.trim()})`);
+  }
+
+  // \over fractions: {a \over b} -> (a)/(b)
+  s = s.replace(/\{\s*([^{}]*?)\s*\\over\s*([^{}]*?)\s*\}/g, (_, a, b) => `(${a.trim()})/(${b.trim()})`);
+
+  // \sqrt[n]{x} -> √[n](x)
+  s = s.replace(/\\sqrt\s*\[([^{}]*)\]\s*\{([^{}]*)\}/g, "√[$1]($2)");
   // \sqrt{x} -> √(x)
   s = s.replace(/\\sqrt\s*\{([^{}]*)\}/g, "√($1)");
   // \sqrt x -> √x
   s = s.replace(/\\sqrt\s+(\S+)/g, "√$1");
-  // Greek letters
+
+  // Greek letters & Math symbols / operators
   s = s.replace(/\\([a-zA-Z]+)/g, (m, name) => {
     if (GREEK[name]) return GREEK[name];
-    // Trig / common ops
     const common: Record<string, string> = {
       sin: "sin", cos: "cos", tan: "tan", cot: "cot",
       sec: "sec", csc: "cosec", cosec: "cosec",
       log: "log", ln: "ln", cdot: "·", times: "×", div: "÷",
-      pm: "±", mp: "∓", le: "≤", ge: "≥", ne: "≠", approx: "≈",
+      pm: "±", mp: "∓",
+      le: "≤", leq: "≤", ge: "≥", geq: "≥", ne: "≠", neq: "≠",
+      approx: "≈", sim: "∼", cong: "≅", equiv: "≡",
       infty: "∞", to: "→", rightarrow: "→", leftarrow: "←",
       angle: "∠", degree: "°", circ: "°",
+      triangle: "△", perp: "⊥", parallel: "∥",
+      in: "∈", notin: "∉", subset: "⊂", subseteq: "⊆",
+      cup: "∪", cap: "∩",
+      int: "∫", iint: "∬", sum: "∑", prod: "∏",
+      therefore: "∴", because: "∵",
+      forall: "∀", exists: "∃",
+      dots: "...", ldots: "...", cdots: "...",
+      implies: "⇒", iff: "⇔", leftrightarrow: "↔",
+      partial: "∂", prime: "′", nabla: "∇",
+      quad: " ", qquad: "  ",
     };
     return common[name] ?? name;
   });
+
+  // Handle ^\circ or ^\degree -> °
+  s = s.replace(/\^\{?\\(?:circ|degree)\}?/g, "°");
 
   // ^{...} superscript
   s = s.replace(/\^\{([^{}]*)\}/g, (_m, g1) => mapChars(g1, SUPER));
@@ -65,8 +106,14 @@ export function latexToText(input: string): string {
   s = s.replace(/_\{([^{}]*)\}/g, (_m, g1) => mapChars(g1, SUB));
   s = s.replace(/_(\S)/g, (_m, g1) => mapChars(g1, SUB));
 
-  // Strip stray $...$ delimiters
+  // Strip stray $...$ math delimiters
   s = s.replace(/\$+/g, "");
+
+  // Restore protected literal characters
+  s = s.replace(/@@DOLLAR@@/g, "$");
+  s = s.replace(/@@AMP@@/g, "&");
+  s = s.replace(/@@UNDERSCORE@@/g, "_");
+
   // Collapse leftover braces
   s = s.replace(/[{}]/g, "");
   // Common leftovers

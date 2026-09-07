@@ -27,7 +27,16 @@ async function gtranslate(text: string, source: string, target: string): Promise
 // sometimes reorders/renames "Answer:", "Solution:", "Column A:" — restore them.
 function normalizeTranslated(text: string, idx: number): string {
   let s = text.replace(/\r\n?/g, "\n");
-  s = s.replace(/^\s*\d{1,4}\s*[\.\)]\s+/, `${idx}. `);
+  s = s.replace(/^\s*(?:(?:[Qq]\.?(?:uestion)?|प्रश्न|प्र\.?)\s*)?\d{1,4}\s*[:.\-)\s]\s*/i, `${idx}. `);
+
+  // Reunite orphaned numbers that are on a line by themselves: "1\nText..." -> "1 Text..."
+  s = s.replace(/(?:^|\n)\s*(\((?:[1-9]|10|i{1,3}|iv|v)\)|[1-9]|10)[.)]?\s*\n\s*(?=\S)/g, "\n$1 ");
+
+  // Break inline numbered statements inside question body before options
+  s = s.replace(/([:：])\s*(?=(?:[1-9]|10|\((?:[1-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g, "$1\n");
+  s = s.replace(/([।\.\?!;]\s*)(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g, "$1\n");
+  s = s.replace(/([।\.\?!;]\s*)(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi, "$1\n");
+
   s = s.replace(/^\s*(Ans(?:wer)?|उत्तर)\s*[:.-]\s*/gim, "Answer: ");
   s = s.replace(/^\s*(Sol(?:ution)?|समाधान|हल)\s*[:.-]\s*/gim, "Solution: ");
   s = s.replace(/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*([ABI12]|II)\s*[:.-]?\s*$/gim, (m, p1) => {
@@ -37,14 +46,17 @@ function normalizeTranslated(text: string, idx: number): string {
   // Fix "Code:" / "कूट :" glued to previous text or to options
   s = s.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
   s = s.replace(/^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
-  s = s.replace(/(?<![A-Za-z0-9])([A-Ha-h]\.)(?=\S)/g, "$1 ");
-  s = s.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
-  s = s.replace(/(?<=\S)[^\S\r\n]+(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
-  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=(?:[A-Ha-h][.)]|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
+  // Only add space after option label if at line start or after 2+ spaces, and NOT followed by an abbreviation like B.C., A.D., C.E.
+  s = s.replace(/(?:^|[^\S\r\n]{2,})([A-Ha-h]\.)(?!\s*[A-Za-z]\.)([^\s.])/gm, (m, g1, g2) => {
+    return m.slice(0, m.length - g1.length - g2.length) + g1 + " " + g2;
+  });
+  s = s.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=[^\s:.\-])/g, "$1 ");
+  s = s.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
+  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=(?:[A-Ha-h][.)](?!\s*[A-Za-z]\.)|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
   s = s.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
 
-  // Normalize step labels emitted by translation ("Step 1:" etc.) back to "1. "
-  s = s.replace(/(?:^|\n)\s*(?:Step|Chran|Pad)\s*(\d+)\s*[:.\-)]\s*/gi, "\n$1. ");
+  // Normalize step labels emitted by translation ("Step 1:", "चरण 1:", etc.) back to "1. "
+  s = s.replace(/(?:^|\n)\s*(?:Step|Chran|Pad|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/gi, "\n$1. ");
   // Break inline numbered steps onto their own line ("... .  2. ..." -> newline)
   s = s.replace(/(\.\s+)(?=\d{1,2}\.\s)/g, ".\n");
   // Some translations rewrite bullets — restore leading "* " for lines that start with a bullet char.
@@ -87,14 +99,28 @@ export const translateBatchToOpposite = createServerFn({ method: "POST" })
     if (error) throw new Error(`Could not load questions: ${error.message}`);
     if (!rows || rows.length === 0) throw new Error("Nothing to translate — no completed questions.");
 
-    // The target language is always English now since the original solution is always in Hindi.
-    const majorityTarget = "en" as "en" | "hi";
+    // Extract the question/options portion (before Solution:) to detect whether the source question is English or Hindi.
+    // DeepSeek solution is in Hindi by default, so we only evaluate the question body to detect the original language.
+    let devanagariCount = 0;
+    let latinCount = 0;
+    for (const r of rows) {
+      const text = r.formatted_output ?? "";
+      const match = text.match(/\b(?:Solution|हल|समाधान)\s*:/i);
+      const questionPrefix = match ? text.slice(0, match.index) : text;
+      devanagariCount += (questionPrefix.match(/[\u0900-\u097F]/g) || []).length;
+      latinCount += (questionPrefix.match(/[a-zA-Z]/g) || []).length;
+    }
+
+    // If question body is predominantly Hindi (Devanagari), translate to English ("en").
+    // If question body is predominantly English (Latin), translate to Hindi ("hi").
+    const isHindiSource = devanagariCount > latinCount;
+    const majorityTarget: "en" | "hi" = isHindiSource ? "en" : "hi";
 
     const translated = await mapLimit(rows, 8, async (r) => {
       const src = (r.formatted_output ?? "").trim();
       if (!src) return { idx: r.idx, formatted_output: "" };
       try {
-        const out = await gtranslate(src, "auto", "en");
+        const out = await gtranslate(src, "auto", majorityTarget);
         return { idx: r.idx, formatted_output: normalizeTranslated(out, r.idx) };
       } catch (e) {
         console.error("translate failed for idx", r.idx, e);

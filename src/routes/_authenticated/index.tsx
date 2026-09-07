@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { createBatch, deleteBatch } from "@/lib/batches.functions";
 import { getMyQuota } from "@/lib/quotas.functions";
+import { parseQuestions } from "@/lib/parse-questions";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -97,7 +98,7 @@ function Dashboard() {
     staleTime: 30_000,
     retry: 1,
   });
-  const detected = rawText.trim() ? (rawText.match(/^([ \t]*)(?:#+[ \t]*)?(?:(?:[Qq](?:uestion)?|प्रश्न|प्र\.?)[ \t]*[.-]?[ \t]*)?(\d{1,4})(?:[.:\-)\]]\s*|\s+)/gmi) || []).length : 0;
+  const detected = rawText.trim() ? parseQuestions(rawText).length : 0;
   const remaining = quota?.limit === null || quota?.limit === undefined
     ? null
     : Math.max(0, quota.limit - quota.used);

@@ -34,7 +34,7 @@ Rules:
 2. Clean Unicode formulas (², ³, √x, θ, α, π).
 3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (add them if missing from input).
 4. Sub-statements must have a space after their number (e.g., "1 <text>").
-5. Solution MUST be exactly 8 to 10 points in pure Hindi, numbered "1 ", "2 " (never paragraph).
+5. Solution MUST be exactly 8 to 10 points in pure Hindi, numbered "1 ", "2 " (never paragraph). Keep points crisp, direct, and factual (avoid repetitive padding).
 6. Output ONLY the required format above.`;
 
 export const PROMPT_MATH = `Expert Math MCQ solver. Output clean plain text ONLY (no markdown, no greetings):
@@ -56,7 +56,7 @@ Rules:
 2. Clean Unicode formulas (², ³, √x).
 3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (add them if missing from input).
 4. Sub-statements must have a space after their number (e.g., "1 <text>").
-5. Solution MUST be dash-bulleted steps starting with "- " in pure Hindi. Maximum 10 steps.
+5. Solution MUST be dash-bulleted steps starting with "- " in pure Hindi. Maximum 10 steps. Keep calculations direct and concise.
 6. Output ONLY the required format above.`;
 
 export const LENGTH_NORMAL = `\nSolution length: 2-4 short steps.`;
@@ -91,17 +91,27 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   s = s.replace(/^(Answer:.*)$/gim, "\n$1");
   s = s.replace(/^(Solution:.*)$/gim, "\n$1");
 
+  // Reunite orphaned numbers that are on a line by themselves: "1\nText..." -> "1 Text..."
+  s = s.replace(/(?:^|\n)\s*(\((?:[1-9]|10|i{1,3}|iv|v)\)|[1-9]|10)[.)]?\s*\n\s*(?=\S)/g, "\n$1 ");
+
+  // Break inline numbered statements inside question body before options
+  s = s.replace(/([:：])\s*(?=(?:[1-9]|10|\((?:[1-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g, "$1\n");
+  s = s.replace(/([।\.\?!;]\s*)(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g, "$1\n");
+  s = s.replace(/([।\.\?!;]\s*)(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi, "$1\n");
+
   // Fix column headers glued to the end of a line or to their first item
   s = s.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
   s = s.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
 
   // Fix "कूट :" / "Code:" glued to previous text or to options
-  s = s.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
-  s = s.replace(/^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
+  s = s.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
+  s = s.replace(/^((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
 
-  // Add missing space after option label if stuck directly to content (e.g. "A.2, 3" -> "A. 2, 3", "(a)Delhi" -> "(a) Delhi")
-  s = s.replace(/(?<![A-Za-z0-9])([A-Ha-h]\.)(?=\S)/g, "$1 ");
-  s = s.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
+  // Only add space after option label if at line start or after 2+ spaces, and NOT followed by an abbreviation like B.C., A.D., C.E.
+  s = s.replace(/(?:^|[^\S\r\n]{2,})([A-Ha-h]\.)(?!\s*[A-Za-z]\.)([^\s.])/gm, (m, g1, g2) => {
+    return m.slice(0, m.length - g1.length - g2.length) + g1 + " " + g2;
+  });
+  s = s.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=[^\s:.\-])/g, "$1 ");
 
   // Add missing space after sub-statement number if stuck directly to content (e.g. "1वैगनर" -> "1 वैगनर")
   s = s.replace(/^([1-9]|10)(?=[^\s\d.\)])/gm, "$1 ");
@@ -112,8 +122,8 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   // Also split sub-statements like (1), (2), (3), (4) or (i), (ii), (iii), (iv) if on same line
   s = s.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
 
-  // Split options (A-H) if they were output on the same line horizontally.
-  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]+(?=[A-Ha-h][.)](?:\s+|$))/g, "\n");
+  // Split options (A-H) if they were output on the same line horizontally (require 2+ spaces, with negative lookahead to never split abbreviations like B.C., A.D., C.E.).
+  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=[A-Ha-h][.)](?!\s*[A-Za-z]\.)(?:\s+|$))/g, "\n");
   // For bracketed options like (a) or (1), require at least 2 spaces to avoid splitting normal text like "केवल (1) और (2)".
   s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=\([a-hA-H1-8]\)(?:\s+|$))/g, "\n");
 
@@ -135,8 +145,12 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   }
 
   // Force the main question number to the caller-supplied idx with a dot,
-  // matching the first occurrence of a number at the top of the string.
-  s = s.replace(/^\s*(?:#+\s*)?(?:(?:[Qq](?:uestion)?|प्रश्न|प्र\.?)[ \t]*[.-]?[ \t]*)?\d{1,4}[.:\-)\]\s]+\s*/i, `${idx}. `);
+  // matching the first occurrence of a number at the top, or prepending if missing.
+  if (!/^\s*(?:#+\s*)?(?:(?:[Qq](?:uestion)?|प्रश्न|प्र\.?)[ \t]*[.-]?[ \t]*)?\d{1,4}[.:\-)\]\s]+/i.test(s)) {
+    s = `${idx}. ` + s.trim();
+  } else {
+    s = s.replace(/^\s*(?:#+\s*)?(?:(?:[Qq](?:uestion)?|प्रश्न|प्र\.?)[ \t]*[.-]?[ \t]*)?\d{1,4}[.:\-)\]\s]+\s*/i, `${idx}. `);
+  }
 
   // For math, convert numbered solution steps into dash bullets so they
   // render as red "- " markers instead of "1. 2. 3.".
@@ -237,9 +251,9 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
   const systemPrompt = basePrompt + LANG_RULE + lengthRule;
 
   // Optimized max tokens: solutions are strictly concise points (GK: 8-10 points, Math: 2-10 steps),
-  // preventing runaway token generation and keeping costs at the absolute minimum.
+  // with sufficient headroom so complex derivations are never cut off prematurely.
   const maxTokens = subjectType === "math"
-    ? (solutionLength === "long" ? 1000 : 600)
+    ? (solutionLength === "long" ? 1200 : 650)
     : 1000;
 
   // Standardized user prompt structure for optimal prompt prefix caching
@@ -280,9 +294,27 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
         throw parseDeepSeekError(res.status, errText);
       }
 
-      const json = (await res.json().catch(() => null)) as
-        | { choices?: { message?: { content?: string } }[] }
-        | null;
+      const json = (await res.json().catch(() => null)) as {
+        choices?: { message?: { content?: string } }[];
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          total_tokens?: number;
+          prompt_cache_hit_tokens?: number;
+          prompt_cache_miss_tokens?: number;
+          prompt_tokens_details?: {
+            cached_tokens?: number;
+          };
+        };
+      } | null;
+
+      if (json?.usage) {
+        const hit = json.usage.prompt_cache_hit_tokens ?? json.usage.prompt_tokens_details?.cached_tokens ?? 0;
+        const miss = json.usage.prompt_cache_miss_tokens ?? Math.max(0, (json.usage.prompt_tokens ?? 0) - hit);
+        const out = json.usage.completion_tokens ?? 0;
+        console.log(`[DeepSeek API] Q${idx} Tokens | Cache Hit: ${hit} (@$0.014/1M) | Miss: ${miss} (@$0.14/1M) | Output: ${out} (@$0.28/1M)`);
+      }
+
       const content = json?.choices?.[0]?.message?.content?.trim();
       if (!content) throw new Error("Empty DeepSeek response");
       return content;
@@ -293,7 +325,7 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
   };
 
   let lastErr: unknown;
-  const MAX_RETRIES = 5;
+  const MAX_RETRIES = 3;
   for (let i = 0; i < MAX_RETRIES; i++) {
     try {
       const content = await attempt();
@@ -307,10 +339,10 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
       if (isNonRetryableDeepSeekError(e)) throw e;
       if (e instanceof Error && e.name === "AbortError" && signal?.aborted) throw e;
       if (i < MAX_RETRIES - 1) {
-        // Apply a harsher penalty for 429 Rate Limits with exponential backoff and jitter
+        // Apply exponential backoff with jitter for Rate Limits (429) or transient errors
         const isRateLimit = e instanceof DeepSeekProviderError && e.status === 429;
-        const baseDelay = isRateLimit ? 4000 : 1000;
-        const backoff = Math.pow(2, i) * baseDelay + Math.random() * 500;
+        const baseDelay = isRateLimit ? 3000 : 800;
+        const backoff = Math.pow(1.8, i) * baseDelay + Math.random() * 400;
         await new Promise((r) => setTimeout(r, backoff));
       }
     }

@@ -319,18 +319,43 @@ function formatQuestionError(error: string): string {
   return error;
 }
 
+function renderMarkdownText(text: string): React.ReactNode {
+  if (!text) return null;
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  return parts.map((part, idx) => {
+    if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
+      return <strong key={idx} className="font-semibold">{part.slice(2, -2)}</strong>;
+    }
+    return part;
+  });
+}
+
 const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { text: string; subjectType?: "gk_english" | "math" }) {
   const isMath = subjectType === "math";
   
+  let cleanText = text;
+
+  // Reunite orphaned numbers that are on a line by themselves: "1\nText..." -> "1 Text..."
+  cleanText = cleanText.replace(/(?:^|\n)\s*(\((?:[1-9]|10|i{1,3}|iv|v)\)|[1-9]|10)[.)]?\s*\n\s*(?=\S)/g, "\n$1 ");
+
+  // Break inline numbered statements inside question body before options
+  cleanText = cleanText.replace(/([:：])\s*(?=(?:[1-9]|10|\((?:[1-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g, "$1\n");
+  cleanText = cleanText.replace(/([।\.\?!;]\s*)(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g, "$1\n");
+  cleanText = cleanText.replace(/([।\.\?!;]\s*)(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi, "$1\n");
+
   // Pre-process to unglue headers that might be stuck on the same line as the previous option or statements
-  let cleanText = text.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
+  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
   cleanText = cleanText.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
-  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
-  cleanText = cleanText.replace(/^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
-  cleanText = cleanText.replace(/(?<![A-Za-z0-9])([A-Ha-h]\.)(?=\S)/g, "$1 ");
+  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
+  cleanText = cleanText.replace(/^((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
+
+  // Only add space after option label if at line start or after 2+ spaces, and NOT followed by period or digit (avoids breaking B.C., A.D., C.E., B.C.E., or A.1)
+  cleanText = cleanText.replace(/(?:^|[^\S\r\n]{2,})([A-Ha-h]\.)([^\s.0-9])/gm, (m, g1, g2) => {
+    return m.slice(0, m.length - g1.length - g2.length) + g1 + " " + g2;
+  });
   cleanText = cleanText.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
   cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
-  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=(?:[A-Ha-h][.)]|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
+  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=(?:[A-Ha-h][.)](?!\s*[A-Za-z]\.)|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
   cleanText = cleanText.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
   
   let cleanLines = cleanText.split("\n");
@@ -371,7 +396,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
         while (j < cleanLines.length) {
           let currLine = cleanLines[j].trim();
           
-          if (/^\s*(?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(currLine) || /^\s*(?:Answer|Solution):/i.test(currLine)) {
+          if (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(currLine) || /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(currLine)) {
             break;
           }
 
@@ -450,50 +475,68 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       inSolution = false;
       blocks.push(
         <p key={i} className="text-[15px] leading-7 font-semibold mb-3">
-          <span>{q[1]}. {q[2]}</span>
+          <span>{q[1]}. </span>
+          <span>{renderMarkdownText(q[2])}</span>
         </p>,
       );
       continue;
     }
     if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|I|1)[:.\-]?/i.test(line)) {
       inSolution = false;
+      const headerA = line.replace(/[:.\-]+$/, "").trim() || "Column A";
+      let headerB = "Column B";
       const colA: string[] = [];
       const colB: string[] = [];
       let j = i + 1;
-      while (j < lines.length && !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j])) {
+      while (
+        j < lines.length &&
+        !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j]) &&
+        !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
+        !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
+        !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j])
+      ) {
         colA.push(lines[j]);
         j++;
       }
       if (j < lines.length && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j])) {
-        j++; // skip Column B:
-        while (j < lines.length && colB.length < colA.length && !/^\s*Answer:/i.test(lines[j]) && !/^\s*Solution:/i.test(lines[j])) {
+        headerB = lines[j].replace(/[:.\-]+$/, "").trim() || "Column B";
+        j++;
+        while (
+          j < lines.length &&
+          !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
+          !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
+          !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j]) &&
+          !/^\s*[A-D]\.\s+\S/.test(lines[j]) &&
+          !/^\s*\([A-Da-d]\)\s+(?:[a-dA-D1-4]\s*[-–—]|\d\s*,\s*\d|\S+)/.test(lines[j])
+        ) {
           colB.push(lines[j]);
           j++;
         }
       }
+      const labelRegex = /^(\(?(?:[0-9]{1,2}|[a-zA-Z]|[ivxIVX]{1,4})\)?|[0-9]{1,2}[.)]?|[a-zA-Z][.)]|[ivxIVX]{1,4}[.)]?)\s+(.*)$/;
       blocks.push(
         <div key={i} className="my-6 rounded-md overflow-hidden border border-gray-300 dark:border-gray-700">
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-300 dark:border-gray-700">
-                <th className="p-4 font-semibold text-[15px] border-r border-gray-300 dark:border-gray-700 w-1/2">Column A</th>
-                <th className="p-4 font-semibold text-[15px] w-1/2">Column B</th>
+                <th className="p-4 font-semibold text-[15px] border-r border-gray-300 dark:border-gray-700 w-1/2">{headerA}</th>
+                <th className="p-4 font-semibold text-[15px] w-1/2">{headerB}</th>
               </tr>
             </thead>
             <tbody>
               {Array.from({ length: Math.max(colA.length, colB.length) }).map((_, idx) => {
                 const cellA = colA[idx] || "";
                 const cellB = colB[idx] || "";
-                const matchA = cellA.match(/^(\(?[1-9a-hA-H]\)?|[1-9a-hA-H][.)]?)\s+(.*)$/);
-                const matchB = cellB.match(/^(\(?[1-9a-hA-H]\)?|[1-9a-hA-H][.)]?)\s+(.*)$/);
+                const matchA = cellA ? cellA.match(labelRegex) : null;
+                const matchB = cellB ? cellB.match(labelRegex) : null;
                 
                 return (
                   <tr key={idx} className="border-b last:border-b-0 border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900">
                     <td className="p-4 text-[15px] leading-7 border-r border-gray-300 dark:border-gray-700 align-top">
-                      {matchA ? <><span className="font-semibold">{matchA[1]} </span>{matchA[2]}</> : cellA}
+                      {matchA ? <><span className="font-semibold">{matchA[1]} </span>{renderMarkdownText(matchA[2])}</> : renderMarkdownText(cellA)}
                     </td>
                     <td className="p-4 text-[15px] leading-7 align-top">
-                      {matchB ? <><span className="font-semibold">{matchB[1]} </span>{matchB[2]}</> : cellB}
+                      {matchB ? <><span className="font-semibold">{matchB[1]} </span>{renderMarkdownText(matchB[2])}</> : renderMarkdownText(cellB)}
                     </td>
                   </tr>
                 );
@@ -506,36 +549,48 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       continue;
     }
 
-    // Code header: "कूट :", "Code:", "उत्तर कूट:"
-    if (/^\s*(?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(line)) {
+    // Code header: "कूट :", "Code:", "उत्तर कूट:", "सही कूट:"
+    const isCodeHeader = /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)(?:\s*\([a-zA-Z]+\))?\s*[:.\-]/i.test(line) || /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(line);
+    if (isCodeHeader) {
       inSolution = false;
       blocks.push(
         <p key={i} className="text-[15px] leading-7 font-semibold mt-2 mb-1">
-          {line}
+          {renderMarkdownText(line)}
         </p>
       );
       continue;
     }
 
-    // Check if line is a sub-statement (1), (2), (3), (4) or (i), (ii), etc.
-    const statementMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\))\s*(.*)$/i) : null;
+    // Assertion / Reason: "कथन (A):", "कारण (R):", "अभिकथन (A):", "कथन-I:", "कथन II:", "Statement I:"
+    const assertionRegex = /^(\s*(?:अभिकथन|कथन|कारण|दलील|Assertion|Reason|Statement)\s*(?:[\-–—\s]*(?:I{1,3}|IV|V|[A-Za-z0-9])|\([A-Za-z0-9]+\))\s*[:.\-]?)\s*(.*)$/i;
+    const isAssertionReason = (!seenAnswer && !seenSolution) && assertionRegex.test(line);
+    if (isAssertionReason) {
+      inSolution = false;
+      const m = line.match(assertionRegex);
+      blocks.push(
+        <p key={i} className="text-[15px] leading-7 pl-4 my-1">
+          <span className="font-semibold">{m ? m[1] : line} </span>{m ? renderMarkdownText(m[2]) : ""}
+        </p>
+      );
+      continue;
+    }
+
+    // Check if line starts with an abbreviation like B.C., B. C., A.D., C.E., B.C.E. (not an option)
+    const isAbbrev = /^\s*[A-Za-z]\.(?:\s*[A-Za-z]\.)+/i.test(line);
 
     // Check if line is an option A., B., C., D. or (a), (b), (c), (d) or A) Option
-    const letterOptMatch = (!seenAnswer && !seenSolution) ? line.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s*(.*)$/) : null;
+    const letterOptMatch = (!seenAnswer && !seenSolution && !isAbbrev) ? line.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s+(.*)$/) : null;
 
-    // Check if line is a numeric option 1., 2., 3., 4. (when no letters exist and not a statement)
-    const numOptMatch = (!seenAnswer && !seenSolution && !statementMatch) ? line.match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/) : null;
+    // Check if line is a sub-statement (1), (2), (3), (4) or (i), (ii), etc. or "1 ", "2 " before options
+    const statementMatch = (!seenAnswer && !seenSolution && !letterOptMatch) ? line.match(/^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\)|(?:[1-9]|10)[.)]?|(?:i{1,3}|iv|v|vi)[.)])\s+(.*)$/i) : null;
 
-    if (letterOptMatch || numOptMatch) {
+    if (letterOptMatch) {
       inSolution = false;
-      const isLetter = !!letterOptMatch;
       const options: { label: string; text: string }[] = [];
       let j = i;
       while (j < lines.length) {
         const currLine = lines[j];
-        const m = isLetter
-          ? currLine.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s*(.*)$/)
-          : currLine.match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
+        const m = currLine.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s*(.*)$/);
         if (m) {
           const label = m[1];
           let text = m[2] ? m[2].trim() : "";
@@ -543,9 +598,9 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           while (
             j < lines.length &&
             !/^\s*(?:(?:[A-Ha-h]\.)|(?:\([a-hA-H1-8]\))|(?:[A-Ha-h]\))|(?:[1-8]\.))\s+/i.test(lines[j]) &&
-            !/^\s*(?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(lines[j]) &&
-            !/^\s*Answer:/i.test(lines[j]) &&
-            !/^\s*Solution:/i.test(lines[j])
+            !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j]) &&
+            !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
+            !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j])
           ) {
             text += (text ? " " : "") + lines[j].trim();
             j++;
@@ -560,7 +615,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           {options.map((o, idx) => (
             <div key={idx} className="flex items-start text-[15px] leading-7">
               <span className="shrink-0 w-8 font-semibold">{o.label}</span>
-              <span>{o.text}</span>
+              <span>{renderMarkdownText(o.text)}</span>
             </div>
           ))}
         </div>
@@ -573,29 +628,33 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       inSolution = false;
       blocks.push(
         <p key={i} className="text-[15px] leading-7 pl-4 my-1">
-          <span className="font-semibold">{statementMatch[1]} </span>{statementMatch[2]}
+          <span className="font-semibold">{statementMatch[1]} </span>{renderMarkdownText(statementMatch[2])}
         </p>
       );
       continue;
     }
 
-    if (/^\s*Answer:/i.test(line)) {
+    // Answer: Answer:, Ans:, उत्तर:
+    if (/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(line)) {
       inSolution = false;
       seenAnswer = true;
+      const ansVal = line.replace(/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]\s*/i, "");
       blocks.push(
         <p key={i} className="text-[15px] leading-7 mt-4">
-          <span className="font-semibold">Answer:</span> {line.replace(/^Answer:\s*/i, "")}
+          <span className="font-semibold">Answer:</span> {renderMarkdownText(ansVal)}
         </p>,
       );
       continue;
     }
-    if (/^\s*Solution:/i.test(line)) {
+
+    // Solution: Solution:, Sol:, हल:, समाधान:
+    if (/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(line)) {
       inSolution = true;
       seenSolution = true;
-      const rest = line.replace(/^\s*Solution:\s*/i, "");
+      const rest = line.replace(/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]\s*/i, "");
       blocks.push(
         <p key={i} className="text-[15px] leading-7 mt-2">
-          <span className="font-semibold">Solution:</span>{rest ? ` ${rest}` : ""}
+          <span className="font-semibold">Solution:</span>{rest ? <span> {renderMarkdownText(rest)}</span> : ""}
         </p>,
       );
       continue;
@@ -607,14 +666,14 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
         blocks.push(
           <div key={i} className="flex gap-2 text-[15px] leading-7 pl-4 my-1">
             <span className="text-red-600 font-bold select-none">-</span>
-            <span>{step[2]}</span>
+            <span>{renderMarkdownText(step[2])}</span>
           </div>,
         );
         continue;
       }
       blocks.push(
         <p key={i} className="text-[15px] leading-7 pl-6 my-1">
-          <span className="font-semibold">{step[1]}</span> {step[2]}
+          <span className="font-semibold">{step[1]}</span> {renderMarkdownText(step[2])}
         </p>,
       );
       continue;
@@ -624,7 +683,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       blocks.push(
         <div key={i} className="flex gap-2 text-[15px] leading-7 pl-4 my-1">
           <span className="text-red-600 font-bold select-none">-</span>
-          <span>{dashStep[1]}</span>
+          <span>{renderMarkdownText(dashStep[1])}</span>
         </div>,
       );
       continue;
@@ -635,12 +694,12 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       blocks.push(
         <div key={i} className="flex gap-2 text-[15px] leading-7 pl-1 mt-1">
           <span className="text-muted-foreground select-none">•</span>
-          <span>{b[1]}</span>
+          <span>{renderMarkdownText(b[1])}</span>
         </div>,
       );
       continue;
     }
-    blocks.push(<p key={i} className="text-[15px] leading-7">{line}</p>);
+    blocks.push(<p key={i} className="text-[15px] leading-7">{renderMarkdownText(line)}</p>);
   }
 
   return <div className="font-sans">{blocks}</div>;
