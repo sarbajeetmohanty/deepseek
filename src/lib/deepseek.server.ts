@@ -12,7 +12,7 @@ export const PROMPT_GK = `Expert competitive-exam MCQ solver. Output clean plain
 <number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
 [If statements: 1 <text> ... 2 <text> ... on separate lines]
 [If code header: 'कूट :' or 'Code:' on separate line]
-[If Match Column: You MUST output two separate lists perfectly: "Column A:" followed by items, and "Column B:" followed by items. NEVER combine them with '|'.]
+[If Match Column: You MUST output two separate lists: "Column A:" followed by items (a., b., c., d.), and "Column B:" followed by items (1., 2., 3., 4.). NEVER put Column B items on the same line as Column A (do NOT use '-' or '|' between columns).]
 A. <option 1>
 B. <option 2>
 C. <option 3>
@@ -102,6 +102,70 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   // Fix column headers glued to the end of a line or to their first item
   s = s.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|B|I{1,3}|1|2)\)?(?:\([^\)\n]+\))?(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
   s = s.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|B|I{1,3}|1|2)\)?(?:\([^\)\n]+\))?[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
+
+  // Fix dash/hyphen/colon separated match-the-column items on the same line (e.g. "a Item - 1 Item")
+  const dashSplitRegex = /\s*(?:[-–—:;]|\t+)\s*(?=\(?(?:[1-9]|10|[a-hA-H]|i{1,3}|iv|v)\)?[.)]?\s+)/i;
+  const leftItemRegex = /^\s*(?:[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?|\([ivxIVX]{1,4}\))\s+/i;
+  const linesArr = s.split("\n");
+  for (let i = 0; i < linesArr.length; i++) {
+    const line = linesArr[i].trim();
+    if (!/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान|Code|Codes|कूट|कोड)/i.test(line)) {
+      const parts = line.split(dashSplitRegex);
+      if (parts.length >= 2 && leftItemRegex.test(parts[0])) {
+        let startIndex = i;
+        while (startIndex > 0) {
+          const prev = linesArr[startIndex - 1].trim();
+          if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I|1)\)?[:.\-]?/i.test(prev)) {
+            startIndex--;
+            break;
+          }
+          if (prev === "" || /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?[:.\-]?/i.test(prev)) {
+            startIndex--;
+            continue;
+          }
+          break;
+        }
+
+        let j = i;
+        const colAItems: string[] = [];
+        const colBItems: string[] = [];
+        while (j < linesArr.length) {
+          const curr = linesArr[j].trim();
+          if (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(curr) || /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(curr)) {
+            break;
+          }
+          if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(curr)) {
+            j++;
+            continue;
+          }
+          const p = curr.split(dashSplitRegex);
+          if (p.length >= 2 && leftItemRegex.test(p[0])) {
+            colAItems.push(p[0].trim());
+            colBItems.push(p.slice(1).join(" - ").trim());
+          } else if (p.length === 1 && p[0] === "") {
+            j++;
+            continue;
+          } else {
+            break;
+          }
+          j++;
+        }
+
+        if (colAItems.length > 0) {
+          const precedingText = linesArr.slice(0, startIndex).join(" ");
+          const m1 = precedingText.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:I|A|1)(?:\s*\([^\)\n]+\))?)/i);
+          const m2 = precedingText.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:II|B|2)(?:\s*\([^\)\n]+\))?)/i);
+          const headerA = m1 ? `${m1[1]}:` : "Column A:";
+          const headerB = m2 ? `${m2[1]}:` : "Column B:";
+
+          const replacement = [headerA, ...colAItems, headerB, ...colBItems];
+          linesArr.splice(startIndex, j - startIndex, ...replacement);
+          i = startIndex + replacement.length - 1;
+        }
+      }
+    }
+  }
+  s = linesArr.join("\n");
 
   // Fix "कूट :" / "Code:" glued to previous text or to options
   s = s.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");

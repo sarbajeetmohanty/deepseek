@@ -426,6 +426,68 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
     }
   }
 
+  // Fix dash/hyphen/colon separated match-the-column items on the same line (e.g. "a Item - 1 Item")
+  const dashSplitRegex = /\s*(?:[-–—:;]|\t+)\s*(?=\(?(?:[1-9]|10|[a-hA-H]|i{1,3}|iv|v)\)?[.)]?\s+)/i;
+  const leftItemRegex = /^\s*(?:[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?|\([ivxIVX]{1,4}\))\s+/i;
+  for (let i = 0; i < cleanLines.length; i++) {
+    const line = cleanLines[i].trim();
+    if (!/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान|Code|Codes|कूट|कोड)/i.test(line)) {
+      const parts = line.split(dashSplitRegex);
+      if (parts.length >= 2 && leftItemRegex.test(parts[0])) {
+        let startIndex = i;
+        while (startIndex > 0) {
+          const prev = cleanLines[startIndex - 1].trim();
+          if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I|1)\)?[:.\-]?/i.test(prev)) {
+            startIndex--;
+            break;
+          }
+          if (prev === "" || /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?[:.\-]?/i.test(prev)) {
+            startIndex--;
+            continue;
+          }
+          break;
+        }
+
+        let j = i;
+        const colAItems: string[] = [];
+        const colBItems: string[] = [];
+        while (j < cleanLines.length) {
+          const curr = cleanLines[j].trim();
+          if (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(curr) || /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(curr)) {
+            break;
+          }
+          if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(curr)) {
+            j++;
+            continue;
+          }
+          const p = curr.split(dashSplitRegex);
+          if (p.length >= 2 && leftItemRegex.test(p[0])) {
+            colAItems.push(p[0].trim());
+            colBItems.push(p.slice(1).join(" - ").trim());
+          } else if (p.length === 1 && p[0] === "") {
+            j++;
+            continue;
+          } else {
+            break;
+          }
+          j++;
+        }
+
+        if (colAItems.length > 0) {
+          const precedingText = cleanLines.slice(0, startIndex).join(" ");
+          const m1 = precedingText.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:I|A|1)(?:\s*\([^\)\n]+\))?)/i);
+          const m2 = precedingText.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:II|B|2)(?:\s*\([^\)\n]+\))?)/i);
+          const headerA = m1 ? `${m1[1]}:` : "Column A:";
+          const headerB = m2 ? `${m2[1]}:` : "Column B:";
+
+          const replacement = [headerA, ...colAItems, headerB, ...colBItems];
+          cleanLines.splice(startIndex, j - startIndex, ...replacement);
+          i = startIndex + replacement.length - 1;
+        }
+      }
+    }
+  }
+
   // Fix interleaved match-the-column items (a., 1., b., 2.) that missed Column headers
   for (let i = 0; i < cleanLines.length - 3; i++) {
     const m1 = cleanLines[i].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
@@ -483,7 +545,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
     }
     if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1)\)?/i.test(line)) {
       inSolution = false;
-      const headerA = line.replace(/[:.\-]+$/, "").trim() || "Column A";
+      let headerA = line.replace(/[:.\-]+$/, "").trim() || "Column A";
       let headerB = "Column B";
       const colA: string[] = [];
       const colB: string[] = [];
@@ -513,6 +575,37 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           j++;
         }
       }
+
+      // If Column B is empty, attempt to split colA items that contain embedded dash-separated Column B items
+      if (colB.length === 0 && colA.length > 0) {
+        const canSplit = colA.some(item => dashSplitRegex.test(item));
+        if (canSplit) {
+          const splitColA: string[] = [];
+          for (const item of colA) {
+            const parts = item.split(dashSplitRegex);
+            if (parts.length >= 2) {
+              splitColA.push(parts[0].trim());
+              colB.push(parts.slice(1).join(" - ").trim());
+            } else {
+              splitColA.push(item);
+            }
+          }
+          colA.length = 0;
+          colA.push(...splitColA);
+        }
+      }
+
+      // If generic header, extract custom subtitles from preceding question prompt if available
+      if (/^(?:Column\s*A|कॉलम\s*A|स्तंभ\s*1)$/i.test(headerA)) {
+        const fullQ = lines.slice(0, i + 1).join(" ");
+        const m1 = fullQ.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:I|A|1)(?:\s*\([^\)\n]+\))?)/i);
+        const m2 = fullQ.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:II|B|2)(?:\s*\([^\)\n]+\))?)/i);
+        if (m1 && m2) {
+          headerA = m1[1];
+          headerB = m2[1];
+        }
+      }
+
       const labelRegex = /^(\(?(?:[0-9]{1,2}|[a-zA-Z]|[ivxIVX]{1,4})\)?|[0-9]{1,2}[.)]?|[a-zA-Z][.)]|[ivxIVX]{1,4}[.)]?)\s+(.*)$/;
       blocks.push(
         <div key={i} className="my-6 rounded-md overflow-hidden border border-gray-300 dark:border-gray-700">
