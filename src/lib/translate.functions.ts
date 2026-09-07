@@ -27,7 +27,7 @@ async function gtranslate(text: string, source: string, target: string): Promise
 // sometimes reorders/renames "Answer:", "Solution:", "Column A:" — restore them.
 function normalizeTranslated(text: string, idx: number): string {
   let s = text.replace(/\r\n?/g, "\n");
-  s = s.replace(/^\s*(?:(?:[Qq]\.?(?:uestion)?|प्रश्न|प्र\.?)\s*)?\d{1,4}\s*[:.\-)\s]\s*/i, `${idx}. `);
+  s = s.replace(/^\s*(?:(?:[Qq]\.?(?:uestion|ue|ues)?|Problem|Prob|MCQ|Item|Task|Case)(?:[ \t]*(?:No|Num|Number|#)\.?)?|प्रश्न(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|प्र\.?[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक)?|सवाल(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|क्र\.?[ \t]*(?:सं\.?|संख्या)?|[?¿\uFFFD]+)?[ \t]*[:.-]?[ \t]*\d{1,4}\s*[:.\-)\s]\s*/i, `${idx}. `);
 
   // Reunite orphaned numbers that are on a line by themselves: "1\nText..." -> "1 Text..."
   s = s.replace(/(?:^|\n)\s*(\((?:[1-9]|10|i{1,3}|iv|v)\)|[1-9]|10)[.)]?\s*\n\s*(?=\S)/g, "\n$1 ");
@@ -39,7 +39,7 @@ function normalizeTranslated(text: string, idx: number): string {
 
   s = s.replace(/^\s*(Ans(?:wer)?|उत्तर)\s*[:.-]\s*/gim, "Answer: ");
   s = s.replace(/^\s*(Sol(?:ution)?|समाधान|हल)\s*[:.-]\s*/gim, "Solution: ");
-  s = s.replace(/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*([ABI12]|II)\s*[:.-]?\s*$/gim, (m, p1) => {
+  s = s.replace(/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?([ABI12]|II)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*$/gim, (m, p1) => {
     return `Column ${/A|I|1/i.test(p1) ? 'A' : 'B'}:`;
   });
   

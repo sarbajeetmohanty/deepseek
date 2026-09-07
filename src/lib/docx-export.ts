@@ -166,8 +166,8 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
   let seenSolution = false;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    // Question line: "374. ..."
-    const q = line.match(/^\s*(\d{1,4})\.\s+(.*)$/);
+    // Question line: "374. ..." or "Question 1: ..."
+    const q = line.match(/^\s*(?:(?:[Qq]\.?(?:uestion|ue|ues)?|Problem|Prob|MCQ|Item|Task|Case)(?:[ \t]*(?:No|Num|Number|#)\.?)?|प्रश्न(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|प्र\.?[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक)?|सवाल(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|क्र\.?[ \t]*(?:सं\.?|संख्या)?|[?¿\uFFFD]+)?[ \t]*[:.-]?[ \t]*(\d{1,4})[.:\-)\]]\s+(.*)$/i);
     if (q && !seenQuestion) {
       seenQuestion = true;
       inSolution = false;
@@ -180,7 +180,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       continue;
     }
 
-    if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|I|1)[:.\-]?/i.test(line)) {
+    if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1)\)?/i.test(line)) {
       inSolution = false;
       const headerA = line.replace(/[:.\-]+$/, "").trim() || "Column A";
       let headerB = "Column B";
@@ -189,7 +189,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       let j = i + 1;
       while (
         j < lines.length &&
-        !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j]) &&
+        !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(lines[j]) &&
         !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
         !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
         !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j])
@@ -197,7 +197,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         colA.push(lines[j]);
         j++;
       }
-      if (j < lines.length && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)[:.\-]?/i.test(lines[j])) {
+      if (j < lines.length && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(lines[j])) {
         headerB = lines[j].replace(/[:.\-]+$/, "").trim() || "Column B";
         j++;
         while (

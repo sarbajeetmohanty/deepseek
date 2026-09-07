@@ -12,7 +12,7 @@ export function parseQuestions(raw: string): { idx: number; text: string }[] {
   // m[2]: optional Q prefix
   // m[3]: digits
   // m[4]: optional punctuation
-  const startRe = /^([ \t]*)(?:#+[ \t]*)?((?:(?:[Qq]\.?(?:uestion|ue|ues)?|Problem|Prob|MCQ)(?:[ \t]*(?:No|Num|Number|#)\.?)?|प्रश्न(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|प्र\.?[ \t]*(?:सं\.?|क्र\.?)?)[ \t]*[:.-]?[ \t]*|)(\d{1,4})(?:\s*([.:\-)\]])\s*|\s+)/i;
+  const startRe = /^([ \t]*)(?:#+[ \t]*)?((?:(?:[Qq]\.?(?:uestion|ue|ues)?|Problem|Prob|MCQ|Item|Task|Case)(?:[ \t]*(?:No|Num|Number|#)\.?)?|प्रश्न(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|प्र\.?[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक)?|सवाल(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|क्र\.?[ \t]*(?:सं\.?|संख्या)?|[?¿\uFFFD]+)[ \t]*[:.-]?[ \t]*|)(\d{1,4})(?:\s*([.:\-)\]])\s*|\s+)/i;
   let docPrefixType: "Q" | "NUM" | null = null;
   let baseIndent = 0;
 
@@ -49,8 +49,8 @@ export function parseQuestions(raw: string): { idx: number; text: string }[] {
         let isSubPoint = false;
         
         // Check if current question already has options or an answer
-        const hasColA = /(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|I|1)/i.test(current.text);
-        const hasColB = /(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:B|II|2)/i.test(current.text);
+        const hasColA = /(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1)\)?/i.test(current.text);
+        const hasColB = /(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(current.text);
         const hasCode = /(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)/i.test(current.text);
         const hasAnswer = /^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/im.test(current.text);
         

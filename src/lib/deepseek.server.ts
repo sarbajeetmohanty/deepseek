@@ -100,8 +100,8 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   s = s.replace(/([।\.\?!;]\s*)(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi, "$1\n");
 
   // Fix column headers glued to the end of a line or to their first item
-  s = s.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
-  s = s.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
+  s = s.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|B|I{1,3}|1|2)\)?(?:\([^\)\n]+\))?(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
+  s = s.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|B|I{1,3}|1|2)\)?(?:\([^\)\n]+\))?[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
 
   // Fix "कूट :" / "Code:" glued to previous text or to options
   s = s.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
@@ -125,7 +125,7 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   // Split options (A-H) if they were output on the same line horizontally (require 2+ spaces, with negative lookahead to never split abbreviations like B.C., A.D., C.E.).
   s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=[A-Ha-h][.)](?!\s*[A-Za-z]\.)(?:\s+|$))/g, "\n");
   // For bracketed options like (a) or (1), require at least 2 spaces to avoid splitting normal text like "केवल (1) और (2)".
-  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=\([a-hA-H1-8]\)(?:\s+|$))/g, "\n");
+  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=(?:[A-Ha-h1-8]\.|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
 
   // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9" or "(1)\nValue" -> "(1) Value")
   s = s.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
@@ -146,10 +146,11 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
 
   // Force the main question number to the caller-supplied idx with a dot,
   // matching the first occurrence of a number at the top, or prepending if missing.
-  if (!/^\s*(?:#+\s*)?(?:(?:[Qq](?:uestion)?|प्रश्न|प्र\.?)[ \t]*[.-]?[ \t]*)?\d{1,4}[.:\-)\]\s]+/i.test(s)) {
+  const prefixRegex = /^\s*(?:#+\s*)?(?:(?:[Qq]\.?(?:uestion|ue|ues)?|Problem|Prob|MCQ|Item|Task|Case)(?:[ \t]*(?:No|Num|Number|#)\.?)?|प्रश्न(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|प्र\.?[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक)?|सवाल(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|क्र\.?[ \t]*(?:सं\.?|संख्या)?|[?¿\uFFFD]+)?[ \t]*[:.-]?[ \t]*\d{1,4}[.:\-)\]\s]+/i;
+  if (!prefixRegex.test(s)) {
     s = `${idx}. ` + s.trim();
   } else {
-    s = s.replace(/^\s*(?:#+\s*)?(?:(?:[Qq](?:uestion)?|प्रश्न|प्र\.?)[ \t]*[.-]?[ \t]*)?\d{1,4}[.:\-)\]\s]+\s*/i, `${idx}. `);
+    s = s.replace(prefixRegex, `${idx}. `);
   }
 
   // For math, convert numbered solution steps into dash bullets so they
