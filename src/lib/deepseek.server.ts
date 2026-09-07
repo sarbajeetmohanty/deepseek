@@ -130,6 +130,10 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   s = s.replace(/\bA\s+nswer:/gi, "Answer:");
   s = s.replace(/\bS\s+olution:/gi, "Solution:");
   s = s.replace(/(?<![A-Za-z0-9])([A-Ha-h])\s+\./g, "$1.");
+  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[एA]|\u090F)(?:\s|$|\.)/gim, "Answer: A\n");
+  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[बीB]|\u092C\u0940)(?:\s|$|\.)/gim, "Answer: B\n");
+  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[सीC]|\u0938\u0940)(?:\s|$|\.)/gim, "Answer: C\n");
+  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[डीD]|\u0921\u0940)(?:\s|$|\.)/gim, "Answer: D\n");
 
   // Strip markdown bold/italics that the model sometimes emits despite the prompt.
   s = s.replace(/\*\*(.+?)\*\*/g, "$1");

@@ -40,10 +40,10 @@ export function normalizeTranslated(text: string, idx: number): string {
   s = s.replace(/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?([ABI12]|II)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*$/gim, (m, p1) => {
     return `Column ${/A|I|1/i.test(p1) ? 'A' : 'B'}:`;
   });
-  s = s.replace(/Answer:\s*([एA]|Option\s*A)\b/gi, "Answer: A");
-  s = s.replace(/Answer:\s*([बीB]|Option\s*B)\b/gi, "Answer: B");
-  s = s.replace(/Answer:\s*([सीC]|Option\s*C)\b/gi, "Answer: C");
-  s = s.replace(/Answer:\s*([डीD]|Option\s*D)\b/gi, "Answer: D");
+  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[एA]|\u090F)(?:\s|$|\.)/gim, "Answer: A\n");
+  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[बीB]|\u092C\u0940)(?:\s|$|\.)/gim, "Answer: B\n");
+  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[सीC]|\u0938\u0940)(?:\s|$|\.)/gim, "Answer: C\n");
+  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[डीD]|\u0921\u0940)(?:\s|$|\.)/gim, "Answer: D\n");
   s = s.replace(/(?<=\S)[^\S\r\n]*(?=Solution:)/gi, "\n\n");
   s = s.replace(/^(Solution:\s*)(\S)/gim, "$1\n$2");
   
