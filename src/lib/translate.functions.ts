@@ -3,7 +3,7 @@ import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
 // Free Google Translate endpoint — no API key. Preserves \n between segments.
 // `source` can be "auto" so Google detects the language for us.
-async function gtranslate(text: string, source: string, target: string): Promise<string> {
+export async function gtranslate(text: string, source: string, target: string): Promise<string> {
   const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${source}&tl=${target}&dt=t&q=${encodeURIComponent(text)}`;
   const ctl = new AbortController();
   const timer = setTimeout(() => ctl.abort(), 20_000);
@@ -21,11 +21,9 @@ async function gtranslate(text: string, source: string, target: string): Promise
   }
 }
 
-
-
 // Re-force canonical labels + question number after translation. Google Translate
 // sometimes reorders/renames "Answer:", "Solution:", "Column A:" — restore them.
-function normalizeTranslated(text: string, idx: number): string {
+export function normalizeTranslated(text: string, idx: number): string {
   let s = text.replace(/\r\n?/g, "\n");
   s = s.replace(/^\s*(?:(?:[Qq]\.?(?:uestion|ue|ues)?|Problem|Prob|MCQ|Item|Task|Case)(?:[ \t]*(?:No|Num|Number|#)\.?)?|प्रश्न(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|प्र\.?[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक)?|सवाल(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|क्र\.?[ \t]*(?:सं\.?|संख्या)?|[?¿\uFFFD]+)?[ \t]*[:.-]?[ \t]*\d{1,4}\s*[:.\-)\s]\s*/i, `${idx}. `);
 
@@ -42,6 +40,12 @@ function normalizeTranslated(text: string, idx: number): string {
   s = s.replace(/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?([ABI12]|II)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*$/gim, (m, p1) => {
     return `Column ${/A|I|1/i.test(p1) ? 'A' : 'B'}:`;
   });
+  s = s.replace(/Answer:\s*([एA]|Option\s*A)\b/gi, "Answer: A");
+  s = s.replace(/Answer:\s*([बीB]|Option\s*B)\b/gi, "Answer: B");
+  s = s.replace(/Answer:\s*([सीC]|Option\s*C)\b/gi, "Answer: C");
+  s = s.replace(/Answer:\s*([डीD]|Option\s*D)\b/gi, "Answer: D");
+  s = s.replace(/(?<=\S)[^\S\r\n]*(?=Solution:)/gi, "\n\n");
+  s = s.replace(/^(Solution:\s*)(\S)/gim, "$1\n$2");
   
   // Fix "Code:" / "कूट :" glued to previous text or to options
   s = s.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");

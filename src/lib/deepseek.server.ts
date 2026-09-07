@@ -51,14 +51,68 @@ Rules:
 4. Sub-statements must have a space after their number (e.g., "1 <text>").
 5. Output ONLY the required format above.`;
 
-export const GK_LENGTH_NORMAL = `\nSolution Rule: Exactly 2 to 3 concise, direct points in pure Hindi, numbered "1 ", "2 " (never paragraph). Keep points crisp, direct, and factual (avoid repetitive padding or filler words).`;
-export const GK_LENGTH_LONG = `\nSolution Rule: 5 to 7 detailed points in pure Hindi, numbered "1 ", "2 " covering comprehensive background and related facts.`;
+export const GK_LENGTH_NORMAL = `\nSolution Rule: The solution MUST contain 8 to 10 detailed points in pure Hindi, numbered "1 ", "2 " (never paragraph). Keep points informative, direct, and factual.`;
+export const GK_LENGTH_LONG = `\nSolution Rule: The solution MUST contain 8 to 10 detailed points in pure Hindi, numbered "1 ", "2 " covering comprehensive background and related facts.`;
 
-export const MATH_LENGTH_NORMAL = `\nSolution Rule: Dash-bulleted steps starting with "- " in pure Hindi. 2 to 4 concise calculation steps.`;
-export const MATH_LENGTH_LONG = `\nSolution Rule: Dash-bulleted steps starting with "- " in pure Hindi. 5 to 8 detailed calculation steps.`;
+export const MATH_LENGTH_NORMAL = `\nSolution Rule: Dash-bulleted steps starting with "- " in pure Hindi. Complete calculation steps.`;
+export const MATH_LENGTH_LONG = `\nSolution Rule: Dash-bulleted steps starting with "- " in pure Hindi. Detailed step-by-step calculation.`;
 
 export const LENGTH_NORMAL = MATH_LENGTH_NORMAL;
 export const LENGTH_LONG = MATH_LENGTH_LONG;
+
+// English prompt templates: Processing in English cuts token consumption by 60-70% compared to Hindi Devanagari,
+// allowing the full 8-10 points detailed solution to be generated at minimum token cost.
+export const PROMPT_GK_EN = `Expert competitive-exam MCQ solver. Output clean plain text ONLY in English (no markdown, no blank lines, no greetings):
+
+<number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
+[If statements: 1 <text> ... 2 <text> ... on separate lines]
+[If code header: 'Code:' on separate line]
+[If Match Column: You MUST output two separate lists: "Column A:" followed by items (a., b., c., d.), and "Column B:" followed by items (1., 2., 3., 4.). NEVER put Column B items on the same line as Column A.]
+A. <option 1>
+B. <option 2>
+C. <option 3>
+D. <option 4>
+
+Answer: <matching option label>
+Solution:
+1 <point 1>
+2 <point 2>
+3 <point 3>
+4 <point 4>
+5 <point 5>
+6 <point 6>
+7 <point 7>
+8 <point 8>
+
+Rules:
+1. 100% accurate facts. Solve and match options.
+2. Clean Unicode formulas (², ³, √x, θ, α, π).
+3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines.
+4. Sub-statements must have a space after their number (e.g., "1 <text>").
+5. The solution MUST contain 8 to 10 detailed points in English, numbered "1 ", "2 " (never paragraph). Keep points informative, direct, and factual.
+6. Output ONLY the required format above.`;
+
+export const PROMPT_MATH_EN = `Expert Math MCQ solver. Output clean plain text ONLY in English (no markdown, no greetings):
+
+<number>. <Question in clean Unicode - no LaTeX/$, superscripts ², ³, fractions (a)/(b), √x>
+A. <option 1>
+B. <option 2>
+C. <option 3>
+D. <option 4>
+
+Answer: <matching option label>
+Solution:
+- <step 1 - given / formula>
+- <step 2 - calculation>
+- <final step - final answer>
+
+Rules:
+1. 100% accurate math. Solve first, then match options.
+2. Clean Unicode formulas (², ³, √x).
+3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines.
+4. Sub-statements must have a space after their number (e.g., "1 <text>").
+5. Solution MUST be dash-bulleted steps starting with "- " in English. Complete step-by-step calculation.
+6. Output ONLY the required format above.`;
 
 export interface DeepSeekOptions {
   raw: string;
@@ -298,6 +352,7 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
   // Prefer the admin-managed key from app_settings; falls back to the env
   // secret. Cached in-memory (60s) so this is not a DB round-trip per call.
   const { getDeepseekApiKey } = await import("./settings.functions");
+  const { gtranslate, normalizeTranslated } = await import("./translate.functions");
   const apiKey = await getDeepseekApiKey();
 
   let cleaned: string;
@@ -308,21 +363,45 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
   }
   if (!cleaned.trim()) throw new Error("Empty question text");
 
-  // Keep system prompt static and clean to maximize DeepSeek Context / Prompt Caching hits across batch calls
-  const basePrompt = subjectType === "math" ? PROMPT_MATH : PROMPT_GK;
-  const lengthRule = subjectType === "math"
-    ? (solutionLength === "long" ? MATH_LENGTH_LONG : MATH_LENGTH_NORMAL)
-    : (solutionLength === "long" ? GK_LENGTH_LONG : GK_LENGTH_NORMAL);
-  const systemPrompt = basePrompt + LANG_RULE + lengthRule;
+  // Free English translation pipeline:
+  // If the input question contains Hindi, convert it to English for FREE via Google Translate (0 AI cost).
+  // DeepSeek solves in English (English tokens are 3-4x cheaper than Hindi Devanagari tokens),
+  // generating the full 8-10 points detailed solution without token bloat, then converts back to pure Hindi for free.
+  const hasHindi = /[\u0900-\u097F]/.test(cleaned);
+  let promptText = cleaned;
+  let translatedToEnglish = false;
 
-  // Optimized max tokens: normal solutions are strictly concise (GK: 2-3 points, Math: 2-4 steps),
-  // with enough headroom so large match-the-column items are never cut off mid-sentence.
-  const maxTokens = subjectType === "math"
-    ? (solutionLength === "long" ? 800 : 450)
-    : (solutionLength === "long" ? 800 : 480);
+  if (hasHindi) {
+    try {
+      const enQ = await gtranslate(cleaned, "auto", "en");
+      if (enQ && enQ.trim().length > 0) {
+        promptText = enQ.trim();
+        translatedToEnglish = true;
+      }
+    } catch (e) {
+      console.warn(`[DeepSeek] Free translation to English failed for Q${idx}, falling back to original language`, e);
+      translatedToEnglish = false;
+    }
+  }
+
+  // Keep system prompt static and clean to maximize DeepSeek Context / Prompt Caching hits across batch calls
+  const basePrompt = translatedToEnglish
+    ? (subjectType === "math" ? PROMPT_MATH_EN : PROMPT_GK_EN)
+    : (subjectType === "math" ? PROMPT_MATH : PROMPT_GK);
+  const lengthRule = translatedToEnglish
+    ? ""
+    : (subjectType === "math"
+      ? (solutionLength === "long" ? MATH_LENGTH_LONG : MATH_LENGTH_NORMAL)
+      : (solutionLength === "long" ? GK_LENGTH_LONG : GK_LENGTH_NORMAL));
+  const systemPrompt = translatedToEnglish
+    ? basePrompt
+    : basePrompt + LANG_RULE + lengthRule;
+
+  // Max tokens: English generation requires ~300-450 tokens for 8-10 full points, leaving ample headroom
+  const maxTokens = subjectType === "math" ? 850 : 800;
 
   // Standardized user prompt structure for optimal prompt prefix caching
-  const userPrompt = `Solve and format the following MCQ:\n\n${cleaned}\n\nReminder: Output strictly in the required format. Question must begin with "${idx}."`;
+  const userPrompt = `Solve and format the following MCQ:\n\n${promptText}\n\nReminder: Output strictly in the required format. Question must begin with "${idx}."`;
 
   const attempt = async () => {
     const ctl = new AbortController();
@@ -380,8 +459,21 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
         console.log(`[DeepSeek API] Q${idx} Tokens | Cache Hit: ${hit} (@$0.014/1M) | Miss: ${miss} (@$0.14/1M) | Output: ${out} (@$0.28/1M)`);
       }
 
-      const content = json?.choices?.[0]?.message?.content?.trim();
+      let content = json?.choices?.[0]?.message?.content?.trim();
       if (!content) throw new Error("Empty DeepSeek response");
+
+      // If we processed in English, convert the output back to Hindi for FREE via Google Translate (0 AI cost)
+      if (translatedToEnglish) {
+        try {
+          const hiOut = await gtranslate(content, "en", "hi");
+          if (hiOut && hiOut.trim().length > 0) {
+            content = normalizeTranslated(hiOut, idx);
+          }
+        } catch (e) {
+          console.warn(`[DeepSeek] Free translation to Hindi failed for Q${idx}, keeping English output`, e);
+        }
+      }
+
       return content;
     } finally {
       clearTimeout(timer);
