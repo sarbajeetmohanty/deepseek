@@ -220,6 +220,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
   cleanText = cleanLines.join("\n");
   cleanText = normalizeAnswerInText(cleanText);
   cleanText = normalizeOptionsInText(cleanText);
+  cleanText = cleanText.replace(/^\s*(\d{1,4}[.:\-)\]])\s*\n\s*(?=\S)/, "$1 ");
   const lines = cleanText
     .split("\n")
     .map((l) => l.replace(/\s+$/g, ""))
@@ -257,7 +258,8 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2|बी)\)?/i.test(lines[j]) &&
         !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
         !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
-        !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j])
+        !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j]) &&
+        !/^\s*(?:[A-D]\.\s+\S|\([A-Da-d]\)|[_*]*OPT[_\s\-]*[A-D])/i.test(lines[j])
       ) {
         colA.push(lines[j]);
         j++;
@@ -271,7 +273,8 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
           !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
           !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j]) &&
           !/^\s*[A-D]\.\s+\S/.test(lines[j]) &&
-          !/^\s*\([A-Da-d]\)\s+(?:[a-dA-D1-4]\s*[-–—]|\d\s*,\s*\d|\S+)/.test(lines[j])
+          !/^\s*\([A-Da-d]\)\s+(?:[a-dA-D1-4]\s*[-–—]|\d\s*,\s*\d|\S+)/.test(lines[j]) &&
+          !/^\s*[_*]*OPT[_\s\-]*[A-D]/i.test(lines[j])
         ) {
           colB.push(lines[j]);
           j++;

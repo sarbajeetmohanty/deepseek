@@ -9,6 +9,16 @@
 export function normalizeOptionsInText(text: string): string {
   let s = text;
 
+  // 0. Restore translation option & answer placeholders in any variant (e.g. __OPT_A__, _OPTA_, _OPT_A_, _OPTA, OPTA)
+  s = s.replace(/(?:^|\n)\s*[_*]*OPT[_\s\-]*A[_*]*[:.\s]*/gim, "\nA. ");
+  s = s.replace(/(?:^|\n)\s*[_*]*OPT[_\s\-]*B[_*]*[:.\s]*/gim, "\nB. ");
+  s = s.replace(/(?:^|\n)\s*[_*]*OPT[_\s\-]*C[_*]*[:.\s]*/gim, "\nC. ");
+  s = s.replace(/(?:^|\n)\s*[_*]*OPT[_\s\-]*D[_*]*[:.\s]*/gim, "\nD. ");
+  s = s.replace(/(?:^|\n)\s*(?:__ANS__|_ANS_|[_*]+ANS[_\s\-*]*|(?:Answer|Ans|उत्तर)\s*[:.\-])\s*/gim, "\nAnswer: ");
+
+  // 0.1 Reunite stranded question number on line 1: "22.\nText..." -> "22. Text..."
+  s = s.replace(/^\s*(\d{1,4}[.:\-)\]])\s*\n\s*(?=\S)/, "$1 ");
+
   // 1. Normalize assertion / reason headers: "कथन (ए):" -> "कथन (A):", "कारण (आर):" -> "कारण (R):"
   s = s.replace(/(?:^|\n)\s*(\b(?:अभिकथन|कथन|Statement|Assertion)\s*[:.\-]?\s*)\((?:[Aए]|अ)\)\s*[:.\-]?/gi, "\nकथन (A): ");
   s = s.replace(/(?:^|\n)\s*(\b(?:कारण|दलील|Reason)\s*[:.\-]?\s*)\((?:[Rआर]|r)\)\s*[:.\-]?/gi, "\nकारण (R): ");
@@ -30,6 +40,24 @@ export function normalizeOptionsInText(text: string): string {
   s = s.replace(/(?:^|\n)\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:A|I|1|ए)\)?(?:\([^\)\n]+\))?\s*[:.-]\s*/gim, "\nColumn A:\n");
   s = s.replace(/(?:^|\n)\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]\s*/gim, "\nColumn B:\n");
 
+  // If there are two "Column A:" headers, convert the second one to "Column B:"
+  const colLinesHeaders = s.split("\n");
+  let hasColAHeader = false;
+  for (let i = 0; i < colLinesHeaders.length; i++) {
+    const l = colLinesHeaders[i].trim();
+    if (/^Column\s*A:/i.test(l)) {
+      if (!hasColAHeader) {
+        hasColAHeader = true;
+      } else {
+        colLinesHeaders[i] = "Column B:";
+      }
+    }
+    if (/^Column\s*B:/i.test(l)) {
+      hasColAHeader = false;
+    }
+  }
+  s = colLinesHeaders.join("\n");
+
   // Split inline numbered items in Column B (e.g. "1 item 2 item 3 item 4 item")
   const colLines = s.split("\n");
   let inColB = false;
@@ -39,7 +67,7 @@ export function normalizeOptionsInText(text: string): string {
       inColB = true;
       continue;
     }
-    if (inColB && (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(l) || /^\s*[A-D]\.\s+\d/i.test(l) || /^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(l))) {
+    if (inColB && (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(l) || /^\s*[A-D]\.\s+\S/i.test(l) || /^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(l))) {
       inColB = false;
       continue;
     }
@@ -60,25 +88,55 @@ export function normalizeOptionsInText(text: string): string {
   // Ensure Column A items use lowercase letters: a., b., c., d. ("a chota aaye bas")
   const colLines2 = s.split("\n");
   let inColA = false;
+  let colAItemIdx = 0;
+  const colALetters = ["a. ", "b. ", "c. ", "d. "];
   for (let i = 0; i < colLines2.length; i++) {
     const l = colLines2[i].trim();
     if (/^Column\s*A:/i.test(l)) {
       inColA = true;
+      colAItemIdx = 0;
       continue;
     }
-    if (/^Column\s*B:/i.test(l)) {
+    if (/^Column\s*B:/i.test(l) || /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल)\s*[:.-]/i.test(l)) {
       inColA = false;
       continue;
     }
-    if (inColA) {
-      colLines2[i] = colLines2[i].replace(/^\s*([A-Da-d])\s*[:.\)]\s*/, (m, letter) => `${letter.toLowerCase()}. `);
-      colLines2[i] = colLines2[i].replace(/^\s*क\s*[:.\)]\s*/, "a. ");
-      colLines2[i] = colLines2[i].replace(/^\s*ख\s*[:.\)]\s*/, "b. ");
-      colLines2[i] = colLines2[i].replace(/^\s*ग\s*[:.\)]\s*/, "c. ");
-      colLines2[i] = colLines2[i].replace(/^\s*घ\s*[:.\)]\s*/, "d. ");
+    if (inColA && l.length > 0) {
+      // Strip any existing prefix: Devanagari (ए., बी., क., ख.), letters (A., B., a.), numbers (1., 2.)
+      const stripped = l.replace(/^\s*(?:[A-Da-d1-4][.)\s]|\([A-Da-d1-4]\)|(?:[क-घअ-द]|ए|बी|सी|डी)[.)\s]|\((?:[क-घअ-द]|ए|बी|सी|डी)\))\s*/i, "");
+      if (colAItemIdx < colALetters.length) {
+        colLines2[i] = colALetters[colAItemIdx] + stripped;
+        colAItemIdx++;
+      }
     }
   }
   s = colLines2.join("\n");
+
+  // Ensure Column B items use numbers: 1., 2., 3., 4.
+  const colLines3 = s.split("\n");
+  let inColB2 = false;
+  let colBItemIdx = 0;
+  const colBNumbers = ["1. ", "2. ", "3. ", "4. "];
+  for (let i = 0; i < colLines3.length; i++) {
+    const l = colLines3[i].trim();
+    if (/^Column\s*B:/i.test(l)) {
+      inColB2 = true;
+      colBItemIdx = 0;
+      continue;
+    }
+    if (inColB2 && (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(l) || /^\s*[A-D]\.\s+\S/i.test(l) || /^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(l))) {
+      inColB2 = false;
+      continue;
+    }
+    if (inColB2 && l.length > 0) {
+      const stripped = l.replace(/^\s*(?:[A-Da-d1-4][.)\s]|\([A-Da-d1-4]\)|(?:[क-घअ-द]|ए|बी|सी|डी)[.)\s]|\((?:[क-घअ-द]|ए|बी|सी|डी)\))\s*/i, "");
+      if (colBItemIdx < colBNumbers.length) {
+        colLines3[i] = colBNumbers[colBItemIdx] + stripped;
+        colBItemIdx++;
+      }
+    }
+  }
+  s = colLines3.join("\n");
 
   // 5. Split horizontal sub-statements (e.g. "...पहला कथन। 2. दूसरा कथन")
   s = s.replace(/(?<=[।;]|\S[^\S\r\n]{2,})(?=(?:\(([2-9]|10)\)|([2-9]|10))[.,):\-–—]?\s+[^\s\d])/g, "\n");
@@ -93,6 +151,10 @@ export function normalizeOptionsInText(text: string): string {
   let seenAnswer = false;
   let seenQuestionTitle = false;
   let seenOptions = false;
+  let seenOptA = false;
+  let seenOptB = false;
+  let seenOptC = false;
+  let seenOptD = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -172,44 +234,62 @@ export function normalizeOptionsInText(text: string): string {
 
     // Replace __OPT_X__ translation placeholders first if present
     if (/^\s*__OPT_A__\s*/i.test(line)) {
+      seenOptA = true;
       lines[i] = line.replace(/^\s*__OPT_A__\s*/i, "A. ");
       continue;
     }
     if (/^\s*__OPT_B__\s*/i.test(line)) {
+      seenOptB = true;
       lines[i] = line.replace(/^\s*__OPT_B__\s*/i, "B. ");
       continue;
     }
     if (/^\s*__OPT_C__\s*/i.test(line)) {
+      seenOptC = true;
       lines[i] = line.replace(/^\s*__OPT_C__\s*/i, "C. ");
       continue;
     }
     if (/^\s*__OPT_D__\s*/i.test(line)) {
+      seenOptD = true;
       lines[i] = line.replace(/^\s*__OPT_D__\s*/i, "D. ");
       continue;
     }
 
     // Option A: A., (A), (a), A), a., उ., (उ), उ), क., (क), क), अ., (अ), अ), ए., (ए), ए), एक।, एक.
     if (isOptA) {
+      seenOptA = true;
       lines[i] = line.replace(/^\s*(?:[Aa][.)\s]|(?:\([Aa]\))|(?:[कअउ][.)\s]|ए\.\s+|एक[।.]|(?:\([कअउ]\))|[कअउ]\)))\s*/i, "A. ");
       continue;
     }
 
     // Option B: B., (B), (b), B), b., ख., (ख), ख), ब., (ब), ब), बी., (बी), बी), दो।, दो.
     if (isOptB) {
+      seenOptB = true;
       lines[i] = line.replace(/^\s*(?:[Bb][.)\s]|(?:\([Bb]\))|(?:(?:[खब]|बी)[.)\s]|दो[।.]|(?:\((?:[खब]|बी)\))|(?:[खब]|बी)\)))\s*/i, "B. ");
       continue;
     }
 
     // Option C: C., (C), (c), C), c., ग., (ग), ग), स., (स), स), सी., (सी), सी), तीन।, तीन.
     if (isOptC) {
+      seenOptC = true;
       lines[i] = line.replace(/^\s*(?:[Cc][.)\s]|(?:\([Cc]\))|(?:(?:[गस]|सी)[.)\s]|तीन[।.]|(?:\((?:[गस]|सी)\))|(?:[गस]|सी)\)))\s*/i, "C. ");
       continue;
     }
 
     // Option D: D., (D), (d), D), d., घ., (घ), घ), द., (द), द), डी., (डी), डी), चार।, चार.
     if (isOptD) {
+      seenOptD = true;
       lines[i] = line.replace(/^\s*(?:[Dd][.)\s]|(?:\([Dd]\))|(?:(?:[घद]|डी)[.)\s]|चार[।.]|(?:\((?:[घद]|डी)\))|(?:[घद]|डी)\)))\s*/i, "D. ");
       continue;
+    }
+
+    // Option D fallback: If A, B, and C have appeared, but D was unlabelled (e.g. "1, 2, 3 और 4" or "4. 1, 2, 3 और 4")
+    if (seenOptA && seenOptB && seenOptC && !seenOptD && !seenAnswer && !inSolution && !inColumn) {
+      if (!/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)\s*[:.-]/i.test(trimmed)) {
+        const cleanContent = trimmed.replace(/^\s*(?:[Dd4][.)\s]|\([Dd4]\)|(?:[घद]|डी|चार)[.)\s]|\((?:[घद]|डी|चार)\))\s*/i, "");
+        lines[i] = `D. ${cleanContent}`;
+        seenOptD = true;
+        continue;
+      }
     }
   }
 
@@ -219,7 +299,7 @@ export function normalizeOptionsInText(text: string): string {
 export function normalizeAnswerInText(text: string): string {
   let s = text;
   // Replace translation marker if present
-  s = s.replace(/^\s*__ANS__\s*/gim, "Answer: ");
+  s = s.replace(/^\s*(?:__ANS__|_ANS_|[_*]+ANS[_\s\-*]*)\s*/gim, "Answer: ");
   // Match Answer line with English or Hindi option label
   s = s.replace(/^\s*(?:Ans(?:wer)?|उत्तर)\s*[:.-]\s*(?:Option\s*)?(?:[\(]?([A-Da-d1-4कअउएखबगसघद]|बी|सी|डी)[\)]?\.?)(?:\s|$|\.)/gim, (m, g1) => {
     let letter = g1.toUpperCase();
