@@ -1,5 +1,10 @@
 // Server-only DeepSeek client used to format a single MCQ.
 import { latexToText } from "./latex-to-text";
+import {
+  normalizeOptionsInText,
+  normalizeAnswerInText,
+  protectOptionsForTranslation,
+} from "./normalize-options";
 
 // LANGUAGE RULE: Original language for question/options; Hindi for solution; English for labels.
 export const LANG_RULE = `\nLANGUAGE RULE (STRICT):
@@ -26,7 +31,7 @@ Solution:
 Rules:
 1. 100% accurate facts. Solve and match options.
 2. Clean Unicode formulas (², ³, √x, θ, α, π).
-3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (add them if missing from input).
+3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters like क, ख, ग, घ, उ or Roman numerals for options).
 4. Sub-statements must have a space after their number (e.g., "1 <text>").
 5. Output ONLY the required format above.`;
 
@@ -47,7 +52,7 @@ Solution:
 Rules:
 1. 100% accurate math. Solve first, then match options.
 2. Clean Unicode formulas (², ³, √x).
-3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (add them if missing from input).
+3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters like क, ख, ग, घ, उ or Roman numerals for options).
 4. Sub-statements must have a space after their number (e.g., "1 <text>").
 5. Output ONLY the required format above.`;
 
@@ -87,7 +92,7 @@ Solution:
 Rules:
 1. 100% accurate facts. Solve and match options.
 2. Clean Unicode formulas (², ³, √x, θ, α, π).
-3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines.
+3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters or Roman numerals for options).
 4. Sub-statements must have a space after their number (e.g., "1 <text>").
 5. The solution MUST contain 8 to 10 detailed points in English, numbered "1 ", "2 " (never paragraph). Keep points informative, direct, and factual.
 6. Output ONLY the required format above.`;
@@ -109,7 +114,7 @@ Solution:
 Rules:
 1. 100% accurate math. Solve first, then match options.
 2. Clean Unicode formulas (², ³, √x).
-3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines.
+3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters or Roman numerals for options).
 4. Sub-statements must have a space after their number (e.g., "1 <text>").
 5. Solution MUST be dash-bulleted steps starting with "- " in English. Complete step-by-step calculation.
 6. Output ONLY the required format above.`;
@@ -130,10 +135,7 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   s = s.replace(/\bA\s+nswer:/gi, "Answer:");
   s = s.replace(/\bS\s+olution:/gi, "Solution:");
   s = s.replace(/(?<![A-Za-z0-9])([A-Ha-h])\s+\./g, "$1.");
-  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[एA]|\u090F)(?:\s|$|\.)/gim, "Answer: A\n");
-  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[बीB]|\u092C\u0940)(?:\s|$|\.)/gim, "Answer: B\n");
-  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[सीC]|\u0938\u0940)(?:\s|$|\.)/gim, "Answer: C\n");
-  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[डीD]|\u0921\u0940)(?:\s|$|\.)/gim, "Answer: D\n");
+  s = normalizeAnswerInText(s);
 
   // Strip markdown bold/italics that the model sometimes emits despite the prompt.
   s = s.replace(/\*\*(.+?)\*\*/g, "$1");
@@ -249,6 +251,9 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
 
   // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9" or "(1)\nValue" -> "(1) Value")
   s = s.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
+
+  // Normalize options to canonical A., B., C., D. format (never Hindi letters like उ., ख., क., etc.)
+  s = normalizeOptionsInText(s);
 
   // Normalize "Step 1:" / "चरण 1:" inside Solution to new line
   s = s.replace(/(?<=\S)[^\S\r\n]+(?=(?:Step|चरण|पद)\s*\d+\s*[:.\-)])/gi, "\n");
@@ -469,7 +474,8 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
       // If we processed in English, convert the output back to Hindi for FREE via Google Translate (0 AI cost)
       if (translatedToEnglish) {
         try {
-          const hiOut = await gtranslate(content, "en", "hi");
+          const protectedContent = protectOptionsForTranslation(content);
+          const hiOut = await gtranslate(protectedContent, "en", "hi");
           if (hiOut && hiOut.trim().length > 0) {
             content = normalizeTranslated(hiOut, idx);
           }

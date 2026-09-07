@@ -1,5 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import {
+  normalizeOptionsInText,
+  normalizeAnswerInText,
+  protectOptionsForTranslation,
+} from "./normalize-options";
 
 // Free Google Translate endpoint — no API key. Preserves \n between segments.
 // `source` can be "auto" so Google detects the language for us.
@@ -40,10 +45,9 @@ export function normalizeTranslated(text: string, idx: number): string {
   s = s.replace(/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?([ABI12]|II)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*$/gim, (m, p1) => {
     return `Column ${/A|I|1/i.test(p1) ? 'A' : 'B'}:`;
   });
-  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[एA]|\u090F)(?:\s|$|\.)/gim, "Answer: A\n");
-  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[बीB]|\u092C\u0940)(?:\s|$|\.)/gim, "Answer: B\n");
-  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[सीC]|\u0938\u0940)(?:\s|$|\.)/gim, "Answer: C\n");
-  s = s.replace(/Answer:\s*(?:Option\s*)?(?:[डीD]|\u0921\u0940)(?:\s|$|\.)/gim, "Answer: D\n");
+  s = normalizeAnswerInText(s);
+  s = normalizeOptionsInText(s);
+
   s = s.replace(/(?<=\S)[^\S\r\n]*(?=Solution:)/gi, "\n\n");
   s = s.replace(/^(Solution:\s*)(\S)/gim, "$1\n$2");
   
@@ -124,7 +128,8 @@ export const translateBatchToOpposite = createServerFn({ method: "POST" })
       const src = (r.formatted_output ?? "").trim();
       if (!src) return { idx: r.idx, formatted_output: "" };
       try {
-        const out = await gtranslate(src, "auto", majorityTarget);
+        const textToTranslate = majorityTarget === "hi" ? protectOptionsForTranslation(src) : src;
+        const out = await gtranslate(textToTranslate, "auto", majorityTarget);
         return { idx: r.idx, formatted_output: normalizeTranslated(out, r.idx) };
       } catch (e) {
         console.error("translate failed for idx", r.idx, e);

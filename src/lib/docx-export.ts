@@ -2,6 +2,7 @@ import {
   Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel, LevelFormat,
   Table, TableRow, TableCell, WidthType, BorderStyle,
 } from "docx";
+import { normalizeOptionsInText, normalizeAnswerInText } from "./normalize-options";
 
 const FONT = "Noto Sans Devanagari";
 
@@ -217,6 +218,8 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     }
   }
   cleanText = cleanLines.join("\n");
+  cleanText = normalizeAnswerInText(cleanText);
+  cleanText = normalizeOptionsInText(cleanText);
   const lines = cleanText
     .split("\n")
     .map((l) => l.replace(/\s+$/g, ""))

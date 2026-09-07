@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { downloadBatchAsDocx } from "@/lib/docx-export";
 import { logDownload } from "@/lib/invitations.functions";
+import { normalizeOptionsInText, normalizeAnswerInText } from "@/lib/normalize-options";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/batch/$id")({
@@ -521,6 +522,8 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
     }
   }
   cleanText = cleanLines.join("\n");
+  cleanText = normalizeAnswerInText(cleanText);
+  cleanText = normalizeOptionsInText(cleanText);
   
   const lines = cleanText.split("\n").map((l) => l.replace(/\s+$/g, "")).filter((l) => l.trim().length > 0);
   const blocks: React.ReactNode[] = [];
