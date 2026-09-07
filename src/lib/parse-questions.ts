@@ -1,6 +1,6 @@
 // Parses a raw pasted MCQ dump into individual question blocks.
-// A question starts with a line beginning with `<number>.` and ends
-// before the next such line.
+// A question starts with a line beginning with `<number>.`, `Q<number>`, or `<number> ` (when followed by options)
+// and ends before the next such line.
 export function parseQuestions(raw: string): { idx: number; text: string }[] {
   if (typeof raw !== "string") return [];
   const normalized = raw.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
@@ -27,17 +27,48 @@ export function parseQuestions(raw: string): { idx: number; text: string }[] {
     let leadingSpaces = 0;
     let hasQ = false;
     let idx = 0;
+    let hasPunct = false;
     
     if (m) {
       leadingSpaces = m[1].length;
       hasQ = m[2].trim().length > 0;
       idx = Number(m[3]);
-      const hasPunct = !!m[4];
+      hasPunct = !!m[4];
       
-      // A line is only a question start if it has an explicit "Q" prefix, or if it is followed by list punctuation.
-      // E.g., "1. " is a question. "Q1 " is a question. "1998 " is NOT a question.
-      if (Number.isFinite(idx) && (hasQ || hasPunct)) {
-        isStart = true;
+      if (Number.isFinite(idx)) {
+        if (hasQ || hasPunct) {
+          isStart = true;
+        } else {
+          // Line has no punctuation after number (e.g. "1 संख्या...", "2 संख्या...")
+          let hasOptsAhead = false;
+          for (let k = i + 1; k < lines.length && k < i + 15; k++) {
+            const nextL = lines[k].trim();
+            if (!nextL) continue;
+            if (startRe.test(nextL)) break;
+            if (/^\s*(?:[A-D]\.|\([a-dA-D]\)|[A-D]\)|(?:[क-घअ-द]|ए|बी|सी|डी)[.)]|\((?:[क-घअ-द]|ए|बी|सी|डी)\))\s+\S/i.test(nextL)) {
+              hasOptsAhead = true;
+              break;
+            }
+          }
+
+          if (!current) {
+            if (idx === 1 || hasOptsAhead) {
+              isStart = true;
+            }
+          } else {
+            const hasColA = /(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1)\)?/i.test(current.text);
+            const hasOptions = hasColA
+              ? /^\s*[A-D]\.\s+\S/m.test(current.text)
+              : /^\s*(?:[A-D]\.|\([a-dA-D]\)|[A-D]\))\s+\S/m.test(current.text);
+            const hasAnswer = /^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/im.test(current.text);
+
+            if ((hasOptions || hasAnswer) && hasOptsAhead) {
+              isStart = true;
+            } else if (hasOptions && idx === current.idx + 1 && !/(?:Explanation|व्याख्या|Solution|हल|विवरण)/i.test(current.text)) {
+              isStart = true;
+            }
+          }
+        }
       }
     }
 
@@ -84,7 +115,7 @@ export function parseQuestions(raw: string): { idx: number; text: string }[] {
             const nextL = lines[k].trim();
             if (!nextL) continue;
             if (startRe.test(nextL)) break;
-            if (/^\s*(?:[A-D]\.|\([a-dA-D]\)|[A-D]\))\s+\S/i.test(nextL)) {
+            if (/^\s*(?:[A-D]\.|\([a-dA-D]\)|[A-D]\)|(?:[क-घअ-द]|ए|बी|सी|डी)[.)]|\((?:[क-घअ-द]|ए|बी|सी|डी)\))\s+\S/i.test(nextL)) {
               hasOptsAhead = true;
               break;
             }
@@ -92,7 +123,7 @@ export function parseQuestions(raw: string): { idx: number; text: string }[] {
 
           if (hasOptsAhead) {
             isSubPoint = false;
-          } else if (idx <= 10 && (leadingSpaces > baseIndent || idx === 1 || /^\s*1[.)]\s+/m.test(current.text.slice(current.text.search(/(?:Explanation|व्याख्या|Solution|हल|विवरण)/i))))) {
+          } else if (idx <= 10 && (leadingSpaces > baseIndent || idx === 1 || /^\s*1[.)]?\s+/m.test(current.text.slice(current.text.search(/(?:Explanation|व्याख्या|Solution|हल|विवरण)/i))))) {
             isSubPoint = true;
           } else if (idx === current.idx + 1 && leadingSpaces <= baseIndent) {
             isSubPoint = false;
@@ -121,7 +152,7 @@ export function parseQuestions(raw: string): { idx: number; text: string }[] {
             isSubPoint = true;
           } else if (endsWithIntro && idx <= 10) {
             isSubPoint = true;
-          } else if (idx <= 10 && /^\s*([1-9]|10)[.)]\s+/m.test(current.text)) {
+          } else if (idx <= 10 && /^\s*([1-9]|10)[.)]?\s+/m.test(current.text)) {
             isSubPoint = true;
           }
         }
