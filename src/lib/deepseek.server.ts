@@ -31,7 +31,7 @@ Rules:
 1. 100% accurate facts. Solve and match options.
 2. Clean Unicode formulas (², ³, √x, θ, α, π).
 3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters like क, ख, ग, घ, उ or Roman numerals for options).
-4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number (e.g., "1 <text>", never "1. <text>" and never "(1) <text>").
+4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number. For Match-the-Column, NEVER output matching pairs as sub-statements; always output Column A: (a., b., ...) and Column B: (1., 2., ...).
 5. Output ONLY the required format above.`;
 
 export const PROMPT_MATH = `Expert Math MCQ solver. Output clean plain text ONLY (no markdown, no greetings):
@@ -91,7 +91,7 @@ Rules:
 1. 100% accurate facts. Solve and match options.
 2. Clean Unicode formulas (², ³, √x, θ, α, π).
 3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters or Roman numerals for options).
-4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number (e.g., "1 <text>", never "1. <text>" and never "(1) <text>").
+4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number. For Match-the-Column, NEVER output matching pairs as sub-statements; always output Column A: (a., b., ...) and Column B: (1., 2., ...).
 5. The solution MUST contain 8 to 10 detailed points in English, numbered "1 ", "2 " (never paragraph). Keep points informative, direct, and factual.
 6. Output ONLY the required format above.`;
 
@@ -161,7 +161,7 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
 
   // Fix dash/hyphen/colon separated match-the-column items on the same line (e.g. "a Item - 1 Item")
   const dashSplitRegex = /\s*(?:[-–—:;]|\t+)\s*(?=\(?(?:[1-9]|10|[a-hA-H]|i{1,3}|iv|v)\)?[.)]?\s+)/i;
-  const leftItemRegex = /^\s*(?:[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?|\([ivxIVX]{1,4}\))\s+/i;
+  const leftItemRegex = /^\s*(?:[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?|\([ivxIVX]{1,4}\)|(?:[1-9]|10)[.)]?|\((?:[1-9]|10)\))\s+/i;
   const linesArr = s.split("\n");
   for (let i = 0; i < linesArr.length; i++) {
     const line = linesArr[i].trim();

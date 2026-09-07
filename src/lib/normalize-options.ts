@@ -58,6 +58,129 @@ export function normalizeOptionsInText(text: string): string {
   }
   s = colLinesHeaders.join("\n");
 
+  // Heal match-the-column questions where Column A was generated with dummy items or Column A is missing
+  let healLines = s.split("\n");
+  // Step A: If Column B exists without a preceding Column A, recover items above Column B
+  for (let i = 0; i < healLines.length; i++) {
+    const l = healLines[i].trim();
+    if (/^Column\s*B:/i.test(l)) {
+      let hasColA = false;
+      for (let j = i - 1; j >= 0; j--) {
+        if (/^Column\s*A:/i.test(healLines[j].trim())) {
+          hasColA = true;
+          break;
+        }
+        if (/^\s*(?:#+\s*)?(?:(?:[Qq]\.?(?:uestion)?|प्रश्न|सवाल)\s*[:.-]?\s*\d+|\d{1,4}[.:\-)\]]\s+)/i.test(healLines[j].trim())) {
+          break;
+        }
+      }
+
+      if (!hasColA) {
+        let startPre = i - 1;
+        const preItems = [];
+        while (startPre >= 0) {
+          const prev = healLines[startPre].trim();
+          if (!prev) {
+            startPre--;
+            continue;
+          }
+          if (/^\s*(?:#+\s*)?(?:(?:[Qq]\.?(?:uestion)?|प्रश्न|सवाल)\s*[:.-]?\s*\d+|\d{1,4}[.:\-)\]]\s+)/i.test(prev)) {
+            break;
+          }
+          if (/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|Code|Codes|कूट|कोड)\s*[:.-]/i.test(prev)) {
+            break;
+          }
+          const isItem = /^\s*(?:\(?\d{1,2}\)?|\d{1,2}[.)]?|[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?)\s+\S+/.test(prev);
+          if (isItem) {
+            preItems.unshift({ lineIndex: startPre, text: prev });
+            startPre--;
+          } else {
+            break;
+          }
+        }
+
+        if (preItems.length > 0) {
+          const newColALines = preItems.map((item, idx) => {
+            const stripped = item.text.replace(/^\s*(?:\(?\d{1,2}\)?|\d{1,2}[.)]?|[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?)\s+/i, "").trim();
+            const letter = String.fromCharCode(97 + idx);
+            return `${letter}. ${stripped}`;
+          });
+
+          const firstPreIdx = preItems[0].lineIndex;
+          const before = healLines.slice(0, firstPreIdx).filter(l => l.trim().length > 0);
+          const after = healLines.slice(i);
+          healLines = [...before, "Column A:", ...newColALines, ...after];
+          i = before.length + 1 + newColALines.length;
+          continue;
+        }
+      }
+    }
+  }
+
+  // Step B: If Column A exists but its items are dummy/empty, recover descriptive items from above Column A
+  for (let i = 0; i < healLines.length; i++) {
+    const l = healLines[i].trim();
+    if (/^Column\s*A:/i.test(l)) {
+      let colBIdx = -1;
+      for (let j = i + 1; j < healLines.length; j++) {
+        if (/^Column\s*B:/i.test(healLines[j].trim())) {
+          colBIdx = j;
+          break;
+        }
+        if (/^(?:Answer|Ans|उत्तर|Solution|Sol|हल)\s*[:.-]/i.test(healLines[j].trim())) break;
+      }
+
+      if (colBIdx !== -1) {
+        const colAItems = healLines.slice(i + 1, colBIdx).map(s => s.trim()).filter(Boolean);
+        
+        const isColADummy = colAItems.length === 0 || colAItems.every(item => {
+          const stripped = item.replace(/^\s*(?:[A-Da-d1-5][.)\s]|\([A-Da-d1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
+          return stripped.length <= 1 || /^\d+$/.test(stripped);
+        });
+
+        if (isColADummy) {
+          let startPre = i - 1;
+          const preItems = [];
+          while (startPre >= 0) {
+            const prev = healLines[startPre].trim();
+            if (!prev) {
+              startPre--;
+              continue;
+            }
+            if (/^\s*(?:#+\s*)?(?:(?:[Qq]\.?(?:uestion)?|प्रश्न|सवाल)\s*[:.-]?\s*\d+|\d{1,4}[.:\-)\]]\s+)/i.test(prev)) {
+              break;
+            }
+            if (/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|Code|Codes|कूट|कोड)\s*[:.-]/i.test(prev)) {
+              break;
+            }
+            const isItem = /^\s*(?:\(?\d{1,2}\)?|\d{1,2}[.)]?|[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?)\s+\S+/.test(prev);
+            if (isItem) {
+              preItems.unshift({ lineIndex: startPre, text: prev });
+              startPre--;
+            } else {
+              break;
+            }
+          }
+
+          if (preItems.length > 0) {
+            const newColALines = preItems.map((item, idx) => {
+              const stripped = item.text.replace(/^\s*(?:\(?\d{1,2}\)?|\d{1,2}[.)]?|[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?)\s+/i, "").trim();
+              const letter = String.fromCharCode(97 + idx);
+              return `${letter}. ${stripped}`;
+            });
+
+            const firstPreIdx = preItems[0].lineIndex;
+            const before = healLines.slice(0, firstPreIdx).filter(l => l.trim().length > 0);
+            const after = healLines.slice(colBIdx);
+            healLines = [...before, "Column A:", ...newColALines, ...after];
+            i = before.length + 1 + newColALines.length;
+          }
+        }
+      }
+    }
+  }
+  s = healLines.join("\n");
+
   // Split inline numbered items in Column B (e.g. "1 item 2 item 3 item 4 item")
   const colLines = s.split("\n");
   let inColB = false;
