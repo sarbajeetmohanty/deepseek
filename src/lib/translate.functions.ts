@@ -35,10 +35,10 @@ export function normalizeTranslated(text: string, idx: number): string {
   // Reunite orphaned numbers that are on a line by themselves: "1\nText..." -> "1 Text..."
   s = s.replace(/(?:^|\n)\s*(\((?:[1-9]|10|i{1,3}|iv|v)\)|[1-9]|10)[.)]?\s*\n\s*(?=\S)/g, "\n$1 ");
 
-  // Break inline numbered statements inside question body before options
+  // Break inline numbered statements inside question body before options (protect decimal numbers!)
   s = s.replace(/([:：])\s*(?=(?:[1-9]|10|\((?:[1-9]|10|i{1,3}|iv|v)\))\s*[.,):\-–—]?\s+)/g, "$1\n");
-  s = s.replace(/([।\.\?!;]\s*)(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))\s*[.,):\-–—]?\s+)/g, "$1\n");
-  s = s.replace(/([।\.\?!;]\s*)(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi, "$1\n");
+  s = s.replace(/([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))\s*[.,):\-–—]?\s+[^\s\d])/g, "$1\n");
+  s = s.replace(/([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi, "$1\n");
 
   s = s.replace(/^\s*(Ans(?:wer)?|उत्तर)\s*[:.-]\s*/gim, "Answer: ");
   s = s.replace(/^\s*(Sol(?:ution)?|समाधान|हल)\s*[:.-]\s*/gim, "Solution: ");
@@ -58,13 +58,14 @@ export function normalizeTranslated(text: string, idx: number): string {
   });
   s = s.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=[^\s:.\-])/g, "$1 ");
   s = s.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
-  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=(?:[A-Ha-h][.)](?!\s*[A-Za-z]\.)|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
+  s = s.replace(/(?<!Answer:)(?<=\S)\s+(?=(?:[B-Db-d][.)](?!\s*[A-Za-z]\.)|\([b-dB-D]\)|[B-Db-d]\))\s+)/g, "\n");
+  s = s.replace(/(?<=\S)\s+(?=(?:Answer|Ans)\s*[:.-])/gi, "\n");
   s = s.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
 
   // Normalize step labels emitted by translation ("Step 1:", "चरण 1:", etc.) to "1 "
   s = s.replace(/(?:^|\n)\s*(?:Step|Chran|Pad|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/gi, "\n$1 ");
-  // Break inline numbered steps onto their own line ("... .  2. ..." -> newline)
-  s = s.replace(/(\.\s+)(?=\d{1,2}\s)/g, ".\n");
+  // Break inline numbered steps onto their own line ("... .  2. ..." -> newline, never splitting decimals)
+  s = s.replace(/((?<!\d)\.\s+)(?=\d{1,2}\s+[^\s\d])/g, ".\n");
   // Some translations rewrite bullets — restore leading "* " for lines that start with a bullet char.
   s = s.replace(/^\s*[•·●○◦]\s+/gm, "* ");
 

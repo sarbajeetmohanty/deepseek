@@ -138,12 +138,13 @@ export function normalizeOptionsInText(text: string): string {
   }
   s = colLines3.join("\n");
 
-  // 5. Split horizontal sub-statements (e.g. "...पहला कथन। 2. दूसरा कथन")
-  s = s.replace(/(?<=[।;]|\S[^\S\r\n]{2,})(?=(?:\(([2-9]|10)\)|([2-9]|10))[.,):\-–—]?\s+[^\s\d])/g, "\n");
+  // 5. Split horizontal sub-statements (e.g. "...पहला कथन। 2. दूसरा कथन", never splitting decimal numbers)
+  s = s.replace(/(?<=[।;]|(?<!\d)\.(?!\d)|\S[^\S\r\n]{2,})(?=(?:\(([2-9]|10)\)|([2-9]|10))[.,):\-–—]?\s+[^\s\d])/g, "\n");
 
-  // 6. Split horizontal options on the same line (e.g. "...है। बी. ..." or "...है। B. ..." or "(a) Opt 1   (b) Opt 2")
-  const splitPattern = /(?<!Answer:)(?:(?<=[।\?!;])\s*|(?<=[^A-Da-d0-9]\.)\s*|(?<=\S)[^\S\r\n]{2,})(?=(?:[B-Db-d][.)](?!\s*[A-Za-z]\.)|\([b-dB-D]\)|[B-Db-d]\)|(?:[खबगसघद]|बी|सी|डी)[.)]|\((?:[खबगसघद]|बी|सी|डी)\)|(?:[खबगसघद]|बी|सी|डी)\))\s+)/g;
+  // 6. Split horizontal options on the same line (e.g. "...है। बी. ..." or "...है। B. ..." or "A. 68.2 B. 71.2 C. 77.8 D. 62.5")
+  const splitPattern = /(?<!Answer:)(?:(?<=[।\?!;])\s*|(?<=[^A-Da-d0-9]\.)\s*|(?<=\S)\s+)(?=(?:[B-Db-d][.)](?!\s*[A-Za-z]\.)|\([b-dB-D]\)|[B-Db-d]\)|(?:[खबगसघद]|बी|सी|डी)[.)]|\((?:[खबगसघद]|बी|सी|डी)\)|(?:[खबगसघद]|बी|सी|डी)\))\s+)/g;
   s = s.replace(splitPattern, "\n");
+  s = s.replace(/(?<=\S)\s+(?=(?:Answer|Ans)\s*[:.-])/gi, "\n");
 
   let lines = s.split("\n");
   let inColumn = false;
