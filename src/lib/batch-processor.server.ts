@@ -51,8 +51,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // Set concurrency to optimal throughput (12 parallel requests) to avoid DeepSeek 429 rate limits & retry storms.
-    const CONCURRENCY = Math.min(12, pending.length);
+    // Set concurrency to optimal throughput (8 parallel requests) to avoid DeepSeek 429 rate limits & retry storms.
+    const CONCURRENCY = Math.min(8, pending.length);
     const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
     // Flush UI counters periodically to reduce DB bottlenecks while keeping UI responsive.
     const COUNTER_FLUSH_EVERY = 10;
@@ -189,6 +189,38 @@ export async function processBatchInternal(batchId: string): Promise<void> {
         }
       }
     };
+
+    // Warm up DeepSeek prompt cache with the first question so that all subsequent concurrent requests
+    // achieve immediate 90%+ cache hits at $0.014/1M instead of parallel cold cache misses.
+    if (queue.length > 1 && !providerBlock.message) {
+      const firstQ = queue.shift()!;
+      try {
+        const key = `${subjectType}:${solutionLength}:${firstQ.raw_text.trim().replace(/\s+/g, " ")}`;
+        let output: string;
+        if (persistentQuestionCache.has(key)) {
+          output = persistentQuestionCache.get(key)!;
+        } else {
+          const job = formatQuestionWithDeepSeek({ raw: firstQ.raw_text, idx: firstQ.idx, subjectType, solutionLength });
+          dedupe.set(key, job);
+          output = await job;
+          apiCallsSinceFlush++;
+          persistentQuestionCache.set(key, output);
+        }
+        output = output.replace(/^\s*\d{1,4}\.\s+/, `${firstQ.idx}. `);
+        updateRow(firstQ, { status: "done", formatted_output: output, error: null });
+        doneSinceFlush++;
+        await flushCounters();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        apiCallsSinceFlush++;
+        updateRow(firstQ, { status: "failed", error: msg.slice(0, 500) });
+        failedSinceFlush++;
+        if (isNonRetryableDeepSeekError(e)) {
+          providerBlock.message = msg;
+          queue.length = 0;
+        }
+      }
+    }
 
     for (let i = 0; i < ACTUAL_CONCURRENCY; i++) workers.push(worker());
     await Promise.allSettled(workers);

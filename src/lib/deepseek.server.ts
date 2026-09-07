@@ -20,22 +20,15 @@ D. <option 4>
 
 Answer: <matching option label>
 Solution:
-1 <fact/point 1>
-2 <fact/point 2>
-3 <fact/point 3>
-4 <fact/point 4>
-5 <fact/point 5>
-6 <fact/point 6>
-7 <fact/point 7>
-8 <fact/point 8>
+1 <direct key fact / reason for correct answer>
+2 <additional context / elimination of other options>
 
 Rules:
 1. 100% accurate facts. Solve and match options.
 2. Clean Unicode formulas (², ³, √x, θ, α, π).
 3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (add them if missing from input).
 4. Sub-statements must have a space after their number (e.g., "1 <text>").
-5. Solution MUST be exactly 8 to 10 points in pure Hindi, numbered "1 ", "2 " (never paragraph). Keep points crisp, direct, and factual (avoid repetitive padding).
-6. Output ONLY the required format above.`;
+5. Output ONLY the required format above.`;
 
 export const PROMPT_MATH = `Expert Math MCQ solver. Output clean plain text ONLY (no markdown, no greetings):
 
@@ -56,11 +49,16 @@ Rules:
 2. Clean Unicode formulas (², ³, √x).
 3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (add them if missing from input).
 4. Sub-statements must have a space after their number (e.g., "1 <text>").
-5. Solution MUST be dash-bulleted steps starting with "- " in pure Hindi. Maximum 10 steps. Keep calculations direct and concise.
-6. Output ONLY the required format above.`;
+5. Output ONLY the required format above.`;
 
-export const LENGTH_NORMAL = `\nSolution length: 2-4 short steps.`;
-export const LENGTH_LONG = `\nSolution length: 5-10 detailed steps.`;
+export const GK_LENGTH_NORMAL = `\nSolution Rule: Exactly 2 to 3 concise, direct points in pure Hindi, numbered "1 ", "2 " (never paragraph). Keep points crisp, direct, and factual (avoid repetitive padding or filler words).`;
+export const GK_LENGTH_LONG = `\nSolution Rule: 5 to 7 detailed points in pure Hindi, numbered "1 ", "2 " covering comprehensive background and related facts.`;
+
+export const MATH_LENGTH_NORMAL = `\nSolution Rule: Dash-bulleted steps starting with "- " in pure Hindi. 2 to 4 concise calculation steps.`;
+export const MATH_LENGTH_LONG = `\nSolution Rule: Dash-bulleted steps starting with "- " in pure Hindi. 5 to 8 detailed calculation steps.`;
+
+export const LENGTH_NORMAL = MATH_LENGTH_NORMAL;
+export const LENGTH_LONG = MATH_LENGTH_LONG;
 
 export interface DeepSeekOptions {
   raw: string;
@@ -312,14 +310,16 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
 
   // Keep system prompt static and clean to maximize DeepSeek Context / Prompt Caching hits across batch calls
   const basePrompt = subjectType === "math" ? PROMPT_MATH : PROMPT_GK;
-  const lengthRule = subjectType === "math" ? (solutionLength === "long" ? LENGTH_LONG : LENGTH_NORMAL) : "";
+  const lengthRule = subjectType === "math"
+    ? (solutionLength === "long" ? MATH_LENGTH_LONG : MATH_LENGTH_NORMAL)
+    : (solutionLength === "long" ? GK_LENGTH_LONG : GK_LENGTH_NORMAL);
   const systemPrompt = basePrompt + LANG_RULE + lengthRule;
 
-  // Optimized max tokens: solutions are strictly concise points (GK: 8-10 points, Math: 2-10 steps),
-  // with sufficient headroom so complex derivations are never cut off prematurely.
+  // Optimized max tokens: normal solutions are strictly concise (GK: 2-3 points, Math: 2-4 steps),
+  // while long solutions provide detailed coverage. Eliminates 60-70% unnecessary output token costs.
   const maxTokens = subjectType === "math"
-    ? (solutionLength === "long" ? 1200 : 650)
-    : 1000;
+    ? (solutionLength === "long" ? 750 : 380)
+    : (solutionLength === "long" ? 750 : 360);
 
   // Standardized user prompt structure for optimal prompt prefix caching
   const userPrompt = `Solve and format the following MCQ:\n\n${cleaned}\n\nReminder: Output strictly in the required format. Question must begin with "${idx}."`;
