@@ -316,10 +316,10 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
   const systemPrompt = basePrompt + LANG_RULE + lengthRule;
 
   // Optimized max tokens: normal solutions are strictly concise (GK: 2-3 points, Math: 2-4 steps),
-  // while long solutions provide detailed coverage. Eliminates 60-70% unnecessary output token costs.
+  // with enough headroom so large match-the-column items are never cut off mid-sentence.
   const maxTokens = subjectType === "math"
-    ? (solutionLength === "long" ? 750 : 380)
-    : (solutionLength === "long" ? 750 : 360);
+    ? (solutionLength === "long" ? 800 : 450)
+    : (solutionLength === "long" ? 800 : 480);
 
   // Standardized user prompt structure for optimal prompt prefix caching
   const userPrompt = `Solve and format the following MCQ:\n\n${cleaned}\n\nReminder: Output strictly in the required format. Question must begin with "${idx}."`;
