@@ -19,8 +19,8 @@ export function normalizeOptionsInText(text: string): string {
   s = s.replace(/(\b(?:और|\,|तथा|लेकिन|कि)\s*)\(आर\)/gi, "$1(R)");
   s = s.replace(/\(आर\)(\s*(?:और|तथा|का|की|के|सही|गलत|दोनों))/gi, "(R)$1");
 
-  // 3. Add space after sub-statement number if stuck directly to Devanagari text (e.g. "1वैगनर" -> "1 वैगनर")
-  s = s.replace(/(?:^|\n)\s*([1-9]|10)(?=[^\s\d.\)])/gm, "\n$1 ");
+  // 3. Add space after sub-statement number if stuck directly to Devanagari or English text (e.g. "1वैगनर" -> "1 वैगनर")
+  s = s.replace(/(?:^|\n)\s*([1-9]|10)(?=[\u0900-\u097FA-Za-z])/gm, "\n$1 ");
 
   // 4. Match-The-Column Normalization:
   // Unglue Column B if stuck to end of Column A item (e.g. "...हड़प्पा कॉलम बी: 1 बढ़िया...")
@@ -80,7 +80,10 @@ export function normalizeOptionsInText(text: string): string {
   }
   s = colLines2.join("\n");
 
-  // 5. Split horizontal options on the same line (e.g. "...है। बी. ..." or "...है। B. ..." or "(a) Opt 1   (b) Opt 2")
+  // 5. Split horizontal sub-statements (e.g. "...पहला कथन। 2. दूसरा कथन")
+  s = s.replace(/(?<=[।;]|\S[^\S\r\n]{2,})(?=(?:\(([2-9]|10)\)|([2-9]|10))[.,):\-–—]?\s+[^\s\d])/g, "\n");
+
+  // 6. Split horizontal options on the same line (e.g. "...है। बी. ..." or "...है। B. ..." or "(a) Opt 1   (b) Opt 2")
   const splitPattern = /(?<!Answer:)(?:(?<=[।\?!;])\s*|(?<=[^A-Da-d0-9]\.)\s*|(?<=\S)[^\S\r\n]{2,})(?=(?:[B-Db-d][.)](?!\s*[A-Za-z]\.)|\([b-dB-D]\)|[B-Db-d]\)|(?:[खबगसघद]|बी|सी|डी)[.)]|\((?:[खबगसघद]|बी|सी|डी)\)|(?:[खबगसघद]|बी|सी|डी)\))\s+)/g;
   s = s.replace(splitPattern, "\n");
 
@@ -88,10 +91,20 @@ export function normalizeOptionsInText(text: string): string {
   let inColumn = false;
   let inSolution = false;
   let seenAnswer = false;
+  let seenQuestionTitle = false;
+  let seenOptions = false;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // First non-empty line is the question header/title (e.g. "1. निम्नलिखित कथनों पर विचार कीजिए:")
+    // Keep question number with its dot untouched!
+    if (!seenQuestionTitle) {
+      seenQuestionTitle = true;
+      continue;
+    }
 
     // Column table detection: ignore lines inside Column A/B table so items (a., b., c., d.) remain lowercase
     if (/^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:A|I|1|ए)\)?/i.test(trimmed)) {
@@ -111,7 +124,15 @@ export function normalizeOptionsInText(text: string): string {
     if (/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(trimmed)) {
       inSolution = true;
     }
-    if (seenAnswer || inSolution || inColumn) {
+    if (inSolution) {
+      const solStepMatch = trimmed.match(/^(\((?:\d{1,2})\)|\d{1,2})\s*[.,):\-–—]?\s+(.*)$/);
+      if (solStepMatch) {
+        const rawNum = solStepMatch[1].replace(/[\(\)]/g, "");
+        lines[i] = `${rawNum} ${solStepMatch[2].trim()}`;
+      }
+      continue;
+    }
+    if (seenAnswer || inColumn) {
       continue;
     }
 
@@ -123,6 +144,30 @@ export function normalizeOptionsInText(text: string): string {
     // Skip lines starting with abbreviations like B.C., A.D., C.E.
     if (/^\s*[A-Za-z]\.(?:\s*[A-Za-z]\.)+/i.test(trimmed)) {
       continue;
+    }
+
+    // Check if line is an option (A-D or Hindi letters)
+    const isOptA = /^\s*(?:__OPT_A__|[Aa][.)\s]|(?:\([Aa]\))|(?:[कअउ][.)\s]|ए\.\s+|एक[।.]|(?:\([कअउ]\))|[कअउ]\)))\s*/i.test(line);
+    const isOptB = /^\s*(?:__OPT_B__|[Bb][.)\s]|(?:\([Bb]\))|(?:(?:[खब]|बी)[.)\s]|दो[।.]|(?:\((?:[खब]|बी)\))|(?:[खब]|बी)\)))\s*/i.test(line);
+    const isOptC = /^\s*(?:__OPT_C__|[Cc][.)\s]|(?:\([Cc]\))|(?:(?:[गस]|सी)[.)\s]|तीन[।.]|(?:\((?:[गस]|सी)\))|(?:[गस]|सी)\)))\s*/i.test(line);
+    const isOptD = /^\s*(?:__OPT_D__|[Dd][.)\s]|(?:\([Dd]\))|(?:(?:[घद]|डी)[.)\s]|चार[।.]|(?:\((?:[घद]|डी)\))|(?:[घद]|डी)\)))\s*/i.test(line);
+
+    if (isOptA || isOptB || isOptC || isOptD) {
+      seenOptions = true;
+    }
+
+    // Sub-statement normalization: BEFORE options have appeared
+    // Format must strictly be "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number
+    if (!seenOptions) {
+      // Ignore question trailer phrases like "उपर्युक्त कथनों में से कौन-सा/से सही है/हैं?"
+      if (!/^(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)/i.test(trimmed)) {
+        const subPointMatch = trimmed.match(/^(\((?:[1-9]|10|i{1,3}|iv|v|vi)\)|([1-9]|10|i{1,3}|iv|v|vi))\s*[.,):\-–—]?\s+(.*)$/i);
+        if (subPointMatch) {
+          const rawNum = (subPointMatch[2] || subPointMatch[1]).replace(/[\(\)]/g, "");
+          lines[i] = `${rawNum} ${subPointMatch[3].trim()}`;
+          continue;
+        }
+      }
     }
 
     // Replace __OPT_X__ translation placeholders first if present
@@ -144,25 +189,25 @@ export function normalizeOptionsInText(text: string): string {
     }
 
     // Option A: A., (A), (a), A), a., उ., (उ), उ), क., (क), क), अ., (अ), अ), ए., (ए), ए), एक।, एक.
-    if (/^\s*(?:[Aa][.)\s]|(?:\([Aa]\))|(?:[कअउ][.)\s]|ए\.\s+|एक[।.]|(?:\([कअउ]\))|[कअउ]\)))\s*/i.test(line)) {
+    if (isOptA) {
       lines[i] = line.replace(/^\s*(?:[Aa][.)\s]|(?:\([Aa]\))|(?:[कअउ][.)\s]|ए\.\s+|एक[।.]|(?:\([कअउ]\))|[कअउ]\)))\s*/i, "A. ");
       continue;
     }
 
     // Option B: B., (B), (b), B), b., ख., (ख), ख), ब., (ब), ब), बी., (बी), बी), दो।, दो.
-    if (/^\s*(?:[Bb][.)\s]|(?:\([Bb]\))|(?:(?:[खब]|बी)[.)\s]|दो[।.]|(?:\((?:[खब]|बी)\))|(?:[खब]|बी)\)))\s*/i.test(line)) {
+    if (isOptB) {
       lines[i] = line.replace(/^\s*(?:[Bb][.)\s]|(?:\([Bb]\))|(?:(?:[खब]|बी)[.)\s]|दो[।.]|(?:\((?:[खब]|बी)\))|(?:[खब]|बी)\)))\s*/i, "B. ");
       continue;
     }
 
     // Option C: C., (C), (c), C), c., ग., (ग), ग), स., (स), स), सी., (सी), सी), तीन।, तीन.
-    if (/^\s*(?:[Cc][.)\s]|(?:\([Cc]\))|(?:(?:[गस]|सी)[.)\s]|तीन[।.]|(?:\((?:[गस]|सी)\))|(?:[गस]|सी)\)))\s*/i.test(line)) {
+    if (isOptC) {
       lines[i] = line.replace(/^\s*(?:[Cc][.)\s]|(?:\([Cc]\))|(?:(?:[गस]|सी)[.)\s]|तीन[।.]|(?:\((?:[गस]|सी)\))|(?:[गस]|सी)\)))\s*/i, "C. ");
       continue;
     }
 
     // Option D: D., (D), (d), D), d., घ., (घ), घ), द., (द), द), डी., (डी), डी), चार।, चार.
-    if (/^\s*(?:[Dd][.)\s]|(?:\([Dd]\))|(?:(?:[घद]|डी)[.)\s]|चार[।.]|(?:\((?:[घद]|डी)\))|(?:[घद]|डी)\)))\s*/i.test(line)) {
+    if (isOptD) {
       lines[i] = line.replace(/^\s*(?:[Dd][.)\s]|(?:\([Dd]\))|(?:(?:[घद]|डी)[.)\s]|चार[।.]|(?:\((?:[घद]|डी)\))|(?:[घद]|डी)\)))\s*/i, "D. ");
       continue;
     }

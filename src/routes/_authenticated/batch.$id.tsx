@@ -678,7 +678,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
     const letterOptMatch = (!seenAnswer && !seenSolution && !isAbbrev) ? line.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s+(.*)$/) : null;
 
     // Check if line is a sub-statement (1), (2), (3), (4) or (i), (ii), etc. or "1 ", "2 " before options
-    const statementMatch = (!seenAnswer && !seenSolution && !letterOptMatch) ? line.match(/^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\)|(?:[1-9]|10)[.)]?|(?:i{1,3}|iv|v|vi)[.)])\s+(.*)$/i) : null;
+    const statementMatch = (!seenAnswer && !seenSolution && !letterOptMatch) ? line.match(/^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\)|(?:[1-9]|10)[.,):\-–—]?|(?:i{1,3}|iv|v|vi)[.,):\-–—]?)\s+(.*)$/i) : null;
 
     if (letterOptMatch) {
       inSolution = false;
@@ -722,15 +722,15 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
 
     if (statementMatch) {
       inSolution = false;
+      const rawNum = statementMatch[1].replace(/[\(\)\.,:;\-–—]/g, "").trim();
       blocks.push(
         <p key={i} className="text-[15px] leading-7 pl-4 my-1">
-          <span className="font-semibold">{statementMatch[1]} </span>{renderMarkdownText(statementMatch[2])}
+          <span className="font-semibold">{rawNum} </span>{renderMarkdownText(statementMatch[2])}
         </p>
       );
       continue;
     }
 
-    // Answer: Answer:, Ans:, उत्तर:
     if (/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(line)) {
       inSolution = false;
       seenAnswer = true;
@@ -743,7 +743,6 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       continue;
     }
 
-    // Solution: Solution:, Sol:, हल:, समाधान:
     if (/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(line)) {
       inSolution = true;
       seenSolution = true;
@@ -755,8 +754,9 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       );
       continue;
     }
-    const step = inSolution ? line.match(/^\s*(\d{1,2})[.)]?\s+(.*)$/) : null;
+    const step = inSolution ? line.match(/^\s*(\((?:\d{1,2})\)|\d{1,2})\s*[.,):\-–—]?\s+(.*)$/) : null;
     if (step) {
+      const stepNum = step[1].replace(/[\(\)]/g, "");
       if (isMath) {
         // Retroactively render math numbered steps as red-dash bullets.
         blocks.push(
@@ -769,7 +769,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       }
       blocks.push(
         <p key={i} className="text-[15px] leading-7 pl-6 my-1">
-          <span className="font-semibold">{step[1]}</span> {renderMarkdownText(step[2])}
+          <span className="font-semibold">{stepNum}</span> {renderMarkdownText(step[2])}
         </p>,
       );
       continue;

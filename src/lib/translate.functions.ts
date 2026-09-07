@@ -36,8 +36,8 @@ export function normalizeTranslated(text: string, idx: number): string {
   s = s.replace(/(?:^|\n)\s*(\((?:[1-9]|10|i{1,3}|iv|v)\)|[1-9]|10)[.)]?\s*\n\s*(?=\S)/g, "\n$1 ");
 
   // Break inline numbered statements inside question body before options
-  s = s.replace(/([:：])\s*(?=(?:[1-9]|10|\((?:[1-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g, "$1\n");
-  s = s.replace(/([।\.\?!;]\s*)(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g, "$1\n");
+  s = s.replace(/([:：])\s*(?=(?:[1-9]|10|\((?:[1-9]|10|i{1,3}|iv|v)\))\s*[.,):\-–—]?\s+)/g, "$1\n");
+  s = s.replace(/([।\.\?!;]\s*)(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))\s*[.,):\-–—]?\s+)/g, "$1\n");
   s = s.replace(/([।\.\?!;]\s*)(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi, "$1\n");
 
   s = s.replace(/^\s*(Ans(?:wer)?|उत्तर)\s*[:.-]\s*/gim, "Answer: ");
@@ -45,8 +45,6 @@ export function normalizeTranslated(text: string, idx: number): string {
   s = s.replace(/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?([ABI12]|II)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*$/gim, (m, p1) => {
     return `Column ${/A|I|1/i.test(p1) ? 'A' : 'B'}:`;
   });
-  s = normalizeAnswerInText(s);
-  s = normalizeOptionsInText(s);
 
   s = s.replace(/(?<=\S)[^\S\r\n]*(?=Solution:)/gi, "\n\n");
   s = s.replace(/^(Solution:\s*)(\S)/gim, "$1\n$2");
@@ -63,12 +61,15 @@ export function normalizeTranslated(text: string, idx: number): string {
   s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=(?:[A-Ha-h][.)](?!\s*[A-Za-z]\.)|\([a-hA-H1-8]\))(?:\s+|$))/g, "\n");
   s = s.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
 
-  // Normalize step labels emitted by translation ("Step 1:", "चरण 1:", etc.) back to "1. "
-  s = s.replace(/(?:^|\n)\s*(?:Step|Chran|Pad|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/gi, "\n$1. ");
+  // Normalize step labels emitted by translation ("Step 1:", "चरण 1:", etc.) to "1 "
+  s = s.replace(/(?:^|\n)\s*(?:Step|Chran|Pad|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/gi, "\n$1 ");
   // Break inline numbered steps onto their own line ("... .  2. ..." -> newline)
-  s = s.replace(/(\.\s+)(?=\d{1,2}\.\s)/g, ".\n");
+  s = s.replace(/(\.\s+)(?=\d{1,2}\s)/g, ".\n");
   // Some translations rewrite bullets — restore leading "* " for lines that start with a bullet char.
   s = s.replace(/^\s*[•·●○◦]\s+/gm, "* ");
+
+  s = normalizeAnswerInText(s);
+  s = normalizeOptionsInText(s);
   // Collapse 3+ blank lines
   s = s.replace(/\n{3,}/g, "\n\n").trim();
   return s;

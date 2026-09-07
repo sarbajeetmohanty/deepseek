@@ -31,7 +31,7 @@ Rules:
 1. 100% accurate facts. Solve and match options.
 2. Clean Unicode formulas (², ³, √x, θ, α, π).
 3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters like क, ख, ग, घ, उ or Roman numerals for options).
-4. Sub-statements must have a space after their number (e.g., "1 <text>").
+4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number (e.g., "1 <text>", never "1. <text>" and never "(1) <text>").
 5. Output ONLY the required format above.`;
 
 export const PROMPT_MATH = `Expert Math MCQ solver. Output clean plain text ONLY (no markdown, no greetings):
@@ -52,7 +52,7 @@ Rules:
 1. 100% accurate math. Solve first, then match options.
 2. Clean Unicode formulas (², ³, √x).
 3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters like क, ख, ग, घ, उ or Roman numerals for options).
-4. Sub-statements must have a space after their number (e.g., "1 <text>").
+4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number (e.g., "1 <text>", never "1. <text>" and never "(1) <text>").
 5. Output ONLY the required format above.`;
 
 export const GK_LENGTH_NORMAL = `\nSolution Rule: The solution MUST contain 8 to 10 detailed points in pure Hindi, numbered "1 ", "2 " (never paragraph). Keep points informative, direct, and factual.`;
@@ -69,7 +69,7 @@ export const LENGTH_LONG = MATH_LENGTH_LONG;
 export const PROMPT_GK_EN = `Expert competitive-exam MCQ solver. Output clean plain text ONLY in English (no markdown, no blank lines, no greetings):
 
 <number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
-[If statements: 1 <text> ... 2 <text> ... on separate lines]
+[If statements: 1 <text> ... 2 <text> ... on separate lines (strictly no dots/commas after statement numbers)]
 [If Match Column: You MUST output two separate lists: "Column A:" followed by items (a., b., c., d.) with lowercase letters, and "Column B:" followed by items (1., 2., 3., 4.) with numbers. NEVER put Column B items on the same line as Column A. The MCQ options below must be capital A., B., C., D.]
 A. <option 1>
 B. <option 2>
@@ -91,7 +91,7 @@ Rules:
 1. 100% accurate facts. Solve and match options.
 2. Clean Unicode formulas (², ³, √x, θ, α, π).
 3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters or Roman numerals for options).
-4. Sub-statements must have a space after their number (e.g., "1 <text>").
+4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number (e.g., "1 <text>", never "1. <text>" and never "(1) <text>").
 5. The solution MUST contain 8 to 10 detailed points in English, numbered "1 ", "2 " (never paragraph). Keep points informative, direct, and factual.
 6. Output ONLY the required format above.`;
 
@@ -113,7 +113,7 @@ Rules:
 1. 100% accurate math. Solve first, then match options.
 2. Clean Unicode formulas (², ³, √x).
 3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters or Roman numerals for options).
-4. Sub-statements must have a space after their number (e.g., "1 <text>").
+4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number (e.g., "1 <text>", never "1. <text>" and never "(1) <text>").
 5. Solution MUST be dash-bulleted steps starting with "- " in English. Complete step-by-step calculation.
 6. Output ONLY the required format above.`;
 
@@ -234,13 +234,14 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   s = s.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=[^\s:.\-])/g, "$1 ");
 
   // Add missing space after sub-statement number if stuck directly to content (e.g. "1वैगनर" -> "1 वैगनर")
-  s = s.replace(/^([1-9]|10)(?=[^\s\d.\)])/gm, "$1 ");
+  s = s.replace(/^([1-9]|10)(?=[\u0900-\u097FA-Za-z])/gm, "$1 ");
 
-  // Remove dots from sub-statement numbers (e.g., "1. वैगनर" -> "1 वैगनर"), skipping the first line (question number)
-  s = s.replace(/(?<=\n)\s*([1-9]|10)\.\s+/g, "$1 ");
+  // Remove dots, commas, parentheses, colons, hyphens from sub-statement numbers (e.g., "1. वैगनर" or "1, वैगनर" or "(1) वैगनर" -> "1 वैगनर"), skipping the first line (question number)
+  s = s.replace(/(?<=\n)\s*(?:\(([1-9]|10)\)|([1-9]|10))\s*[.,):\-–—]?\s+(?=\S)/g, (m, g1, g2) => `${g2 || g1.replace(/[\(\)]/g, "")} `);
 
   // Also split sub-statements like (1), (2), (3), (4) or (i), (ii), (iii), (iv) if on same line
   s = s.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
+  s = s.replace(/(?<=[।;]|\S[^\S\r\n]{2,})(?=(?:\(([2-9]|10)\)|([2-9]|10))\s*[.,):\-–—]?\s+[^\s\d])/g, "\n");
 
   // Split options (A-H) if they were output on the same line horizontally (require 2+ spaces, with negative lookahead to never split abbreviations like B.C., A.D., C.E.).
   s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=[A-Ha-h][.)](?!\s*[A-Za-z]\.)(?:\s+|$))/g, "\n");
@@ -263,7 +264,7 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
     let solText = solMatch[1];
     solText = solText.replace(/^(Solution:\s*)(?=[1-9]\s+|-\s+)/i, "Solution:\n");
     solText = solText.replace(/(?<=\S)[^\S\r\n]{2,}(?=(?:[1-9]|10)\s+)/g, "\n");
-    solText = solText.replace(/^([ \t]*\d+)\.\s+/gm, "$1 ");
+    solText = solText.replace(/^([ \t]*)(?:\((\d+)\)|(\d+))\s*[.,):\-–—]?\s+/gm, (m, indent, g1, g2) => `${indent}${g2 || g1} `);
     s = s.slice(0, solMatch.index) + solText;
   }
 

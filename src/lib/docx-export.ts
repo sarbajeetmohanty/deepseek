@@ -409,7 +409,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     const letterOptMatch = (!seenAnswer && !seenSolution && !isAbbrev) ? line.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s+(.*)$/) : null;
 
     // Check if line is a sub-statement (1), (2), (3), (4) or (i), (ii), etc. or "1 ", "2 " before options
-    const statementMatch = (!seenAnswer && !seenSolution && !letterOptMatch) ? line.match(/^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\)|(?:[1-9]|10)[.)]?|(?:i{1,3}|iv|v|vi)[.)])\s+(.*)$/i) : null;
+    const statementMatch = (!seenAnswer && !seenSolution && !letterOptMatch) ? line.match(/^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\)|(?:[1-9]|10)[.,):\-–—]?|(?:i{1,3}|iv|v|vi)[.,):\-–—]?)\s+(.*)$/i) : null;
 
     if (letterOptMatch) {
       inSolution = false;
@@ -452,11 +452,12 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
 
     if (statementMatch) {
       inSolution = false;
+      const rawNum = statementMatch[1].replace(/[\(\)\.,:;\-–—]/g, "").trim();
       paragraphs.push(
         new Paragraph({
           spacing: { before: 40, after: 40, line: 300 },
           indent: { left: 360 },
-          children: [run(`${statementMatch[1]} `, true), ...runsFromMarkdown(statementMatch[2])],
+          children: [run(`${rawNum} `, true), ...runsFromMarkdown(statementMatch[2])],
         }),
       );
       continue;
@@ -493,8 +494,9 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     }
 
     // Solution step "1. …" or "1 …" inside Solution block
-    const step = inSolution ? line.match(/^\s*(\d{1,2})[.)]?\s+(.*)$/) : null;
+    const step = inSolution ? line.match(/^\s*(\((?:\d{1,2})\)|\d{1,2})\s*[.,):\-–—]?\s+(.*)$/) : null;
     if (step) {
+      const stepNum = step[1].replace(/[\(\)]/g, "");
       if (isMath) {
         paragraphs.push(
           new Paragraph({
@@ -512,7 +514,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         new Paragraph({
           spacing: { before: 40, after: 40, line: 300 },
           indent: { left: 540, hanging: 220 },
-          children: [run(`${step[1]} `, true), ...runsFromMarkdown(step[2])],
+          children: [run(`${stepNum} `, true), ...runsFromMarkdown(step[2])],
         }),
       );
       continue;
