@@ -1,13 +1,28 @@
-// Canonical Option and Answer Normalizer
+// Canonical Option, Statement, and Answer Normalizer
 // Enforces A., B., C., D. Latin option prefixes across all questions,
-// preventing Hindi letters (उ., ख., क., अ., ए., बी., सी., डी., etc.)
-// from appearing as options, and normalizing Answer: labels end-to-end.
+// prevents Hindi letters (उ., ख., क., अ., ए., बी., सी., डी., etc.) from appearing as options,
+// splits inline/horizontal options, unglues sub-statements ("1वैगनर" -> "1 वैगनर"),
+// and normalizes Assertion-Reason headers and Answer: labels end-to-end.
 
 export function normalizeOptionsInText(text: string): string {
   let s = text;
 
-  // First split horizontal options on same line (e.g. "(a) Opt 1   (b) Opt 2" or "(क) Opt 1   (ख) Opt 2")
-  s = s.replace(/(?<!Answer:)(?<=\S)[^\S\r\n]{2,}(?=(?:[A-Ha-h][.)](?!\s*[A-Za-z]\.)|\([a-hA-H1-8]\)|(?:[कअउएखबगसघद]|बी|सी|डी)[.)]|\((?:[कअउएखबगसघद]|बी|सी|डी)\))(?:\s+|$))/g, "\n");
+  // 1. Normalize assertion / reason headers: "कथन (ए):" -> "कथन (A):", "कारण (आर):" -> "कारण (R):"
+  s = s.replace(/(?:^|\n)\s*(\b(?:अभिकथन|कथन|Statement|Assertion)\s*[:.\-]?\s*)\((?:[Aए]|अ)\)\s*[:.\-]?/gi, "\nकथन (A): ");
+  s = s.replace(/(?:^|\n)\s*(\b(?:कारण|दलील|Reason)\s*[:.\-]?\s*)\((?:[Rआर]|r)\)\s*[:.\-]?/gi, "\nकारण (R): ");
+
+  // 2. In Assertion/Reason options, normalize (ए) -> (A) and (आर) -> (R) inside the body text
+  s = s.replace(/(\b(?:और|\,|तथा|लेकिन|कि)\s*)\(ए\)/gi, "$1(A)");
+  s = s.replace(/\(ए\)(\s*(?:और|तथा|का|की|के|सही|गलत|दोनों))/gi, "(A)$1");
+  s = s.replace(/(\b(?:और|\,|तथा|लेकिन|कि)\s*)\(आर\)/gi, "$1(R)");
+  s = s.replace(/\(आर\)(\s*(?:और|तथा|का|की|के|सही|गलत|दोनों))/gi, "(R)$1");
+
+  // 3. Add space after sub-statement number if stuck directly to Devanagari text (e.g. "1वैगनर" -> "1 वैगनर")
+  s = s.replace(/(?:^|\n)\s*([1-9]|10)(?=[^\s\d.\)])/gm, "\n$1 ");
+
+  // 4. Split horizontal options on the same line (e.g. "...है। बी. ..." or "...है। B. ..." or "(a) Opt 1   (b) Opt 2")
+  const splitPattern = /(?<!Answer:)(?:(?<=[।\?!;])\s*|(?<=[^A-Da-d0-9]\.)\s*|(?<=\S)[^\S\r\n]{2,})(?=(?:[B-Db-d][.)](?!\s*[A-Za-z]\.)|\([b-dB-D]\)|[B-Db-d]\)|(?:[खबगसघद]|बी|सी|डी)[.)]|\((?:[खबगसघद]|बी|सी|डी)\)|(?:[खबगसघद]|बी|सी|डी)\))\s+)/g;
+  s = s.replace(splitPattern, "\n");
 
   let lines = s.split("\n");
   let inColumn = false;
@@ -23,7 +38,10 @@ export function normalizeOptionsInText(text: string): string {
       inColumn = true;
       continue;
     }
-    if (inColumn && /^(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(trimmed)) {
+    if (inColumn && (
+      /^(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(trimmed) ||
+      /^(?:[A-Da-d][.)]|\([A-Da-d]\))\s+(?:[a-dA-D1-4]\s*[-–—:,]|\d\s*,\s*\d|केवल)/i.test(trimmed)
+    )) {
       inColumn = false;
     }
     if (/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(trimmed)) {
@@ -38,7 +56,7 @@ export function normalizeOptionsInText(text: string): string {
     }
 
     // Skip assertion/reason lines
-    if (/^(\s*(?:अभिकथन|कथन|कारण|दलील|Assertion|Reason|Statement)\s*(?:[\-–—\s]*(?:I{1,3}|IV|V|[A-Za-z0-9])|\([A-Za-z0-9]+\))\s*[:.\-]?)/i.test(trimmed)) {
+    if (/^(\s*(?:अभिकथन|कथन|कारण|दलील|Assertion|Reason|Statement)\s*(?:[\-–—\s]*(?:I{1,3}|IV|V|[A-Za-z0-9]|ए|आर)|\((?:[A-Za-z0-9]|ए|आर)+\))\s*[:.\-]?)/i.test(trimmed)) {
       continue;
     }
 
@@ -66,8 +84,8 @@ export function normalizeOptionsInText(text: string): string {
     }
 
     // Option A: A., (A), (a), A), a., उ., (उ), उ), क., (क), क), अ., (अ), अ), ए., (ए), ए), एक।, एक.
-    if (/^\s*(?:[Aa][.)\s]|(?:\([Aa]\))|(?:[कअउए][.)\s]|एक[।.]|(?:\([कअउए]\))|[कअउए]\)))\s*/i.test(line)) {
-      lines[i] = line.replace(/^\s*(?:[Aa][.)\s]|(?:\([Aa]\))|(?:[कअउए][.)\s]|एक[।.]|(?:\([कअउए]\))|[कअउए]\)))\s*/i, "A. ");
+    if (/^\s*(?:[Aa][.)\s]|(?:\([Aa]\))|(?:[कअउ][.)\s]|ए\.\s+|एक[।.]|(?:\([कअउ]\))|[कअउ]\)))\s*/i.test(line)) {
+      lines[i] = line.replace(/^\s*(?:[Aa][.)\s]|(?:\([Aa]\))|(?:[कअउ][.)\s]|ए\.\s+|एक[।.]|(?:\([कअउ]\))|[कअउ]\)))\s*/i, "A. ");
       continue;
     }
 

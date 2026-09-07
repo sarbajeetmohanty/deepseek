@@ -387,7 +387,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     }
 
     // Assertion / Reason: "कथन (A):", "कारण (R):", "अभिकथन (A):", "कथन-I:", "कथन II:", "Statement I:"
-    const assertionRegex = /^(\s*(?:अभिकथन|कथन|कारण|दलील|Assertion|Reason|Statement)\s*(?:[\-–—\s]*(?:I{1,3}|IV|V|[A-Za-z0-9])|\([A-Za-z0-9]+\))\s*[:.\-]?)\s*(.*)$/i;
+    const assertionRegex = /^(\s*(?:अभिकथन|कथन|कारण|दलील|Assertion|Reason|Statement)\s*(?:[\-–—\s]*(?:I{1,3}|IV|V|[A-Za-z0-9]|ए|आर)|\((?:[A-Za-z0-9]|ए|आर)+\))\s*[:.\-]?)\s*(.*)$/i;
     const isAssertionReason = (!seenAnswer && !seenSolution) && assertionRegex.test(line);
     if (isAssertionReason) {
       inSolution = false;
