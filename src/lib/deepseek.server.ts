@@ -5,6 +5,7 @@ import {
   normalizeAnswerInText,
   protectOptionsForTranslation,
   healCorruptedMatchTitle,
+  splitHorizontalOptions,
 } from "./normalize-options";
 
 // LANGUAGE RULE: Original language for question/options; Hindi for solution; English for labels.
@@ -259,8 +260,8 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   s = s.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
   s = s.replace(/(?<=[।;]|\S[^\S\r\n]{2,})(?=(?:\(([2-9]|10)\)|([2-9]|10))\s*[.,):\-–—]?\s+[^\s\d])/g, "\n");
 
-  // Split options (A-H) if they were output on the same line horizontally (with negative lookahead to never split abbreviations like B.C., A.D., C.E.).
-  s = s.replace(/(?<!Answer:)(?<=\S)\s+(?=(?:[B-Db-d][.)](?!\s*[A-Za-z]\.)|\([b-dB-D]\)|[B-Db-d]\))\s+)/g, "\n");
+  // Split options (A-H) if they were output on the same line horizontally, protecting initials like B. B. Lal, R. D. Banerjee
+  s = splitHorizontalOptions(s);
   s = s.replace(/(?<=\S)\s+(?=(?:Answer|Ans)\s*[:.-])/gi, "\n");
 
   // Fix detached options (e.g. "A.\n4:9" -> "A. 4:9" or "(1)\nValue" -> "(1) Value")

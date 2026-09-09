@@ -2,7 +2,7 @@ import {
   Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel, LevelFormat,
   Table, TableRow, TableCell, WidthType, BorderStyle,
 } from "docx";
-import { normalizeOptionsInText, normalizeAnswerInText, healCorruptedMatchTitle } from "./normalize-options";
+import { normalizeOptionsInText, normalizeAnswerInText, healCorruptedMatchTitle, splitHorizontalOptions } from "./normalize-options";
 
 const FONT = "Noto Sans Devanagari";
 
@@ -50,8 +50,8 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
   cleanText = cleanText.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
   cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]{2,}(?=(?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
 
-  // Split options (A-H) horizontally, with negative lookahead to protect abbreviations (B.C., A.D., C.E., etc.)
-  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)\s+(?=(?:[B-Db-d][.)](?!\s*[A-Za-z]\.)|\([b-dB-D]\)|[B-Db-d]\))\s+)/g, "\n");
+  // Split options (A-H) horizontally, with initial protection (B. B. Lal, R. D. Banerjee, etc.)
+  cleanText = splitHorizontalOptions(cleanText);
   cleanText = cleanText.replace(/(?<=\S)\s+(?=(?:Answer|Ans)\s*[:.-])/gi, "\n");
   cleanText = cleanText.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
 

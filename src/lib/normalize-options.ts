@@ -201,6 +201,68 @@ export function cleanDuplicateMatchLists(text: string): string {
   return s;
 }
 
+export function splitHorizontalOptions(text: string): string {
+  // 1. Separate pre-Solution and Solution so Solution is NEVER touched by option splitting
+  const solMatch = text.match(/(?:^|\n)\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i);
+  let preSol = text;
+  let solPart = "";
+  if (solMatch && solMatch.index !== undefined) {
+    preSol = text.slice(0, solMatch.index);
+    solPart = text.slice(solMatch.index);
+  }
+
+  // Also separate pre-Answer so Answer is not split
+  const ansMatch = preSol.match(/(?:^|\n)\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i);
+  let qPart = preSol;
+  let ansPart = "";
+  if (ansMatch && ansMatch.index !== undefined) {
+    qPart = preSol.slice(0, ansMatch.index);
+    ansPart = preSol.slice(ansMatch.index);
+  }
+
+  const lines = qPart.split("\n");
+  const newLines: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) {
+      newLines.push(line);
+      continue;
+    }
+
+    let processedLine = line;
+    const initialMap = new Map<string, string>();
+    let initCounter = 0;
+
+    // Protect multi-letter initials (e.g. "B. B.", "R. D.", "V. S.", "बी.बी.", "आर.डी.", "वी.एस.", "बी. बी.", "आर. डी.")
+    processedLine = processedLine.replace(/(?<!\w)(?:(?:[A-Za-z]|(?:[क-ह]|बी|सी|डी|आर|एस|एम|एन|के|पी|जे|टी|वी|एल|ए|ओ))\s*\.\s*){2,}/gi, (m) => {
+      const key = `__INITIAL_${initCounter++}__`;
+      initialMap.set(key, m);
+      return key;
+    });
+
+    // Protect single initial following option label: e.g. "A. B. Lal" or "C. R. Banerjee"
+    processedLine = processedLine.replace(/^(\s*(?:[A-Da-d][.)]|\([A-Da-d]\))\s+)((?:[A-Za-z]|(?:[क-ह]|बी|सी|डी|आर|एस|एम|एन|के|पी|जे|टी|वी|एल|ए|ओ))\s*\.\s+)(?=[A-Za-z\u0900-\u097F]{2,})/gi, (m, optPrefix, initial) => {
+      const key = `__INITIAL_${initCounter++}__`;
+      initialMap.set(key, initial);
+      return optPrefix + key;
+    });
+
+    // Horizontal option split
+    const horizontalSplitRegex = /(?<!Answer:)(?:(?<=[।\?!;])\s*|(?<=[^A-Da-d0-9]\.)\s*|(?<=\S)\s+)(?=(?:[B-Db-d][.)](?!\s*[A-Za-z]\.)|\([b-dB-D]\)|[B-Db-d]\)|(?:[खगघ]|सी|डी)[.)](?!\s*[\u0900-\u097F]\.)|\((?:[खगघ]|सी|डी)\))\s+)/g;
+    processedLine = processedLine.replace(horizontalSplitRegex, "\n");
+
+    // Restore protected initials
+    for (const [key, val] of initialMap.entries()) {
+      processedLine = processedLine.replace(key, val);
+    }
+
+    newLines.push(processedLine);
+  }
+
+  return newLines.join("\n") + ansPart + solPart;
+}
+
 export function normalizeOptionsInText(text: string): string {
   let s = text;
 
@@ -485,9 +547,8 @@ export function normalizeOptionsInText(text: string): string {
   // 5. Split horizontal sub-statements (e.g. "...पहला कथन। 2. दूसरा कथन", never splitting decimal numbers)
   s = s.replace(/(?<=[।;]|(?<!\d)\.(?!\d)|\S[^\S\r\n]{2,})(?=(?:\(([2-9]|10)\)|([2-9]|10))[.,):\-–—]?\s+[^\s\d])/g, "\n");
 
-  // 6. Split horizontal options on the same line (e.g. "...है। बी. ..." or "...है। B. ..." or "A. 68.2 B. 71.2 C. 77.8 D. 62.5")
-  const splitPattern = /(?<!Answer:)(?:(?<=[।\?!;])\s*|(?<=[^A-Da-d0-9]\.)\s*|(?<=\S)\s+)(?=(?:[B-Db-d][.)](?!\s*[A-Za-z]\.)|\([b-dB-D]\)|[B-Db-d]\)|(?:[खबगसघद]|बी|सी|डी)[.)]|\((?:[खबगसघद]|बी|सी|डी)\)|(?:[खबगसघद]|बी|सी|डी)\))\s+)/g;
-  s = s.replace(splitPattern, "\n");
+  // 6. Split horizontal options on the same line with initial protection (B. B. Lal, R. D. Banerjee, etc.)
+  s = splitHorizontalOptions(s);
   s = s.replace(/(?<=\S)\s+(?=(?:Answer|Ans)\s*[:.-])/gi, "\n");
 
   let lines = s.split("\n");

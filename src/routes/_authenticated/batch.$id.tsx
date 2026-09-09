@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { downloadBatchAsDocx } from "@/lib/docx-export";
 import { logDownload } from "@/lib/invitations.functions";
-import { normalizeOptionsInText, normalizeAnswerInText, healCorruptedMatchTitle } from "@/lib/normalize-options";
+import { normalizeOptionsInText, normalizeAnswerInText, healCorruptedMatchTitle, splitHorizontalOptions } from "@/lib/normalize-options";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/batch/$id")({
@@ -356,7 +356,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
   });
   cleanText = cleanText.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
   cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
-  cleanText = cleanText.replace(/(?<!Answer:)(?<=\S)\s+(?=(?:[B-Db-d][.)](?!\s*[A-Za-z]\.)|\([b-dB-D]\)|[B-Db-d]\))\s+)/g, "\n");
+  cleanText = splitHorizontalOptions(cleanText);
   cleanText = cleanText.replace(/(?<=\S)\s+(?=(?:Answer|Ans)\s*[:.-])/gi, "\n");
   cleanText = cleanText.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
   

@@ -4,6 +4,7 @@ import {
   normalizeOptionsInText,
   normalizeAnswerInText,
   protectOptionsForTranslation,
+  splitHorizontalOptions,
 } from "./normalize-options";
 
 // Free Google Translate endpoint — no API key. Preserves \n between segments.
@@ -58,7 +59,7 @@ export function normalizeTranslated(text: string, idx: number): string {
   });
   s = s.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=[^\s:.\-])/g, "$1 ");
   s = s.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
-  s = s.replace(/(?<!Answer:)(?<=\S)\s+(?=(?:[B-Db-d][.)](?!\s*[A-Za-z]\.)|\([b-dB-D]\)|[B-Db-d]\))\s+)/g, "\n");
+  s = splitHorizontalOptions(s);
   s = s.replace(/(?<=\S)\s+(?=(?:Answer|Ans)\s*[:.-])/gi, "\n");
   s = s.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
 
