@@ -218,6 +218,8 @@ export function normalizeOptionsInText(text: string): string {
     const content = (pre.trim() + " " + post.trim()).trim();
     return `\n${opt.toUpperCase()}. ${content}`;
   });
+  // Restore translation sub-statement placeholders: __STMT_1__ -> 1
+  s = s.replace(/(?:^|\n)[^\S\r\n]*_*STMT_([1-9]|10)_*[:.\s]*/gi, "\n$1 ");
   s = s.replace(/(?:^|\n)\s*(?:__ANS__|_ANS_|[_*]+ANS[_\s\-*]*|(?:Answer|Ans|उत्तर)\s*[:.\-])\s*/gim, "\nAnswer: ");
 
   // 0.1 Reunite stranded question number on line 1: "22.\nText..." -> "22. Text..."
@@ -734,10 +736,20 @@ export function normalizeAnswerInText(text: string): string {
 }
 
 export function protectOptionsForTranslation(text: string): string {
-  return text
+  let s = text
     .replace(/(?:^|\n)\s*A\.\s+/g, "\n__OPT_A__ ")
     .replace(/(?:^|\n)\s*B\.\s+/g, "\n__OPT_B__ ")
     .replace(/(?:^|\n)\s*C\.\s+/g, "\n__OPT_C__ ")
     .replace(/(?:^|\n)\s*D\.\s+/g, "\n__OPT_D__ ")
     .replace(/(?:^|\n)\s*Answer:\s*/gi, "\n__ANS__ ");
+
+  // Protect sub-statements before options so Google Translate never pushes statement numbers into the middle/end of sentences
+  const optIdx = s.search(/__OPT_A__/);
+  if (optIdx !== -1) {
+    const pre = s.slice(0, optIdx);
+    const post = s.slice(optIdx);
+    const protectedPre = pre.replace(/(?:^|\n)\s*([1-9]|10)\s*[.,):\-–—]?\s+/g, "\n__STMT_$1__ ");
+    s = protectedPre + post;
+  }
+  return s;
 }
