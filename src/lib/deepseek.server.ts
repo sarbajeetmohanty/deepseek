@@ -375,7 +375,6 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
   // Prefer the admin-managed key from app_settings; falls back to the env
   // secret. Cached in-memory (60s) so this is not a DB round-trip per call.
   const { getDeepseekApiKey } = await import("./settings.functions");
-  const { gtranslate, normalizeTranslated } = await import("./translate.functions");
   const apiKey = await getDeepseekApiKey();
 
   let cleaned: string;
@@ -386,47 +385,23 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
   }
   if (!cleaned.trim()) throw new Error("Empty question text");
 
-  // Free English translation pipeline:
-  // If the input question contains Hindi, convert it to English for FREE via Google Translate (0 AI cost).
-  // DeepSeek solves in English (English tokens are 3-4x cheaper than Hindi Devanagari tokens),
-  // generating the full 8-10 points detailed solution without token bloat, then converts back to pure Hindi for free.
-  // Exception: Match-the-column questions contain proper nouns (sites, texts, places) like बनावली,
-  // which Google Translate mistranslates as verbs ("She made it"). Match questions are short anyway (~80 tokens)
-  // so process them directly in Hindi.
-  const isMatchColumn = /(?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*\(?(?:I|A|1)\)?/i.test(cleaned) ||
-                        /(?:सुमेलित|मिलान|Match)/i.test(cleaned);
-  const hasHindi = /[\u0900-\u097F]/.test(cleaned);
-  let promptText = cleaned;
-  let translatedToEnglish = false;
-
-  if (hasHindi && !isMatchColumn) {
-    try {
-      const enQ = await gtranslate(cleaned, "auto", "en");
-      if (enQ && enQ.trim().length > 0) {
-        promptText = enQ.trim();
-        translatedToEnglish = true;
-      }
-    } catch (e) {
-      console.warn(`[DeepSeek] Free translation to English failed for Q${idx}, falling back to original language`, e);
-      translatedToEnglish = false;
-    }
-  }
+  // Native Multilingual DeepSeek pipeline:
+  // DeepSeek V3 natively speaks pure Hindi and English with deep domain knowledge of
+  // competitive exams, Indian history, and technical terms.
+  // Direct language processing preserves authentic vocabulary (e.g. 'अंतःपुर', 'बनावली')
+  // and eliminates translation word-order scrambling (e.g., "1 in harem" -> "हरम में 1",
+  // "2 rulers of Iran" -> "ईरान के 2 शासक", or missing option labels).
+  const promptText = cleaned;
 
   // Keep system prompt static and clean to maximize DeepSeek Context / Prompt Caching hits across batch calls
-  const basePrompt = translatedToEnglish
-    ? (subjectType === "math" ? PROMPT_MATH_EN : PROMPT_GK_EN)
-    : (subjectType === "math" ? PROMPT_MATH : PROMPT_GK);
-  const lengthRule = translatedToEnglish
-    ? ""
-    : (subjectType === "math"
-      ? (solutionLength === "long" ? MATH_LENGTH_LONG : MATH_LENGTH_NORMAL)
-      : (solutionLength === "long" ? GK_LENGTH_LONG : GK_LENGTH_NORMAL));
-  const systemPrompt = translatedToEnglish
-    ? basePrompt
-    : basePrompt + LANG_RULE + lengthRule;
+  const basePrompt = subjectType === "math" ? PROMPT_MATH : PROMPT_GK;
+  const lengthRule = subjectType === "math"
+    ? (solutionLength === "long" ? MATH_LENGTH_LONG : MATH_LENGTH_NORMAL)
+    : (solutionLength === "long" ? GK_LENGTH_LONG : GK_LENGTH_NORMAL);
+  const systemPrompt = basePrompt + LANG_RULE + lengthRule;
 
-  // Max tokens: English generation requires ~300-450 tokens for 8-10 full points, leaving ample headroom
-  const maxTokens = subjectType === "math" ? 850 : 800;
+  // Max tokens: 950-1000 tokens provides ample headroom for 8-10 points detailed Hindi solutions
+  const maxTokens = subjectType === "math" ? 1000 : 950;
 
   // Standardized user prompt structure for optimal prompt prefix caching
   const userPrompt = `Solve and format the following MCQ:\n\n${promptText}\n\nReminder: Output strictly in the required format. Question must begin with "${idx}."`;
@@ -490,18 +465,6 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
       let content = json?.choices?.[0]?.message?.content?.trim();
       if (!content) throw new Error("Empty DeepSeek response");
 
-      // If we processed in English, convert the output back to Hindi for FREE via Google Translate (0 AI cost)
-      if (translatedToEnglish) {
-        try {
-          const protectedContent = protectOptionsForTranslation(content);
-          const hiOut = await gtranslate(protectedContent, "en", "hi");
-          if (hiOut && hiOut.trim().length > 0) {
-            content = normalizeTranslated(hiOut, idx);
-          }
-        } catch (e) {
-          console.warn(`[DeepSeek] Free translation to Hindi failed for Q${idx}, keeping English output`, e);
-        }
-      }
 
       return content;
     } finally {

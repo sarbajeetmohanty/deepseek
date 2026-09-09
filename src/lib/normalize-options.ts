@@ -498,6 +498,8 @@ export function normalizeOptionsInText(text: string): string {
   let seenOptB = false;
   let seenOptC = false;
   let seenOptD = false;
+  let lastSubNum = 0;
+  let lastSolNum = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
@@ -533,7 +535,28 @@ export function normalizeOptionsInText(text: string): string {
       const solStepMatch = trimmed.match(/^(\((?:\d{1,2})\)|\d{1,2})\s*[.,):\-–—]?\s+(.*)$/);
       if (solStepMatch) {
         const rawNum = solStepMatch[1].replace(/[\(\)]/g, "");
+        lastSolNum = parseInt(rawNum, 10);
         lines[i] = `${rawNum} ${solStepMatch[2].trim()}`;
+        continue;
+      }
+
+      // Check if line has a middle number matching expected step (lastSolNum + 1)
+      if (lastSolNum > 0) {
+        const expectedSolNum = lastSolNum + 1;
+        const midSolRegex = new RegExp(`^(.*?)[^\\S\\r\\n]+(${expectedSolNum})[^\\S\\r\\n]+(.*)$`);
+        const midSolMatch = trimmed.match(midSolRegex);
+        if (midSolMatch) {
+          lastSolNum = expectedSolNum;
+          lines[i] = `${lastSolNum} ${midSolMatch[1].trim()} ${midSolMatch[3].trim()}`;
+          continue;
+        }
+
+        // Sequential fallback for unnumbered solution step
+        if (!/^[-•·●○◦]\s+/.test(trimmed)) {
+          lastSolNum++;
+          lines[i] = `${lastSolNum} ${trimmed}`;
+          continue;
+        }
       }
       continue;
     }
@@ -563,12 +586,34 @@ export function normalizeOptionsInText(text: string): string {
 
     // Sub-statement normalization: BEFORE options have appeared
     // Format must strictly be "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number
-    if (!seenOptions) {
+    if (!seenOptions && !inColumn) {
       // Ignore question trailer phrases like "उपर्युक्त कथनों में से कौन-सा/से सही है/हैं?"
       if (!/^(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)/i.test(trimmed)) {
+        // 1. Healing: Trailing number on sub-statement (e.g. "हरम में 1" -> "1 हरम में")
+        const trailingNumMatch = trimmed.match(/^(.*?)[^\S\r\n]+([1-9]|10)$/);
+        if (trailingNumMatch && !/^\d+[.)]?\s+/.test(trimmed)) {
+          const num = parseInt(trailingNumMatch[2], 10);
+          lastSubNum = num;
+          lines[i] = `${num} ${trailingNumMatch[1].trim()}`;
+          continue;
+        }
+
+        // 2. Healing: Middle number on sub-statement (e.g. "ईरान के 2 पार्थियन शासक" -> "2 ईरान के पार्थियन शासक")
+        const expectedSubNum = lastSubNum > 0 ? lastSubNum + 1 : 1;
+        const midNumRegex = new RegExp(`^(.*?)[^\\S\\r\\n]+(${expectedSubNum})[^\\S\\r\\n]+(.*)$`);
+        const midMatch = trimmed.match(midNumRegex);
+        if (midMatch && !/^\d+[.)]?\s+/.test(trimmed)) {
+          lastSubNum = expectedSubNum;
+          lines[i] = `${expectedSubNum} ${midMatch[1].trim()} ${midMatch[3].trim()}`;
+          continue;
+        }
+
+        // 3. Leading number on sub-statement (e.g. "1. रोमन सम्राट" -> "1 रोमन सम्राट")
         const subPointMatch = trimmed.match(/^(\((?:[1-9]|10|i{1,3}|iv|v|vi)\)|([1-9]|10|i{1,3}|iv|v|vi))\s*[.,):\-–—]?\s+(.*)$/i);
         if (subPointMatch) {
           const rawNum = (subPointMatch[2] || subPointMatch[1]).replace(/[\(\)]/g, "");
+          const numVal = parseInt(rawNum, 10);
+          if (!isNaN(numVal)) lastSubNum = numVal;
           lines[i] = `${rawNum} ${subPointMatch[3].trim()}`;
           continue;
         }
