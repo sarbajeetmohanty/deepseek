@@ -9,7 +9,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { downloadBatchAsDocx } from "@/lib/docx-export";
 import { logDownload } from "@/lib/invitations.functions";
-import { normalizeOptionsInText, normalizeAnswerInText } from "@/lib/normalize-options";
+import { normalizeOptionsInText, normalizeAnswerInText, healCorruptedMatchTitle } from "@/lib/normalize-options";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/batch/$id")({
@@ -334,7 +334,7 @@ function renderMarkdownText(text: string): React.ReactNode {
 const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { text: string; subjectType?: "gk_english" | "math" }) {
   const isMath = subjectType === "math";
   
-  let cleanText = text;
+  let cleanText = healCorruptedMatchTitle(text);
 
   // Reunite orphaned numbers that are on a line by themselves: "1\nText..." -> "1 Text..."
   cleanText = cleanText.replace(/(?:^|\n)\s*(\((?:[1-9]|10|i{1,3}|iv|v)\)|[1-9]|10)[.)]?\s*\n\s*(?=\S)/g, "\n$1 ");

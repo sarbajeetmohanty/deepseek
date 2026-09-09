@@ -4,6 +4,7 @@ import {
   normalizeOptionsInText,
   normalizeAnswerInText,
   protectOptionsForTranslation,
+  healCorruptedMatchTitle,
 } from "./normalize-options";
 
 // LANGUAGE RULE: Original language for question/options; Hindi for solution; English for labels.
@@ -16,7 +17,7 @@ export const PROMPT_GK = `Expert competitive-exam MCQ solver. Output clean plain
 
 <number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
 [If statements: 1 <text> ... 2 <text> ... on separate lines]
-[If Match Column: You MUST output two separate lists: "Column A:" followed by items (a., b., c., d.) with lowercase letters, and "Column B:" followed by items (1., 2., 3., 4.) with numbers. NEVER put Column B items on the same line as Column A (do NOT use '-' or '|' between columns). The MCQ options below must be capital A., B., C., D.]
+[If Match Column: Line 1 MUST be the full question text (e.g. "<number>. सूची-I को सूची-II से सुमेलित कीजिए:"). Then on the next lines, output two separate lists: "Column A:" followed by items (a., b., c., d.) with lowercase letters, and "Column B:" followed by items (1., 2., 3., 4.) with numbers. NEVER put Column B items on the same line as Column A (do NOT use '-' or '|' between columns). NEVER start line 1 with Column A. The MCQ options below must be capital A., B., C., D.]
 A. <option 1>
 B. <option 2>
 C. <option 3>
@@ -70,7 +71,7 @@ export const PROMPT_GK_EN = `Expert competitive-exam MCQ solver. Output clean pl
 
 <number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
 [If statements: 1 <text> ... 2 <text> ... on separate lines (strictly no dots/commas after statement numbers)]
-[If Match Column: You MUST output two separate lists: "Column A:" followed by items (a., b., c., d.) with lowercase letters, and "Column B:" followed by items (1., 2., 3., 4.) with numbers. NEVER put Column B items on the same line as Column A. The MCQ options below must be capital A., B., C., D.]
+[If Match Column: Line 1 MUST be the full question text (e.g. "<number>. Match List-I with List-II:"). Then on the next lines, output two separate lists: "Column A:" followed by items (a., b., c., d.) with lowercase letters, and "Column B:" followed by items (1., 2., 3., 4.) with numbers. NEVER put Column B items on the same line as Column A. NEVER start line 1 with Column A. The MCQ options below must be capital A., B., C., D.]
 A. <option 1>
 B. <option 2>
 C. <option 3>
@@ -134,6 +135,7 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   s = s.replace(/\bS\s+olution:/gi, "Solution:");
   s = s.replace(/(?<![A-Za-z0-9])([A-Ha-h])\s+\./g, "$1.");
   s = normalizeAnswerInText(s);
+  s = healCorruptedMatchTitle(s);
 
   // Strip markdown bold/italics that the model sometimes emits despite the prompt.
   s = s.replace(/\*\*(.+?)\*\*/g, "$1");
@@ -379,11 +381,16 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
   // If the input question contains Hindi, convert it to English for FREE via Google Translate (0 AI cost).
   // DeepSeek solves in English (English tokens are 3-4x cheaper than Hindi Devanagari tokens),
   // generating the full 8-10 points detailed solution without token bloat, then converts back to pure Hindi for free.
+  // Exception: Match-the-column questions contain proper nouns (sites, texts, places) like बनावली,
+  // which Google Translate mistranslates as verbs ("She made it"). Match questions are short anyway (~80 tokens)
+  // so process them directly in Hindi.
+  const isMatchColumn = /(?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*\(?(?:I|A|1)\)?/i.test(cleaned) ||
+                        /(?:सुमेलित|मिलान|Match)/i.test(cleaned);
   const hasHindi = /[\u0900-\u097F]/.test(cleaned);
   let promptText = cleaned;
   let translatedToEnglish = false;
 
-  if (hasHindi) {
+  if (hasHindi && !isMatchColumn) {
     try {
       const enQ = await gtranslate(cleaned, "auto", "en");
       if (enQ && enQ.trim().length > 0) {

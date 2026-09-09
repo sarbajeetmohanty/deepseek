@@ -123,8 +123,64 @@ export function healSolutionTables(text: string): string {
   return preSol + cleanedSolLines.join("\n");
 }
 
+export function healCorruptedMatchTitle(text: string): string {
+  let s = text;
+
+  // 1. Case where question line 1 is "<num>. Column A:" and lines 2+ contain title keywords before real Column A
+  const lines = s.split("\n");
+  if (lines.length > 3 && /^\s*(\d{1,4})[.)]?\s*Column\s*A:\s*$/i.test(lines[0].trim())) {
+    const qNumMatch = lines[0].match(/^\s*(\d{1,4})/);
+    if (qNumMatch) {
+      const qNum = qNumMatch[1];
+      let realColAIdx = -1;
+      for (let k = 1; k < lines.length && k < 10; k++) {
+        if (/^(?:\d{1,2}[.)]?\s*)?Column\s*A:\s*$/i.test(lines[k].trim())) {
+          realColAIdx = k;
+          break;
+        }
+      }
+      if (realColAIdx > 0) {
+        const titleLines = lines.slice(1, realColAIdx)
+          .map(l => l.replace(/^\s*(?:[A-Da-d1-4][.)\s]|\([A-Da-d1-4]\)|Column\s*[AB]:?)\s*/gi, "").trim())
+          .filter(Boolean);
+
+        let titleText = titleLines.join(" ")
+          .replace(/\s+/g, " ")
+          .replace(/^सूची\s+I\b/i, "सूची-I")
+          .replace(/सूची\s+II\b/i, "सूची-II");
+
+        if (!titleText.startsWith("सूची") && /I\s*\(/.test(titleText)) {
+          titleText = "सूची-" + titleText;
+        }
+
+        const newQLine = `${qNum}. ${titleText}`;
+        const after = lines.slice(realColAIdx + 1);
+        s = [newQLine, "Column A:", ...after].join("\n");
+      }
+    }
+  }
+
+  // 2. Pattern: Question number followed immediately by Column A: etc in one line or multiline
+  const matchCorruptedPattern = /^\s*(\d{1,4})[.)]?\s*(?:Column\s*A:)?\s*(?:[A-Da-d1-4][.)]?\s*)?(?:सूची|कॉलम|स्तंभ|List|Column)\s*(?:Column\s*A:)?\s*(?:Column\s*B:)?\s*(?:[1-4][.)]?\s*)?([I1A]\s*\([^\)\n]+\)[^\n]*?(?:सूची|कॉलम|स्तंभ|List|Column)\s*[-–—]?\s*[II2B]\s*\([^\)\n]+\)[^\n]*?[:.\-])\s*(?:\d{1,2}[.)]?\s*)?(?:Column\s*A:)?/i;
+  const m = s.match(matchCorruptedPattern);
+  if (m) {
+    const qNum = m[1];
+    const fullTitle = `${qNum}. सूची-${m[2].trim()}`;
+    s = s.replace(matchCorruptedPattern, `${fullTitle}\nColumn A:`);
+  }
+
+  // 3. Fix 'उसने इसे बनाया' mistranslation of 'बनावली'
+  s = s.replace(/(?:^|\n)\s*([A-Da-d][.)\s]|\([A-Da-d]\))\s*उसने इसे बनाया/gi, "\n$1 बनावली");
+  s = s.replace(/उसने इसे बनाया/g, "बनावली");
+
+  return s;
+}
+
 export function normalizeOptionsInText(text: string): string {
   let s = text;
+
+  // -2. Heal corrupted match-the-column titles and translations
+  s = healCorruptedMatchTitle(s);
 
   // -1. Clean any bogus match-the-column tables from inside the Solution section
   s = healSolutionTables(s);

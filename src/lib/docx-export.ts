@@ -2,7 +2,7 @@ import {
   Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel, LevelFormat,
   Table, TableRow, TableCell, WidthType, BorderStyle,
 } from "docx";
-import { normalizeOptionsInText, normalizeAnswerInText } from "./normalize-options";
+import { normalizeOptionsInText, normalizeAnswerInText, healCorruptedMatchTitle } from "./normalize-options";
 
 const FONT = "Noto Sans Devanagari";
 
@@ -28,7 +28,7 @@ function runsFromMarkdown(text: string, defaultBold = false): TextRun[] {
 function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
   const paragraphs: (Paragraph | Table)[] = [];
   // Normalize: strip blank lines from source, we control spacing via paragraph spacing.
-  let cleanText = text;
+  let cleanText = healCorruptedMatchTitle(text);
 
   // Reunite orphaned numbers that are on a line by themselves: "1\nText..." -> "1 Text..."
   cleanText = cleanText.replace(/(?:^|\n)\s*(\((?:[1-9]|10|i{1,3}|iv|v)\)|[1-9]|10)[.)]?\s*\n\s*(?=\S)/g, "\n$1 ");
