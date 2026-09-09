@@ -524,12 +524,13 @@ export function normalizeOptionsInText(text: string): string {
       continue;
     }
     if (inColB) {
-      if (/(?:^|\s*)1\s+[^\d]+(?:\s+)2\s+/i.test(l)) {
+      if (/(?:^|\s*)1[.)]?\s+[^\d]+(?:\s+)2[.)]?\s+/i.test(l)) {
         let splitItems = l
-          .replace(/(?:^|\s*)1\s+([^\d]+)/, "\n1. $1")
-          .replace(/\s+2\s+([^\d]+)/, "\n2. $1")
-          .replace(/\s+3\s+([^\d]+)/, "\n3. $1")
-          .replace(/\s+4\s+([^\d]+)/, "\n4. $1")
+          .replace(/(?:^|\s*)1[.)]?\s+([^\d]+)/, "\n1 $1")
+          .replace(/\s+2[.)]?\s+([^\d]+)/, "\n2 $1")
+          .replace(/\s+3[.)]?\s+([^\d]+)/, "\n3 $1")
+          .replace(/\s+4[.)]?\s+([^\d]+)/, "\n4 $1")
+          .replace(/\s+5[.)]?\s+([^\d]+)/, "\n5 $1")
           .trim();
         colLines[i] = splitItems;
       }
@@ -537,11 +538,11 @@ export function normalizeOptionsInText(text: string): string {
   }
   s = colLines.join("\n");
 
-  // Ensure Column A items use lowercase letters: a., b., c., d. ("a chota aaye bas")
+  // Ensure Column A items use lowercase letters: a., b., c., d., e. ("a chota aaye bas")
   const colLines2 = s.split("\n");
   let inColA = false;
   let colAItemIdx = 0;
-  const colALetters = ["a. ", "b. ", "c. ", "d. "];
+  const colALetters = ["a. ", "b. ", "c. ", "d. ", "e. "];
   for (let i = 0; i < colLines2.length; i++) {
     const l = colLines2[i].trim();
     if (/^Column\s*A:/i.test(l)) {
@@ -555,7 +556,7 @@ export function normalizeOptionsInText(text: string): string {
     }
     if (inColA && l.length > 0) {
       // Strip any existing prefix: Devanagari (ए., बी., क., ख.), letters (A., B., a.), numbers (1., 2.)
-      const stripped = l.replace(/^\s*(?:[A-Da-d1-4][.)\s]|\([A-Da-d1-4]\)|(?:[क-घअ-द]|ए|बी|सी|डी)[.)\s]|\((?:[क-घअ-द]|ए|बी|सी|डी)\))\s*/i, "");
+      const stripped = l.replace(/^\s*(?:[A-Ea-e1-5][.)\s]|\([A-Ea-e1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "");
       if (colAItemIdx < colALetters.length) {
         colLines2[i] = colALetters[colAItemIdx] + stripped;
         colAItemIdx++;
@@ -564,11 +565,11 @@ export function normalizeOptionsInText(text: string): string {
   }
   s = colLines2.join("\n");
 
-  // Ensure Column B items use numbers: 1., 2., 3., 4.
+  // Ensure Column B items use numbers: 1, 2, 3, 4, 5 (strictly NO dot after number: "bindu hata do")
   const colLines3 = s.split("\n");
   let inColB2 = false;
   let colBItemIdx = 0;
-  const colBNumbers = ["1. ", "2. ", "3. ", "4. "];
+  const colBNumbers = ["1 ", "2 ", "3 ", "4 ", "5 "];
   for (let i = 0; i < colLines3.length; i++) {
     const l = colLines3[i].trim();
     if (/^Column\s*B:/i.test(l)) {
@@ -581,7 +582,7 @@ export function normalizeOptionsInText(text: string): string {
       continue;
     }
     if (inColB2 && l.length > 0) {
-      const stripped = l.replace(/^\s*(?:[A-Da-d1-4][.)\s]|\([A-Da-d1-4]\)|(?:[क-घअ-द]|ए|बी|सी|डी)[.)\s]|\((?:[क-घअ-द]|ए|बी|सी|डी)\))\s*/i, "");
+      const stripped = l.replace(/^\s*(?:[A-Ea-e1-5][.)\s]|\([A-Ea-e1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "");
       if (colBItemIdx < colBNumbers.length) {
         colLines3[i] = colBNumbers[colBItemIdx] + stripped;
         colBItemIdx++;
@@ -629,7 +630,8 @@ export function normalizeOptionsInText(text: string): string {
     }
     if (inColumn && (
       /^(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(trimmed) ||
-      /^(?:[A-Da-d][.)]|\([A-Da-d]\))\s+(?:[a-dA-D1-4]\s*[-–—:,]|\d\s*,\s*\d|केवल)/i.test(trimmed)
+      /^(?:[A-Da-d][.)]|\([A-Da-d]\))\s+(?:[a-dA-D1-4]\s*[-–—:,]|\([a-dA-D1-4]\)|\d\s*,\s*\d|केवल)/i.test(trimmed) ||
+      /^[A-D]\.\s+\S/.test(trimmed)
     )) {
       inColumn = false;
     }

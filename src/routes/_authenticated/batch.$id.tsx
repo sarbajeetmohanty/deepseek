@@ -647,7 +647,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
 
       // Ensure lowercase letters for Column A items and numbers for Column B items
       const colALetters = ["a. ", "b. ", "c. ", "d. ", "e. "];
-      const colBNumbers = ["1. ", "2. ", "3. ", "4. ", "5. "];
+      const colBNumbers = ["1 ", "2 ", "3 ", "4 ", "5 "];
       for (let k = 0; k < colA.length; k++) {
         const stripped = colA[k].replace(/^\s*(?:[A-Da-d1-5][.)\s]|\([A-Da-d1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
         if (k < colALetters.length) colA[k] = colALetters[k] + stripped;
@@ -680,7 +680,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
                       {matchA ? <><span className="font-semibold">{matchA[1]} </span>{renderMarkdownText(matchA[2])}</> : renderMarkdownText(cellA)}
                     </td>
                     <td className="p-4 text-[15px] leading-7 align-top">
-                      {matchB ? <><span className="font-semibold">{matchB[1]} </span>{renderMarkdownText(matchB[2])}</> : renderMarkdownText(cellB)}
+                      {matchB ? <><span className="font-semibold">{matchB[1].replace(/\.$/, "")} </span>{renderMarkdownText(matchB[2])}</> : renderMarkdownText(cellB)}
                     </td>
                   </tr>
                 );

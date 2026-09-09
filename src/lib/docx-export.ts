@@ -345,7 +345,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
 
       // Ensure lowercase letters for Column A items and numbers for Column B items
       const colALetters = ["a. ", "b. ", "c. ", "d. ", "e. "];
-      const colBNumbers = ["1. ", "2. ", "3. ", "4. ", "5. "];
+      const colBNumbers = ["1 ", "2 ", "3 ", "4 ", "5 "];
       for (let k = 0; k < colA.length; k++) {
         const stripped = colA[k].replace(/^\s*(?:[A-Da-d1-5][.)\s]|\([A-Da-d1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
         if (k < colALetters.length) colA[k] = colALetters[k] + stripped;
@@ -393,7 +393,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
                   new Paragraph({
                     spacing: { before: 30, after: 30, line: 300 },
                     indent: { left: 360 },
-                    children: mB ? [run(`${mB[1]} `, true), ...runsFromMarkdown(mB[2])] : runsFromMarkdown(itemB),
+                    children: mB ? [run(`${mB[1].replace(/\.$/, "")} `, true), ...runsFromMarkdown(mB[2])] : runsFromMarkdown(itemB),
                   }),
                 ],
               }),

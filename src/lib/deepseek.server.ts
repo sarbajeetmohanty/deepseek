@@ -18,7 +18,7 @@ export const PROMPT_GK = `Expert competitive-exam MCQ solver. Output clean plain
 
 <number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
 [If statements: 1 <text> ... 2 <text> ... on separate lines]
-[If Match Column: Line 1 MUST be the full question text (e.g. "<number>. सूची-I को सूची-II से सुमेलित कीजिए:"). Then on the next lines, output two separate lists: "Column A:" followed by items (a., b., c., d.) with lowercase letters, and "Column B:" followed by items (1., 2., 3., 4.) with numbers. NEVER put Column B items on the same line as Column A (do NOT use '-' or '|' between columns). NEVER start line 1 with Column A. The MCQ options below must be capital A., B., C., D.]
+[If Match Column: Line 1 MUST be the full question text (e.g. "<number>. सूची-I को सूची-II से सुमेलित कीजिए:"). Then on the next lines, output two separate lists: "Column A:" followed by items (a., b., c., d.) with lowercase letters, and "Column B:" followed by items (1 , 2 , 3 , 4 ) with numbers (strictly NO dot after the number). NEVER put Column B items on the same line as Column A (do NOT use '-' or '|' between columns). NEVER start line 1 with Column A. The MCQ options below must be capital A., B., C., D.]
 A. <option 1>
 B. <option 2>
 C. <option 3>
@@ -33,7 +33,7 @@ Rules:
 1. 100% accurate facts. Solve and match options.
 2. Clean Unicode formulas (², ³, √x, θ, α, π).
 3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters like क, ख, ग, घ, उ or Roman numerals for options).
-4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number. For Match-the-Column, NEVER output matching pairs as sub-statements; always output Column A: (a., b., ...) and Column B: (1., 2., ...).
+4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number. For Match-the-Column, NEVER output matching pairs as sub-statements; always output Column A: (a., b., ...) and Column B: (1 , 2 , ... with NO dot after the number).
 5. Output ONLY the required format above.`;
 
 export const PROMPT_MATH = `Expert Math MCQ solver. Output clean plain text ONLY (no markdown, no greetings):
@@ -72,7 +72,7 @@ export const PROMPT_GK_EN = `Expert competitive-exam MCQ solver. Output clean pl
 
 <number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
 [If statements: 1 <text> ... 2 <text> ... on separate lines (strictly no dots/commas after statement numbers)]
-[If Match Column: Line 1 MUST be the full question text (e.g. "<number>. Match List-I with List-II:"). Then on the next lines, output two separate lists: "Column A:" followed by items (a., b., c., d.) with lowercase letters, and "Column B:" followed by items (1., 2., 3., 4.) with numbers. NEVER put Column B items on the same line as Column A. NEVER start line 1 with Column A. The MCQ options below must be capital A., B., C., D.]
+[If Match Column: Line 1 MUST be the full question text (e.g. "<number>. Match List-I with List-II:"). Then on the next lines, output two separate lists: "Column A:" followed by items (a., b., c., d.) with lowercase letters, and "Column B:" followed by items (1 , 2 , 3 , 4 ) with numbers (strictly NO dot after the number). NEVER put Column B items on the same line as Column A. NEVER start line 1 with Column A. The MCQ options below must be capital A., B., C., D.]
 A. <option 1>
 B. <option 2>
 C. <option 3>
@@ -93,7 +93,7 @@ Rules:
 1. 100% accurate facts. Solve and match options.
 2. Clean Unicode formulas (², ³, √x, θ, α, π).
 3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters or Roman numerals for options).
-4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number. For Match-the-Column, NEVER output matching pairs as sub-statements; always output Column A: (a., b., ...) and Column B: (1., 2., ...).
+4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number. For Match-the-Column, NEVER output matching pairs as sub-statements; always output Column A: (a., b., ...) and Column B: (1 , 2 , ... with NO dot after the number).
 5. The solution MUST contain 8 to 10 detailed points in English, numbered "1 ", "2 " (never paragraph). Keep points informative, direct, and factual.
 6. Output ONLY the required format above.`;
 
