@@ -201,6 +201,40 @@ export function cleanDuplicateMatchLists(text: string): string {
   return s;
 }
 
+export function cleanSolutionCorruptions(text: string): string {
+  const lines = text.split("\n");
+  let inSol = false;
+  const filtered: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i];
+    const trimmed = l.trim();
+    if (/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(trimmed)) {
+      inSol = true;
+      filtered.push(l);
+      continue;
+    }
+    if (!inSol) {
+      filtered.push(l);
+      continue;
+    }
+
+    // Drop orphaned phantom digit-only lines: e.g. "3 3", "4 3", "5 5", "6 4", "7 7", "10 10", "11 10", "12 12", "13 11", "14 14"
+    if (/^\s*\d{1,2}\s+\d{1,2}\s*$/.test(trimmed)) {
+      continue;
+    }
+
+    // Drop orphaned isolated initial lines: e.g. "4 बी.", "11 बी.", "3 बी."
+    if (/^\s*\d{1,2}\s+(?:[क-ह]|बी|सी|डी|आर|एस|एम|एन|के|पी|जे|टी|वी|एल|ए|ओ)\s*[.]?\s*$/.test(trimmed)) {
+      continue;
+    }
+
+    filtered.push(l);
+  }
+
+  return filtered.join("\n");
+}
+
 export function splitHorizontalOptions(text: string): string {
   // 1. Separate pre-Solution and Solution so Solution is NEVER touched by option splitting
   const solMatch = text.match(/(?:^|\n)\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i);
@@ -234,22 +268,32 @@ export function splitHorizontalOptions(text: string): string {
     const initialMap = new Map<string, string>();
     let initCounter = 0;
 
-    // Protect multi-letter initials (e.g. "B. B.", "R. D.", "V. S.", "बी.बी.", "आर.डी.", "वी.एस.", "बी. बी.", "आर. डी.")
-    processedLine = processedLine.replace(/(?<!\w)(?:(?:[A-Za-z]|(?:[क-ह]|बी|सी|डी|आर|एस|एम|एन|के|पी|जे|टी|वी|एल|ए|ओ))\s*\.\s*){2,}/gi, (m) => {
-      const key = `__INITIAL_${initCounter++}__`;
+    // 1. Protect Hindi initials everywhere: "बी.बी.", "आर.डी.", "वी.एस.", "बी. लाल", "डी. बनर्जी", "ए. कनिंघम", "एस.आर. राव"
+    // In Hindi, Devanagari letters with dots before names are ALWAYS person initials, NEVER option labels!
+    processedLine = processedLine.replace(/(?<!\w)(?:[क-ह]|बी|सी|डी|आर|एस|एम|एन|के|पी|जे|टी|वी|एल|ए|ओ)\s*\.\s*(?:(?:[क-ह]|बी|सी|डी|आर|एस|एम|एन|के|पी|जे|टी|वी|एल|ए|ओ)\s*\.\s*)*(?=[\u0900-\u097FA-Za-z]{2,})/gi, (m) => {
+      const key = `__HINDI_INIT_${initCounter++}__`;
       initialMap.set(key, m);
       return key;
     });
 
-    // Protect single initial following option label: e.g. "A. B. Lal" or "C. R. Banerjee"
-    processedLine = processedLine.replace(/^(\s*(?:[A-Da-d][.)]|\([A-Da-d]\))\s+)((?:[A-Za-z]|(?:[क-ह]|बी|सी|डी|आर|एस|एम|एन|के|पी|जे|टी|वी|एल|ए|ओ))\s*\.\s+)(?=[A-Za-z\u0900-\u097F]{2,})/gi, (m, optPrefix, initial) => {
-      const key = `__INITIAL_${initCounter++}__`;
-      initialMap.set(key, initial);
-      return optPrefix + key;
+    // 2. Protect English multi-initials inside names (e.g. "B. B. Lal", "R. D. Banerjee", "V. S. Sukthankar")
+    // Match initials followed by a name without eating the option prefix at line start
+    processedLine = processedLine.replace(/(?<=^[A-Ha-h]\.\s+)(?:[A-Za-z]\s*\.\s*)+(?=[A-Za-z]{2,})/g, (m) => {
+      const key = `__ENG_INIT_${initCounter++}__`;
+      initialMap.set(key, m);
+      return key;
+    });
+    processedLine = processedLine.replace(/(?<=\s+[B-Hb-h]\.\s+)(?:[A-Za-z]\s*\.\s*)+(?=[A-Za-z]{2,})/g, (m) => {
+      const key = `__ENG_INIT_${initCounter++}__`;
+      initialMap.set(key, m);
+      return key;
     });
 
-    // Horizontal option split
-    const horizontalSplitRegex = /(?<!Answer:)(?:(?<=[।\?!;])\s*|(?<=[^A-Da-d0-9]\.)\s*|(?<=\S)\s+)(?=(?:[B-Db-d][.)](?!\s*[A-Za-z]\.)|\([b-dB-D]\)|[B-Db-d]\)|(?:[खगघ]|सी|डी)[.)](?!\s*[\u0900-\u097F]\.)|\((?:[खगघ]|सी|डी)\))\s+)/g;
+    // 3. Horizontal option split
+    // ONLY split at valid option prefixes (B-H, 2-4, ख-घ)
+    // NEVER split at Devanagari बी. or डी. (they are initials!)
+    // NEVER split after a comma, opening parenthesis, or conjunction (और, and, or)
+    const horizontalSplitRegex = /(?<!Answer:)(?<![,(])(?<!\b(?:और|and|or)\s*)(?:(?<=[।\?!;])\s*|(?<=[^A-Da-d0-9]\.)\s*|(?<=\S)\s+)(?=(?:[B-Db-d][.)](?!\s*[A-Za-z]\.)|\([b-dB-D]\)|[B-Db-d]\)|(?:[खगघ])[.)](?!\s*[\u0900-\u097F]\.)|\((?:[खगघ])\))\s+)/g;
     processedLine = processedLine.replace(horizontalSplitRegex, "\n");
 
     // Restore protected initials
@@ -595,31 +639,10 @@ export function normalizeOptionsInText(text: string): string {
       inSolution = true;
     }
     if (inSolution) {
-      const solStepMatch = trimmed.match(/^(\((?:\d{1,2})\)|\d{1,2})\s*[.,):\-–—]?\s+(.*)$/);
+      const solStepMatch = trimmed.match(/^(\((?:\d{1,2})\)|\d{1,2})\s*[.,):\-–—]\s+(.*)$/);
       if (solStepMatch) {
         const rawNum = solStepMatch[1].replace(/[\(\)]/g, "");
-        lastSolNum = parseInt(rawNum, 10);
         lines[i] = `${rawNum} ${solStepMatch[2].trim()}`;
-        continue;
-      }
-
-      // Check if line has a middle number matching expected step (lastSolNum + 1)
-      if (lastSolNum > 0) {
-        const expectedSolNum = lastSolNum + 1;
-        const midSolRegex = new RegExp(`^(.*?)[^\\S\\r\\n]+(${expectedSolNum})[^\\S\\r\\n]+(.*)$`);
-        const midSolMatch = trimmed.match(midSolRegex);
-        if (midSolMatch) {
-          lastSolNum = expectedSolNum;
-          lines[i] = `${lastSolNum} ${midSolMatch[1].trim()} ${midSolMatch[3].trim()}`;
-          continue;
-        }
-
-        // Sequential fallback for unnumbered solution step
-        if (!/^[-•·●○◦]\s+/.test(trimmed)) {
-          lastSolNum++;
-          lines[i] = `${lastSolNum} ${trimmed}`;
-          continue;
-        }
       }
       continue;
     }
@@ -777,7 +800,7 @@ export function normalizeOptionsInText(text: string): string {
     }
   }
 
-  return result;
+  return cleanSolutionCorruptions(result);
 }
 
 export function normalizeAnswerInText(text: string): string {
