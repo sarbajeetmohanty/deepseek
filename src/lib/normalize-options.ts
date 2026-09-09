@@ -350,9 +350,9 @@ export function normalizeOptionsInText(text: string): string {
   // Unglue Column B if stuck to end of Column A item (e.g. "...हड़प्पा कॉलम बी: 1 बढ़िया..." or "...बदला Column B:")
   s = s.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[ \t\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?[ \t]*[:.-][ \t]*)/gim, "\n$1\n");
 
-  // Normalize standalone Column A and Column B headers
-  s = s.replace(/(?:^|\n)\s*(?:Column|कॉलम|स्तंभ|List|सूची)[ \t\-]*\(?(?:A|I|1|ए)\)?(?:\([^\)\n]+\))?[ \t]*[:.-][ \t]*/gim, "\nColumn A:\n");
-  s = s.replace(/(?:^|\n)\s*(?:Column|कॉलम|स्तंभ|List|सूची)[ \t\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?[ \t]*[:.-][ \t]*/gim, "\nColumn B:\n");
+  // Normalize standalone Column A and Column B headers: "List I" -> "Column A", "List II" -> "Column B"
+  s = s.replace(/(?:^|\n)\s*(?:Column|कॉलम|स्तंभ|List|सूची)[ \t\-]*\(?(?:A|I{1,3}|1|ए)\)?(?:\s*\([^\)\n]+\))?[ \t]*[:.-]?[ \t]*/gim, "\nColumn A:\n");
+  s = s.replace(/(?:^|\n)\s*(?:Column|कॉलम|स्तंभ|List|सूची)[ \t\-]*\(?(?:B|II{1,2}|2|बी)\)?(?:\s*\([^\)\n]+\))?[ \t]*[:.-]?[ \t]*/gim, "\nColumn B:\n");
 
   // If there are two "Column A:" headers before Answer/Solution, convert the second one to "Column B:"
   const colLinesHeaders = s.split("\n");

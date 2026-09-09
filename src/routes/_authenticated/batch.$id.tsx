@@ -569,7 +569,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
     }
     if (!seenAnswer && !seenSolution && !inSolution && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?/i.test(line)) {
       inSolution = false;
-      let headerA = line.replace(/[:.\-]+$/, "").trim() || "Column A";
+      let headerA = "Column A";
       let headerB = "Column B";
       const colA: string[] = [];
       const colB: string[] = [];
@@ -591,7 +591,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
         // If this line is another "Column A:" / "सूची-I" header (e.g. from an earlier duplicate header), reset colA
         if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?[:.\-]?/i.test(lines[j])) {
           colA.length = 0;
-          headerA = lines[j].replace(/[:.\-]+$/, "").trim() || "Column A";
+          headerA = "Column A";
           j++;
           continue;
         }
@@ -599,7 +599,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
         j++;
       }
       if (j < lines.length && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2|बी)\)?/i.test(lines[j])) {
-        headerB = lines[j].replace(/[:.\-]+$/, "").trim() || "Column B";
+        headerB = "Column B";
         j++;
         while (
           j < lines.length &&
@@ -642,17 +642,6 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
             colA.length = 0;
             colA.push(...splitColA);
           }
-        }
-      }
-
-      // If generic header, extract custom subtitles from preceding question prompt if available
-      if (/^(?:Column\s*A|कॉलम\s*A|स्तंभ\s*1)$/i.test(headerA)) {
-        const fullQ = lines.slice(0, i + 1).join(" ");
-        const m1 = fullQ.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:I|A|1)(?:\s*\([^\)\n]+\))?)/i);
-        const m2 = fullQ.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:II|B|2)(?:\s*\([^\)\n]+\))?)/i);
-        if (m1 && m2) {
-          headerA = m1[1];
-          headerB = m2[1];
         }
       }
 
