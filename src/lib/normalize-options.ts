@@ -176,8 +176,36 @@ export function healCorruptedMatchTitle(text: string): string {
   return s;
 }
 
+export function cleanDuplicateMatchLists(text: string): string {
+  let s = text;
+  const colAIndex = s.search(/(?:^|\n)\s*Column\s*A:\s*/i);
+  const colBIndex = s.search(/(?:^|\n)\s*Column\s*B:\s*/i);
+  if (colAIndex !== -1 && colBIndex !== -1 && colAIndex < colBIndex) {
+    const beforeColA = s.slice(0, colAIndex);
+    const fromColA = s.slice(colAIndex).trim();
+    const lines = beforeColA.split("\n").filter(l => l.trim().length > 0);
+    if (lines.length > 1) {
+      let firstStrandedIdx = -1;
+      for (let k = 1; k < lines.length; k++) {
+        if (/^(?:(?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*\(?(?:I|II|A|B|1|2)\)?[:.\-]?$|[1-9][.)]?\s+[^\d]|[a-hA-H][.)]?\s+[^\d])/i.test(lines[k].trim())) {
+          firstStrandedIdx = k;
+          break;
+        }
+      }
+      if (firstStrandedIdx !== -1) {
+        const promptLines = lines.slice(0, firstStrandedIdx);
+        s = promptLines.join("\n") + "\n" + fromColA;
+      }
+    }
+  }
+  return s;
+}
+
 export function normalizeOptionsInText(text: string): string {
   let s = text;
+
+  // -3. Clean duplicate/stranded match lists appearing before Column A:
+  s = cleanDuplicateMatchLists(s);
 
   // -2. Heal corrupted match-the-column titles and translations
   s = healCorruptedMatchTitle(s);

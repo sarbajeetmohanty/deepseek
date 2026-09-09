@@ -165,70 +165,74 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   const dashSplitRegex = /\s*(?:[-–—:;]|\t+)\s*(?=\(?(?:[1-9]|10|[a-hA-H]|i{1,3}|iv|v)\)?[.)]?\s+)/i;
   const leftItemRegex = /^\s*(?:[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?|\([ivxIVX]{1,4}\)|(?:[1-9]|10)[.)]?|\((?:[1-9]|10)\))\s+/i;
   const isQuestionPromptRegex = /(?:सुमेलित|सुमेल|मिलान|Match\b|Match the|निम्नलिखित|निम्न में|सूची\s*[-–—]?\s*[I1A].*सूची\s*[-–—]?\s*[II2B])/i;
+  const isStatementQuestion = /(?:केवल|सभी\s*सही|कोई\s*नहीं|\bदोनों\b|कथन\s*\d|उपर्युक्त|उपरोक्त|Only\b|All\s+of\s+the\s+above|None\s+of\s+the\s+above|Both\s+\d)/i.test(s);
   const linesArr = s.split("\n");
-  let inSolutionOrAnswer = false;
-  for (let i = 0; i < linesArr.length; i++) {
-    const line = linesArr[i].trim();
-    if (/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.-]/i.test(line)) {
-      inSolutionOrAnswer = true;
-    }
-    if (inSolutionOrAnswer) continue;
-    // Never split question header or question prompt line
-    if (i === 0 || /^\s*\d{1,4}[.)]\s+/.test(line) || isQuestionPromptRegex.test(line)) {
-      continue;
-    }
-    if (!/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान|Code|Codes|कूट|कोड)/i.test(line)) {
-      const parts = line.split(dashSplitRegex);
-      if (parts.length >= 2 && leftItemRegex.test(parts[0])) {
-        let startIndex = i;
-        while (startIndex > 0) {
-          const prev = linesArr[startIndex - 1].trim();
-          if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I|1)\)?[:.\-]?/i.test(prev)) {
-            startIndex--;
-            break;
-          }
-          if (prev === "" || /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?[:.\-]?/i.test(prev)) {
-            startIndex--;
-            continue;
-          }
-          break;
-        }
 
-        let j = i;
-        const colAItems: string[] = [];
-        const colBItems: string[] = [];
-        while (j < linesArr.length) {
-          const curr = linesArr[j].trim();
-          if (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(curr) || /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(curr)) {
+  if (!isStatementQuestion) {
+    let inSolutionOrAnswer = false;
+    for (let i = 0; i < linesArr.length; i++) {
+      const line = linesArr[i].trim();
+      if (/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.-]/i.test(line)) {
+        inSolutionOrAnswer = true;
+      }
+      if (inSolutionOrAnswer) continue;
+      // Never split question header or question prompt line
+      if (i === 0 || /^\s*\d{1,4}[.)]\s+/.test(line) || isQuestionPromptRegex.test(line)) {
+        continue;
+      }
+      if (!/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान|Code|Codes|कूट|कोड)/i.test(line)) {
+        const parts = line.split(dashSplitRegex);
+        if (parts.length >= 2 && leftItemRegex.test(parts[0])) {
+          let startIndex = i;
+          while (startIndex > 0) {
+            const prev = linesArr[startIndex - 1].trim();
+            if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I|1)\)?[:.\-]?/i.test(prev)) {
+              startIndex--;
+              break;
+            }
+            if (prev === "" || /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?[:.\-]?/i.test(prev)) {
+              startIndex--;
+              continue;
+            }
             break;
           }
-          if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(curr)) {
+
+          let j = i;
+          const colAItems: string[] = [];
+          const colBItems: string[] = [];
+          while (j < linesArr.length) {
+            const curr = linesArr[j].trim();
+            if (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(curr) || /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(curr)) {
+              break;
+            }
+            if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(curr)) {
+              j++;
+              continue;
+            }
+            const p = curr.split(dashSplitRegex);
+            if (p.length >= 2 && leftItemRegex.test(p[0])) {
+              colAItems.push(p[0].trim());
+              colBItems.push(p.slice(1).join(" - ").trim());
+            } else if (p.length === 1 && p[0] === "") {
+              j++;
+              continue;
+            } else {
+              break;
+            }
             j++;
-            continue;
           }
-          const p = curr.split(dashSplitRegex);
-          if (p.length >= 2 && leftItemRegex.test(p[0])) {
-            colAItems.push(p[0].trim());
-            colBItems.push(p.slice(1).join(" - ").trim());
-          } else if (p.length === 1 && p[0] === "") {
-            j++;
-            continue;
-          } else {
-            break;
+
+          if (colAItems.length >= 3) {
+            const precedingText = linesArr.slice(0, startIndex).join(" ");
+            const m1 = precedingText.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:I|A|1)(?:\s*\([^\)\n]+\))?)/i);
+            const m2 = precedingText.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:II|B|2)(?:\s*\([^\)\n]+\))?)/i);
+            const headerA = m1 ? `${m1[1]}:` : "Column A:";
+            const headerB = m2 ? `${m2[1]}:` : "Column B:";
+
+            const replacement = [headerA, ...colAItems, headerB, ...colBItems];
+            linesArr.splice(startIndex, j - startIndex, ...replacement);
+            i = startIndex + replacement.length - 1;
           }
-          j++;
-        }
-
-        if (colAItems.length > 0) {
-          const precedingText = linesArr.slice(0, startIndex).join(" ");
-          const m1 = precedingText.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:I|A|1)(?:\s*\([^\)\n]+\))?)/i);
-          const m2 = precedingText.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:II|B|2)(?:\s*\([^\)\n]+\))?)/i);
-          const headerA = m1 ? `${m1[1]}:` : "Column A:";
-          const headerB = m2 ? `${m2[1]}:` : "Column B:";
-
-          const replacement = [headerA, ...colAItems, headerB, ...colBItems];
-          linesArr.splice(startIndex, j - startIndex, ...replacement);
-          i = startIndex + replacement.length - 1;
         }
       }
     }
