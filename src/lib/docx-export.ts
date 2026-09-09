@@ -301,6 +301,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         j++;
         while (
           j < lines.length &&
+          !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?/i.test(lines[j]) &&
           !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
           !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
           !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j]) &&

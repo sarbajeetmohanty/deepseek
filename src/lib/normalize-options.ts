@@ -186,15 +186,17 @@ export function cleanDuplicateMatchLists(text: string): string {
     const lines = beforeColA.split("\n").filter(l => l.trim().length > 0);
     if (lines.length > 1) {
       let firstStrandedIdx = -1;
+      const strandedRegex = /^(?:(?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*\(?(?:I{1,3}|II|A|B|1|2)\)?.*$|(?:[a-zA-Z]|[ivxIVX]{1,4}|[1-9]|10|(?:[क-ह]|ए|बी|सी|डी))[.)]?\s+\S|\((?:[a-zA-Z]|[ivxIVX]{1,4}|[1-9]|10|(?:[क-ह]|ए|बी|सी|डी))\)\s+\S)/i;
+
       for (let k = 1; k < lines.length; k++) {
-        if (/^(?:(?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*\(?(?:I|II|A|B|1|2)\)?[:.\-]?$|[1-9][.)]?\s+[^\d]|[a-hA-H][.)]?\s+[^\d])/i.test(lines[k].trim())) {
+        if (strandedRegex.test(lines[k].trim())) {
           firstStrandedIdx = k;
           break;
         }
       }
       if (firstStrandedIdx !== -1) {
         const promptLines = lines.slice(0, firstStrandedIdx);
-        s = promptLines.join("\n") + "\n" + fromColA;
+        s = promptLines.join("\n") + "\n\n" + fromColA;
       }
     }
   }
