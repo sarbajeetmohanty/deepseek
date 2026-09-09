@@ -213,11 +213,11 @@ export function normalizeOptionsInText(text: string): string {
   // -1. Clean any bogus match-the-column tables from inside the Solution section
   s = healSolutionTables(s);
 
-  // 0. Restore translation option & answer placeholders in any variant (e.g. __OPT_A__, _OPTA_, _OPT_A_, _OPTA, OPTA)
-  s = s.replace(/(?:^|\n)\s*[_*]*OPT[_\s\-]*A[_*]*[:.\s]*/gim, "\nA. ");
-  s = s.replace(/(?:^|\n)\s*[_*]*OPT[_\s\-]*B[_*]*[:.\s]*/gim, "\nB. ");
-  s = s.replace(/(?:^|\n)\s*[_*]*OPT[_\s\-]*C[_*]*[:.\s]*/gim, "\nC. ");
-  s = s.replace(/(?:^|\n)\s*[_*]*OPT[_\s\-]*D[_*]*[:.\s]*/gim, "\nD. ");
+  // 0. Restore translation option & answer placeholders in any variant (e.g. __OPT_A__, _OPTA_, _OPT_A_, _OPTA, OPTA, including when preceded by Devanagari words like "केवल _OPTB_")
+  s = s.replace(/(?:^|\n)[^\S\r\n]*(.*?)[_*]+OPT[_\s\-]*([A-D])[_*]*[:.\s]*(.*)$/gim, (m, pre, opt, post) => {
+    const content = (pre.trim() + " " + post.trim()).trim();
+    return `\n${opt.toUpperCase()}. ${content}`;
+  });
   s = s.replace(/(?:^|\n)\s*(?:__ANS__|_ANS_|[_*]+ANS[_\s\-*]*|(?:Answer|Ans|उत्तर)\s*[:.\-])\s*/gim, "\nAnswer: ");
 
   // 0.1 Reunite stranded question number on line 1: "22.\nText..." -> "22. Text..."
@@ -238,11 +238,11 @@ export function normalizeOptionsInText(text: string): string {
 
   // 4. Match-The-Column Normalization:
   // Unglue Column B if stuck to end of Column A item (e.g. "...हड़प्पा कॉलम बी: 1 बढ़िया..." or "...बदला Column B:")
-  s = s.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]\s*)/gim, "\n$1\n");
+  s = s.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[ \t\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?[ \t]*[:.-][ \t]*)/gim, "\n$1\n");
 
   // Normalize standalone Column A and Column B headers
-  s = s.replace(/(?:^|\n)\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:A|I|1|ए)\)?(?:\([^\)\n]+\))?\s*[:.-]\s*/gim, "\nColumn A:\n");
-  s = s.replace(/(?:^|\n)\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]\s*/gim, "\nColumn B:\n");
+  s = s.replace(/(?:^|\n)\s*(?:Column|कॉलम|स्तंभ|List|सूची)[ \t\-]*\(?(?:A|I|1|ए)\)?(?:\([^\)\n]+\))?[ \t]*[:.-][ \t]*/gim, "\nColumn A:\n");
+  s = s.replace(/(?:^|\n)\s*(?:Column|कॉलम|स्तंभ|List|सूची)[ \t\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?[ \t]*[:.-][ \t]*/gim, "\nColumn B:\n");
 
   // If there are two "Column A:" headers before Answer/Solution, convert the second one to "Column B:"
   const colLinesHeaders = s.split("\n");
@@ -636,7 +636,40 @@ export function normalizeOptionsInText(text: string): string {
     }
   }
 
-  return lines.join("\n");
+  let result = lines.join("\n");
+
+  // Fallback: If options A-D were not found, but 4 numbered items (1, 2, 3, 4) appear immediately before Answer:, convert them to A., B., C., D.
+  if (!seenOptA && !seenOptB) {
+    const ansIdx = result.search(/(?:^|\n)\s*Answer:\s*/i);
+    if (ansIdx !== -1) {
+      const beforeAns = result.slice(0, ansIdx);
+      const fromAns = result.slice(ansIdx);
+      const bLines = beforeAns.split("\n");
+      const nonEmpties: { idx: number; text: string }[] = [];
+      for (let k = bLines.length - 1; k >= 0; k--) {
+        if (bLines[k].trim()) {
+          nonEmpties.unshift({ idx: k, text: bLines[k].trim() });
+          if (nonEmpties.length === 4) break;
+        }
+      }
+      if (nonEmpties.length === 4) {
+        const is1 = /^(?:1[.)]?|\(1\))\s+/.test(nonEmpties[0].text);
+        const is2 = /^(?:2[.)]?|\(2\))\s+/.test(nonEmpties[1].text);
+        const is3 = /^(?:3[.)]?|\(3\))\s+/.test(nonEmpties[2].text);
+        const is4 = /^(?:4[.)]?|\(4\))\s+/.test(nonEmpties[3].text);
+        if (is1 && is2 && is3 && is4) {
+          const letters = ["A. ", "B. ", "C. ", "D. "];
+          for (let k = 0; k < 4; k++) {
+            const stripped = nonEmpties[k].text.replace(/^(?:[1-4][.)]?|\([1-4]\))\s+/, "");
+            bLines[nonEmpties[k].idx] = letters[k] + stripped;
+          }
+          return normalizeOptionsInText(bLines.join("\n") + fromAns);
+        }
+      }
+    }
+  }
+
+  return result;
 }
 
 export function normalizeAnswerInText(text: string): string {
