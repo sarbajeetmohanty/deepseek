@@ -431,6 +431,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
   // Fix dash/hyphen/colon separated match-the-column items on the same line (e.g. "a Item - 1 Item")
   const dashSplitRegex = /\s*(?:[-–—:;]|\t+)\s*(?=\(?(?:[1-9]|10|[a-hA-H]|i{1,3}|iv|v)\)?[.)]?\s+)/i;
   const leftItemRegex = /^\s*(?:[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?|\([ivxIVX]{1,4}\)|(?:[1-9]|10)[.)]?|\((?:[1-9]|10)\))\s+/i;
+  const isQuestionPromptRegex = /(?:सुमेलित|सुमेल|मिलान|Match\b|Match the|निम्नलिखित|निम्न में|सूची\s*[-–—]?\s*[I1A].*सूची\s*[-–—]?\s*[II2B])/i;
   let inSolutionOrAnswer = false;
   for (let i = 0; i < cleanLines.length; i++) {
     const line = cleanLines[i].trim();
@@ -438,6 +439,10 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       inSolutionOrAnswer = true;
     }
     if (inSolutionOrAnswer) continue;
+    // Never split question header or question prompt line
+    if (i === 0 || /^\s*\d{1,4}[.)]\s+/.test(line) || isQuestionPromptRegex.test(line)) {
+      continue;
+    }
     if (!/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान|Code|Codes|कूट|कोड)/i.test(line)) {
       const parts = line.split(dashSplitRegex);
       if (parts.length >= 2 && leftItemRegex.test(parts[0])) {
