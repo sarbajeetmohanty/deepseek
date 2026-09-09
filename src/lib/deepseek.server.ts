@@ -163,8 +163,13 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   const dashSplitRegex = /\s*(?:[-–—:;]|\t+)\s*(?=\(?(?:[1-9]|10|[a-hA-H]|i{1,3}|iv|v)\)?[.)]?\s+)/i;
   const leftItemRegex = /^\s*(?:[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?|\([ivxIVX]{1,4}\)|(?:[1-9]|10)[.)]?|\((?:[1-9]|10)\))\s+/i;
   const linesArr = s.split("\n");
+  let inSolutionOrAnswer = false;
   for (let i = 0; i < linesArr.length; i++) {
     const line = linesArr[i].trim();
+    if (/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.-]/i.test(line)) {
+      inSolutionOrAnswer = true;
+    }
+    if (inSolutionOrAnswer) continue;
     if (!/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान|Code|Codes|कूट|कोड)/i.test(line)) {
       const parts = line.split(dashSplitRegex);
       if (parts.length >= 2 && leftItemRegex.test(parts[0])) {

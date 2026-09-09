@@ -6,8 +6,128 @@
 // - Splits inline/horizontal options, unglues sub-statements ("1वैगनर" -> "1 वैगनर")
 // - Normalizes Assertion-Reason headers and Answer: labels end-to-end.
 
+export function healSolutionTables(text: string): string {
+  const solIdx = text.search(/(?:^|\n)\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i);
+  if (solIdx === -1) return text;
+
+  const preSol = text.slice(0, solIdx);
+  const solPart = text.slice(solIdx);
+
+  // Check if Solution part contains bogus Column A / Column B headers or table markers
+  if (!/(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:A|B|I{1,3}|1|2)\)?/i.test(solPart)) {
+    return text;
+  }
+
+  const solLines = solPart.split("\n");
+  const cleanedSolLines: string[] = [];
+  let inBogusTable = false;
+  let bogusColA: string[] = [];
+  let bogusColB: string[] = [];
+  let inBogusColA = false;
+  let inBogusColB = false;
+
+  for (let i = 0; i < solLines.length; i++) {
+    const l = solLines[i];
+    const trimmed = l.trim();
+
+    if (/^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:A|I|1|ए)\)?[:.\-]?/i.test(trimmed)) {
+      inBogusTable = true;
+      inBogusColA = true;
+      inBogusColB = false;
+      continue;
+    }
+    if (/^(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?[:.\-]?/i.test(trimmed)) {
+      inBogusColA = false;
+      inBogusColB = true;
+      continue;
+    }
+
+    if (inBogusTable) {
+      if (inBogusColA) {
+        bogusColA.push(trimmed);
+      } else if (inBogusColB) {
+        bogusColB.push(trimmed);
+      }
+    } else {
+      cleanedSolLines.push(l);
+    }
+  }
+
+  if (bogusColA.length > 0 || bogusColB.length > 0) {
+    const reconstructed: string[] = [];
+
+    // Clean Col A items: strip dummy "a. " or "b. "
+    const cleanA = bogusColA.map(item => {
+      return item.replace(/^\s*(?:[a-hA-H][.)]|\([a-hA-H]\))\s*/i, "").trim();
+    }).filter(Boolean);
+
+    // Clean Col B items:
+    const cleanB: string[] = [];
+    for (let k = 0; k < bogusColB.length; k++) {
+      let item = bogusColB[k].trim();
+      if (!item) continue;
+
+      // Check if item has double numbering from table row index e.g. "2 7 यह सूची..." -> "7 यह सूची..."
+      const doubleNumMatch = item.match(/^\s*\d{1,2}\s+([1-9]|10)\s+(.*)$/);
+      if (doubleNumMatch) {
+        cleanB.push(`${doubleNumMatch[1]} ${doubleNumMatch[2]}`);
+        continue;
+      }
+
+      // Check if item is a trailing verb fragment e.g. "1 है।" or "1. है।" or "है।"
+      const fragmentMatch = item.match(/^\s*(?:\d{1,2}[.)]?\s*)?(है[।.]?|होता[।.]?|होती[।.]?|थे[।.]?|थी[।.]?)$/);
+      if (fragmentMatch && cleanA.length > 0 && cleanB.length === 0) {
+        // Attach to last cleanA item
+        let lastA = cleanA[cleanA.length - 1];
+        if (/,\s*[a-d]$/i.test(lastA) || /\s+[a-d]$/i.test(lastA)) {
+          lastA = lastA + "-4 " + fragmentMatch[1];
+        } else {
+          lastA = lastA + " " + fragmentMatch[1];
+        }
+        cleanA[cleanA.length - 1] = lastA;
+        continue;
+      }
+
+      // Otherwise strip leading table row index if item already starts with or is text
+      const singleNum = item.match(/^\s*(\d{1,2})[.)]?\s+(.*)$/);
+      if (singleNum) {
+        cleanB.push(`${singleNum[1]} ${singleNum[2]}`);
+      } else {
+        cleanB.push(item);
+      }
+    }
+
+    reconstructed.push(...cleanA, ...cleanB);
+    cleanedSolLines.push(...reconstructed);
+  }
+
+  // Renumber and clean points inside Solution so they are strictly sequential "1 ...", "2 ..."
+  let currentStep = 0;
+  for (let i = 0; i < cleanedSolLines.length; i++) {
+    const line = cleanedSolLines[i].trim();
+    if (!line) continue;
+    if (/^(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(line)) continue;
+    
+    // Check if line starts with a number e.g. "1 ...", "6 ...", "7 ..."
+    const numMatch = line.match(/^(\d{1,2})\s*[.,):\-–—]?\s+(.*)$/);
+    if (numMatch) {
+      currentStep++;
+      cleanedSolLines[i] = `${currentStep} ${numMatch[2].trim()}`;
+    } else if (currentStep > 0 && !/^[-•·●○◦]\s+/.test(line)) {
+      // Continuation or unnumbered step
+      currentStep++;
+      cleanedSolLines[i] = `${currentStep} ${line}`;
+    }
+  }
+
+  return preSol + cleanedSolLines.join("\n");
+}
+
 export function normalizeOptionsInText(text: string): string {
   let s = text;
+
+  // -1. Clean any bogus match-the-column tables from inside the Solution section
+  s = healSolutionTables(s);
 
   // 0. Restore translation option & answer placeholders in any variant (e.g. __OPT_A__, _OPTA_, _OPT_A_, _OPTA, OPTA)
   s = s.replace(/(?:^|\n)\s*[_*]*OPT[_\s\-]*A[_*]*[:.\s]*/gim, "\nA. ");
@@ -40,11 +160,16 @@ export function normalizeOptionsInText(text: string): string {
   s = s.replace(/(?:^|\n)\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:A|I|1|ए)\)?(?:\([^\)\n]+\))?\s*[:.-]\s*/gim, "\nColumn A:\n");
   s = s.replace(/(?:^|\n)\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]\s*/gim, "\nColumn B:\n");
 
-  // If there are two "Column A:" headers, convert the second one to "Column B:"
+  // If there are two "Column A:" headers before Answer/Solution, convert the second one to "Column B:"
   const colLinesHeaders = s.split("\n");
   let hasColAHeader = false;
+  let inAnsOrSolHead = false;
   for (let i = 0; i < colLinesHeaders.length; i++) {
     const l = colLinesHeaders[i].trim();
+    if (/^(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)\s*[:.-]/i.test(l)) {
+      inAnsOrSolHead = true;
+    }
+    if (inAnsOrSolHead) continue;
     if (/^Column\s*A:/i.test(l)) {
       if (!hasColAHeader) {
         hasColAHeader = true;
@@ -61,8 +186,13 @@ export function normalizeOptionsInText(text: string): string {
   // Heal match-the-column questions where Column A was generated with dummy items or Column A is missing
   let healLines = s.split("\n");
   // Step A: If Column B exists without a preceding Column A, recover items above Column B
+  let inAnsOrSolA = false;
   for (let i = 0; i < healLines.length; i++) {
     const l = healLines[i].trim();
+    if (/^(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)\s*[:.-]/i.test(l)) {
+      inAnsOrSolA = true;
+    }
+    if (inAnsOrSolA) continue;
     if (/^Column\s*B:/i.test(l)) {
       let hasColA = false;
       for (let j = i - 1; j >= 0; j--) {
@@ -118,8 +248,13 @@ export function normalizeOptionsInText(text: string): string {
   }
 
   // Step B: If Column A exists but its items are dummy/empty, recover descriptive items from above Column A
+  let inAnsOrSolB = false;
   for (let i = 0; i < healLines.length; i++) {
     const l = healLines[i].trim();
+    if (/^(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)\s*[:.-]/i.test(l)) {
+      inAnsOrSolB = true;
+    }
+    if (inAnsOrSolB) continue;
     if (/^Column\s*A:/i.test(l)) {
       let colBIdx = -1;
       for (let j = i + 1; j < healLines.length; j++) {

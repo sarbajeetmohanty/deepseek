@@ -430,9 +430,13 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
 
   // Fix dash/hyphen/colon separated match-the-column items on the same line (e.g. "a Item - 1 Item")
   const dashSplitRegex = /\s*(?:[-–—:;]|\t+)\s*(?=\(?(?:[1-9]|10|[a-hA-H]|i{1,3}|iv|v)\)?[.)]?\s+)/i;
-  const leftItemRegex = /^\s*(?:[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?|\([ivxIVX]{1,4}\)|(?:[1-9]|10)[.)]?|\((?:[1-9]|10)\))\s+/i;
+  let inSolutionOrAnswer = false;
   for (let i = 0; i < cleanLines.length; i++) {
     const line = cleanLines[i].trim();
+    if (/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.-]/i.test(line)) {
+      inSolutionOrAnswer = true;
+    }
+    if (inSolutionOrAnswer) continue;
     if (!/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान|Code|Codes|कूट|कोड)/i.test(line)) {
       const parts = line.split(dashSplitRegex);
       if (parts.length >= 2 && leftItemRegex.test(parts[0])) {
@@ -491,7 +495,12 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
   }
 
   // Fix interleaved match-the-column items (a., 1., b., 2.) that missed Column headers
+  let inSolutionOrAnswer2 = false;
   for (let i = 0; i < cleanLines.length - 3; i++) {
+    if (/^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.-]/i.test(cleanLines[i].trim())) {
+      inSolutionOrAnswer2 = true;
+    }
+    if (inSolutionOrAnswer2) break;
     const m1 = cleanLines[i].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
     const m2 = cleanLines[i+1].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
     const m3 = cleanLines[i+2].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
@@ -548,7 +557,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       );
       continue;
     }
-    if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?/i.test(line)) {
+    if (!seenAnswer && !seenSolution && !inSolution && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?/i.test(line)) {
       inSolution = false;
       let headerA = line.replace(/[:.\-]+$/, "").trim() || "Column A";
       let headerB = "Column B";
