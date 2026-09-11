@@ -6,8 +6,8 @@ const activeBatches = new Set<string>();
 // Cross-batch in-memory solution cache to prevent duplicate DeepSeek API billing for identical questions
 const persistentQuestionCache = new Map<string, string>();
 
-// Solve MCQ using the 100% Free Gemini key pool by default (0 Rs cost),
-// with seamless automatic fallback to DeepSeek if Gemini pool is unavailable.
+// Solve MCQ using the 100% Free Gemini key pool (0 Rs cost).
+// When Gemini keys are present in app_settings, DeepSeek is completely bypassed to prevent deductions.
 async function solveBatchQuestion(opts: {
   raw: string;
   idx: number;
@@ -20,18 +20,11 @@ async function solveBatchQuestion(opts: {
 
   // 1. If Gemini free keys are configured in app_settings (12 keys pool), solve 100% FREE ($0 / 0 Rs)!
   if (geminiKeys.length > 0) {
-    try {
-      const { formatQuestionWithGemini } = await import("./gemini.server");
-      return await formatQuestionWithGemini(opts);
-    } catch (geminiErr) {
-      console.warn(
-        `[BatchProcessor] Free Gemini engine failed for Q${opts.idx}, falling back to DeepSeek:`,
-        geminiErr instanceof Error ? geminiErr.message : String(geminiErr)
-      );
-    }
+    const { formatQuestionWithGemini } = await import("./gemini.server");
+    return await formatQuestionWithGemini(opts);
   }
 
-  // 2. Fallback to DeepSeek if Gemini pool is unavailable or exhausted
+  // 2. Only if NO Gemini keys are configured at all, use DeepSeek
   const { formatQuestionWithDeepSeek } = await import("./deepseek.server");
   return await formatQuestionWithDeepSeek(opts);
 }
