@@ -34,20 +34,26 @@ const GEMINI_SOLVER_MODELS = [
 ];
 
 let keyIndex = 0;
-const rateLimitedKeys = new Map<string, number>();
+// Track rate limits and quota cooldowns per (key + model) pair so exhausting
+// one model family automatically unlocks the next model family on the same key.
+const rateLimitedKeyModels = new Map<string, number>();
 
-function getAvailableKeys(allKeys: string[]): string[] {
-  const now = Date.now();
-  const available = allKeys.filter((key) => {
-    const timeout = rateLimitedKeys.get(key);
-    if (!timeout) return true;
-    if (now > timeout) {
-      rateLimitedKeys.delete(key);
-      return true;
-    }
-    return false;
-  });
-  return available.length > 0 ? available : allKeys;
+function isKeyModelAvailable(key: string, modelName: string): boolean {
+  const composite = `${key.slice(-8)}:${modelName}`;
+  const timeout = rateLimitedKeyModels.get(composite);
+  if (!timeout) return true;
+  if (Date.now() > timeout) {
+    rateLimitedKeyModels.delete(composite);
+    return true;
+  }
+  return false;
+}
+
+function recordModelRateLimit(key: string, modelName: string, isQuota: boolean) {
+  const composite = `${key.slice(-8)}:${modelName}`;
+  // 60-second cooldown if daily quota/resource exhausted; 6 seconds for temporary 429/503 spikes
+  const cooldown = isQuota ? 60_000 : 6_000;
+  rateLimitedKeyModels.set(composite, Date.now() + cooldown);
 }
 
 function getResponseTextSafely(response: any): string {
@@ -92,13 +98,15 @@ export async function formatQuestionWithGemini({
   const MAX_RETRIES = 6;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    const activeKeys = getAvailableKeys(allKeys);
-
-    for (let i = 0; i < activeKeys.length; i++) {
-      const index = keyIndex++ % activeKeys.length;
-      const key = activeKeys[index];
+    for (let i = 0; i < allKeys.length; i++) {
+      const index = keyIndex++ % allKeys.length;
+      const key = allKeys[index];
 
       for (const modelName of GEMINI_SOLVER_MODELS) {
+        if (!isKeyModelAvailable(key, modelName)) {
+          continue; // Skip models currently in cooldown on this key
+        }
+
         try {
           const genAI = new GoogleGenerativeAI(key);
           const model = genAI.getGenerativeModel({
@@ -121,16 +129,19 @@ export async function formatQuestionWithGemini({
         } catch (error: any) {
           lastError = error;
           const msg = error.message?.toLowerCase() || "";
-          if (
+          const isRateOrQuota =
             error.status === 429 ||
             error.status === 503 ||
             msg.includes("429") ||
             msg.includes("503") ||
             msg.includes("resourceexhausted") ||
-            msg.includes("quota")
-          ) {
-            rateLimitedKeys.set(key, Date.now() + 5000);
-            break; // Try next key in pool
+            msg.includes("quota");
+
+          if (isRateOrQuota) {
+            const isDailyQuota = msg.includes("quota") || msg.includes("resourceexhausted");
+            recordModelRateLimit(key, modelName, isDailyQuota);
+            // Multi-model quota stacking: continue to next model family instead of discarding key!
+            continue;
           }
           if (msg.includes("recitation") || msg.includes("safety") || msg.includes("not found")) {
             continue; // Try next model in pool

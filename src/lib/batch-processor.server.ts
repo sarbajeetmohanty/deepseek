@@ -74,8 +74,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // Set concurrency to optimal throughput (8 parallel requests) to avoid DeepSeek 429 rate limits & retry storms.
-    const CONCURRENCY = Math.min(8, pending.length);
+    // Set concurrency to 12 parallel workers across the 18 Gemini keys pool for ultra-fast processing
+    const CONCURRENCY = Math.min(12, pending.length);
     const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
     // Flush UI counters periodically to reduce DB bottlenecks while keeping UI responsive.
     const COUNTER_FLUSH_EVERY = 10;
