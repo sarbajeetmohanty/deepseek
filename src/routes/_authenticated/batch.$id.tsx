@@ -223,7 +223,7 @@ function BatchView() {
           <Progress value={pct} />
           {providerBlocked && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              DeepSeek balance/API access is blocking this batch. Add funds to DeepSeek or save a funded API key, then use retry.
+              AI service is currently rate limited or blocked. Please check your Gemini keys on the Team page, then use retry.
             </div>
           )}
           <div className="flex flex-wrap gap-2">
@@ -313,8 +313,8 @@ function isProviderBlockedError(error: string | null): boolean {
 }
 
 function formatQuestionError(error: string): string {
-  if (/insufficient balance/i.test(error)) {
-    return "DeepSeek account balance is exhausted. Add funds to DeepSeek or save a funded API key, then retry this batch.";
+  if (/insufficient balance|balance is exhausted/i.test(error)) {
+    return "API service quota is currently exhausted. Please check your Gemini keys on the Team page, then retry this batch.";
   }
 
   return error;

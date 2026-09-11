@@ -13,7 +13,7 @@ import {
   createTeamUser,
   updateUserPassword,
 } from "@/lib/invitations.functions";
-import { getDeepseekKeyStatus, setDeepseekApiKey, clearDeepseekApiKey, revealDeepseekApiKey, getGeminiKeyStatus, setGeminiApiKeys, clearGeminiApiKeys, revealGeminiApiKeys } from "@/lib/settings.functions";
+import { getGeminiKeyStatus, setGeminiApiKeys, clearGeminiApiKeys, revealGeminiApiKeys } from "@/lib/settings.functions";
 import { listQuotas, setUserQuota } from "@/lib/quotas.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -140,7 +140,6 @@ function AdminError({ error, reset }: { error: Error; reset: () => void }) {
 function AdminPage() {
   const qc = useQueryClient();
   const [email, setEmail] = useState("");
-  const [apiKey, setApiKey] = useState("");
 
   // Direct user creation state
   const [newEmail, setNewEmail] = useState("");
@@ -284,46 +283,6 @@ function AdminPage() {
     onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Could not update password"),
   });
 
-  const { data: keyStatus, error: keyErr } = useQuery({
-    queryKey: ["deepseek-key-status"],
-    queryFn: () => getDeepseekKeyStatus({ data: {} } as any),
-    staleTime: 30_000,
-    retry: 1,
-  });
-
-  const saveKey = useMutation({
-    mutationFn: (v: string) => setDeepseekApiKey({ data: { apiKey: v } }),
-    onSuccess: () => {
-      toast.success("DeepSeek API key updated. Previous key removed.");
-      setApiKey("");
-      qc.invalidateQueries({ queryKey: ["deepseek-key-status"] });
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not save key"),
-  });
-
-  const clearKey = useMutation({
-    mutationFn: () => clearDeepseekApiKey({ data: {} } as any),
-    onSuccess: () => {
-      toast.success("DeepSeek API key cleared");
-      setRevealed(null);
-      qc.invalidateQueries({ queryKey: ["deepseek-key-status"] });
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not clear key"),
-  });
-
-  const [revealed, setRevealed] = useState<string | null>(null);
-  const revealKey = useMutation({
-    mutationFn: () => revealDeepseekApiKey({ data: {} } as any),
-    onSuccess: (res) => {
-      setRevealed(res.value);
-      navigator.clipboard.writeText(res.value).then(
-        () => toast.success(`Key from ${res.source} copied to clipboard`),
-        () => toast.success(`Key revealed but could not copy to clipboard`),
-      );
-      setTimeout(() => setRevealed(null), 20000);
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not reveal key"),
-  });
 
   // GEMINI API KEYS
   const { data: geminiKeyStatus, error: geminiKeyErr } = useQuery({
@@ -381,108 +340,9 @@ function AdminPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>DeepSeek API key</CardTitle>
+          <CardTitle>Google Gemini API Keys</CardTitle>
           <CardDescription>
-            Saving a new key replaces the previous one instantly. Only admins can view or change this. The key is stored server-side and never sent to the browser.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {keyErr && (
-            <p className="text-sm text-destructive">Could not load status: {keyErr instanceof Error ? keyErr.message : String(keyErr)}</p>
-          )}
-          <div className="text-sm">
-            {keyStatus?.configured ? (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                <span className="inline-flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                  <span className="font-medium">Active</span>
-                </span>
-                {keyStatus.preview && (
-                  <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">{keyStatus.preview}</span>
-                )}
-                {keyStatus.source === "env" && (
-                  <span className="text-xs text-muted-foreground">(from server secret — save one below to override)</span>
-                )}
-                {keyStatus.updatedAt && (
-                  <span className="text-xs text-muted-foreground">
-                    updated {new Date(keyStatus.updatedAt).toLocaleString()}
-                    {keyStatus.updatedByEmail ? ` by ${keyStatus.updatedByEmail}` : ""}
-                  </span>
-                )}
-              </div>
-            ) : (
-              <div className="inline-flex items-center gap-1.5 text-destructive">
-                <span className="h-2 w-2 rounded-full bg-destructive" />
-                <span className="font-medium">No key configured</span>
-              </div>
-            )}
-          </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const trimmed = apiKey.trim();
-              if (!trimmed) return toast.error("Paste a key first");
-              if (!window.confirm("Replace the current DeepSeek API key with this new one?")) return;
-              saveKey.mutate(trimmed);
-            }}
-            className="flex flex-col sm:flex-row gap-2"
-          >
-            <Input
-              type="password"
-              autoComplete="new-password"
-              spellCheck={false}
-              placeholder="Paste new DeepSeek key (sk-…)"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              className="font-mono text-sm"
-            />
-            <div className="flex gap-2">
-              <Button type="submit" disabled={saveKey.isPending || !apiKey.trim()}>
-                {saveKey.isPending ? "Saving…" : "Save & replace"}
-              </Button>
-              {keyStatus?.source === "database" && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={clearKey.isPending}
-                  onClick={() => {
-                    if (!window.confirm("Remove the saved DeepSeek key? Processing will stop until a new key is saved.")) return;
-                    clearKey.mutate();
-                  }}
-                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                >{clearKey.isPending ? "…" : "Clear"}</Button>
-              )}
-            </div>
-          </form>
-          {keyStatus?.configured && (
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={revealKey.isPending}
-                onClick={() => {
-                  if (!window.confirm("Reveal the current DeepSeek key? It will be shown here and copied to your clipboard for 20 seconds.")) return;
-                  revealKey.mutate();
-                }}
-              >{revealKey.isPending ? "…" : revealed ? "Re-copy" : "Reveal & copy current key"}</Button>
-              {revealed && (
-                <code className="font-mono text-xs bg-muted px-2 py-1 rounded break-all max-w-full">{revealed}</code>
-              )}
-            </div>
-          )}
-          <p className="text-xs text-muted-foreground">
-            Get a key at platform.deepseek.com → API Keys. Any batch already running uses whichever key was active when it started; new batches use the latest saved key.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Gemini API Keys</CardTitle>
-          <CardDescription>
-            Provide one or more Google Gemini API keys separated by commas. These are used for ultra-fast PDF extraction. 
-            The system automatically rotates them to prevent rate limits.
+            Provide one or more Google Gemini API keys separated by commas. These power both ultra-fast PDF OCR extraction and 100% free MCQ batch solving (~2s per question). The system automatically rotates across keys and models to prevent rate limits.
           </CardDescription>
         </CardHeader>
         <CardContent>

@@ -6,8 +6,7 @@ const activeBatches = new Set<string>();
 // Cross-batch in-memory solution cache to prevent duplicate DeepSeek API billing for identical questions
 const persistentQuestionCache = new Map<string, string>();
 
-// Solve MCQ using the 100% Free Gemini key pool (0 Rs cost).
-// When Gemini keys are present in app_settings, DeepSeek is completely bypassed to prevent deductions.
+// Solve MCQ exclusively using the ultra-fast Google Gemini multi-key pool (100% free, ~2s per question).
 async function solveBatchQuestion(opts: {
   raw: string;
   idx: number;
@@ -15,28 +14,8 @@ async function solveBatchQuestion(opts: {
   solutionLength: "normal" | "long";
   signal?: AbortSignal;
 }): Promise<string> {
-  const { getGeminiApiKeys } = await import("./settings.functions");
-  const geminiKeys = await getGeminiApiKeys().catch(() => []);
-
-  // 1. If Gemini free keys are configured in app_settings (18 keys pool), solve 100% FREE ($0 / 0 Rs)!
-  if (geminiKeys.length > 0) {
-    try {
-      const { formatQuestionWithGemini } = await import("./gemini.server");
-      return await formatQuestionWithGemini(opts);
-    } catch (geminiError: any) {
-      console.warn(
-        `[BatchProcessor] Gemini exhausted all keys/models for Q${opts.idx}. Falling back to DeepSeek safety net:`,
-        geminiError?.message
-      );
-      // Emergency safety net fallback to DeepSeek so NO question in the batch EVER fails!
-      const { formatQuestionWithDeepSeek } = await import("./deepseek.server");
-      return await formatQuestionWithDeepSeek(opts);
-    }
-  }
-
-  // 2. Only if NO Gemini keys are configured at all, use DeepSeek
-  const { formatQuestionWithDeepSeek } = await import("./deepseek.server");
-  return await formatQuestionWithDeepSeek(opts);
+  const { formatQuestionWithGemini } = await import("./gemini.server");
+  return await formatQuestionWithGemini(opts);
 }
 
 export async function processBatchInternal(batchId: string): Promise<void> {
@@ -48,7 +27,6 @@ export async function processBatchInternal(batchId: string): Promise<void> {
 
   try {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { isNonRetryableDeepSeekError } = await import("./deepseek.server");
 
     const { data: batchRow } = await supabaseAdmin
       .from("batches")
@@ -211,11 +189,6 @@ export async function processBatchInternal(batchId: string): Promise<void> {
           apiCallsSinceFlush++;
           updateRow(q, { status: "failed", error: msg.slice(0, 500) });
           failedSinceFlush++;
-          if (isNonRetryableDeepSeekError(e)) {
-            providerBlock.message = msg;
-            queue.length = 0;
-            return;
-          }
         }
         if (doneSinceFlush + failedSinceFlush >= COUNTER_FLUSH_EVERY) {
           await flushCounters();
