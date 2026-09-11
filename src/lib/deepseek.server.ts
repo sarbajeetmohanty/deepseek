@@ -8,16 +8,15 @@ import {
   splitHorizontalOptions,
 } from "./normalize-options";
 
-// LANGUAGE RULE: Original language for question/options; Hindi for solution; English for labels.
-export const LANG_RULE = `\nLANGUAGE RULE (STRICT):
-- Question text and options MUST remain in their original language.
-- Solution steps MUST always be in pure Hindi (preserve digits 0-9, math symbols).
-- "Answer:" and "Solution:" labels MUST be English.`;
+// UNIFIED STATIC SYSTEM PROMPTS (768+ tokens)
+// Designed for DeepSeek Context / Prompt Caching:
+// Because the system prompt prefix is 100% static across all questions in a batch,
+// DeepSeek caches the prefix and bills subsequent requests at the 90% discounted rate of $0.014 / 1M tokens.
 
-export const PROMPT_GK = `Expert competitive-exam MCQ solver. Output clean plain text ONLY (no markdown, no blank lines, no greetings):
+export const UNIFIED_SYSTEM_PROMPT_GK = `Expert competitive-exam MCQ solver for UPSC, State PCS, SSC, and Railway exams. Output clean plain text ONLY (no markdown, no blank lines, no greetings):
 
 <number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
-[If statements: 1 <text> ... 2 <text> ... on separate lines]
+[If statements: 1 <text> ... 2 <text> ... on separate lines (strictly no dots/commas after statement numbers)]
 [If Match Column: Line 1 MUST be the full question text (e.g. "<number>. सूची-I को सूची-II से सुमेलित कीजिए:"). Then on the next lines, output two separate lists: "Column A:" followed by items (a., b., c., d.) with lowercase letters, and "Column B:" followed by items (1 , 2 , 3 , 4 ) with numbers (strictly NO dot after the number). NEVER put Column B items on the same line as Column A (do NOT use '-' or '|' between columns). NEVER start line 1 with Column A. The MCQ options below must be capital A., B., C., D.]
 A. <option 1>
 B. <option 2>
@@ -26,78 +25,38 @@ D. <option 4>
 
 Answer: <matching option label>
 Solution:
-1 <direct key fact / reason for correct answer>
-2 <additional context / elimination of other options>
+1 <point 1 - key direct fact / reason for correct answer>
+2 <point 2 - core background / context>
+3 <point 3 - related historical, scientific, or geographical facts>
+4 <point 4 - detailed explanation of the concept or timeline>
+5 <point 5 - specific analysis / elimination of other options>
+6 <point 6 - additional high-yield exam points>
+7 <point 7 - further important connections or data>
+8 <point 8 - summary conclusion and final takeaway>
 
-Rules:
-1. 100% accurate facts. Solve and match options.
-2. Clean Unicode formulas (², ³, √x, θ, α, π).
-3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters like क, ख, ग, घ, उ or Roman numerals for options).
-4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number. For Match-the-Column, NEVER output matching pairs as sub-statements; always output Column A: (a., b., ...) and Column B: (1 , 2 , ... with NO dot after the number).
-5. Output ONLY the required format above.`;
+Strict Formatting Rules:
+1. 100% accurate facts. Solve the problem completely and match the correct option.
+2. Clean Unicode formulas (², ³, √x, θ, α, π). Never use LaTeX syntax or dollar signs ($...$).
+3. Options: ALWAYS prefix options with capital A., B., C., D. followed by a dot and a space on separate lines. Never use Hindi letters (क, ख, ग, घ), lowercase letters, or Roman numerals for options.
+4. Sub-statements: Inside the question body, numbered sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like dot (.), comma (,), colon (:), or parenthesis ()) after the number. Protect decimal numbers (e.g., 2.5, 3.14).
+5. Match-the-Column:
+   - Line 1 must be the full question text header.
+   - Next line must be "Column A:" followed by items labeled with lowercase letters and dot: "a. <item>", "b. <item>", "c. <item>", "d. <item>".
+   - Next line must be "Column B:" followed by items labeled with numbers and NO dot: "1 <item>", "2 <item>", "3 <item>", "4 <item>".
+   - Never output Column B items on the same line as Column A items. Never use hyphens, dashes, or pipes between columns.
+   - The options below must be capital A., B., C., D. with code pairs like "A. a-3, b-4, c-1, d-2".
+6. Solution Requirements:
+   - The solution MUST strictly contain 8 to 10 detailed, fact-filled points.
+   - Each point MUST be numbered on its own line as "1 <text>", "2 <text>", "3 <text>" with strictly NO dot after the step number.
+   - Never write paragraphs in the solution. Keep points informative, clear, direct, and high-yield.
+7. Language Rule (Strict):
+   - The question text and options MUST remain in their original language.
+   - For Hindi MCQs: Solution steps MUST always be in pure Hindi (preserve digits 0-9 and math symbols).
+   - For English MCQs: Solution steps MUST be in clean English.
+   - The labels "Answer:" and "Solution:" MUST always be in English.
+8. Output ONLY the required format above without any extra commentary, greetings, or markdown bold/italics.`;
 
-export const PROMPT_MATH = `Expert Math MCQ solver. Output clean plain text ONLY (no markdown, no greetings):
-
-<number>. <Question in clean Unicode - no LaTeX/$, superscripts ², ³, fractions (a)/(b), √x>
-A. <option 1>
-B. <option 2>
-C. <option 3>
-D. <option 4>
-
-Answer: <matching option label>
-Solution:
-- <step 1 - given / formula>
-- <step 2 - calculation>
-- <final step - final answer>
-
-Rules:
-1. 100% accurate math. Solve first, then match options.
-2. Clean Unicode formulas (², ³, √x).
-3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters like क, ख, ग, घ, उ or Roman numerals for options).
-4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number (e.g., "1 <text>", never "1. <text>" and never "(1) <text>").
-5. Output ONLY the required format above.`;
-
-export const GK_LENGTH_NORMAL = `\nSolution Rule: The solution MUST contain 8 to 10 detailed points in pure Hindi, numbered "1 ", "2 " (never paragraph). Keep points informative, direct, and factual.`;
-export const GK_LENGTH_LONG = `\nSolution Rule: The solution MUST contain 8 to 10 detailed points in pure Hindi, numbered "1 ", "2 " covering comprehensive background and related facts.`;
-
-export const MATH_LENGTH_NORMAL = `\nSolution Rule: Dash-bulleted steps starting with "- " in pure Hindi. Complete calculation steps.`;
-export const MATH_LENGTH_LONG = `\nSolution Rule: Dash-bulleted steps starting with "- " in pure Hindi. Detailed step-by-step calculation.`;
-
-export const LENGTH_NORMAL = MATH_LENGTH_NORMAL;
-export const LENGTH_LONG = MATH_LENGTH_LONG;
-
-// English prompt templates: Processing in English cuts token consumption by 60-70% compared to Hindi Devanagari,
-// allowing the full 8-10 points detailed solution to be generated at minimum token cost.
-export const PROMPT_GK_EN = `Expert competitive-exam MCQ solver. Output clean plain text ONLY in English (no markdown, no blank lines, no greetings):
-
-<number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
-[If statements: 1 <text> ... 2 <text> ... on separate lines (strictly no dots/commas after statement numbers)]
-[If Match Column: Line 1 MUST be the full question text (e.g. "<number>. Match List-I with List-II:"). Then on the next lines, output two separate lists: "Column A:" followed by items (a., b., c., d.) with lowercase letters, and "Column B:" followed by items (1 , 2 , 3 , 4 ) with numbers (strictly NO dot after the number). NEVER put Column B items on the same line as Column A. NEVER start line 1 with Column A. The MCQ options below must be capital A., B., C., D.]
-A. <option 1>
-B. <option 2>
-C. <option 3>
-D. <option 4>
-
-Answer: <matching option label>
-Solution:
-1 <point 1>
-2 <point 2>
-3 <point 3>
-4 <point 4>
-5 <point 5>
-6 <point 6>
-7 <point 7>
-8 <point 8>
-
-Rules:
-1. 100% accurate facts. Solve and match options.
-2. Clean Unicode formulas (², ³, √x, θ, α, π).
-3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters or Roman numerals for options).
-4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number. For Match-the-Column, NEVER output matching pairs as sub-statements; always output Column A: (a., b., ...) and Column B: (1 , 2 , ... with NO dot after the number).
-5. The solution MUST contain 8 to 10 detailed points in English, numbered "1 ", "2 " (never paragraph). Keep points informative, direct, and factual.
-6. Output ONLY the required format above.`;
-
-export const PROMPT_MATH_EN = `Expert Math MCQ solver. Output clean plain text ONLY in English (no markdown, no greetings):
+export const UNIFIED_SYSTEM_PROMPT_MATH = `Expert Math MCQ solver for competitive exams. Output clean plain text ONLY (no markdown, no greetings):
 
 <number>. <Question in clean Unicode - no LaTeX/$, superscripts ², ³, fractions (a)/(b), √x>
 A. <option 1>
@@ -111,13 +70,30 @@ Solution:
 - <step 2 - calculation>
 - <final step - final answer>
 
-Rules:
-1. 100% accurate math. Solve first, then match options.
-2. Clean Unicode formulas (², ³, √x).
-3. ALWAYS prefix the options exactly with A., B., C., D. on separate lines (never use Hindi letters or Roman numerals for options).
-4. Sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like . or , or ) after the number (e.g., "1 <text>", never "1. <text>" and never "(1) <text>").
-5. Solution MUST be dash-bulleted steps starting with "- " in English. Complete step-by-step calculation.
-6. Output ONLY the required format above.`;
+Strict Formatting Rules:
+1. 100% accurate math. Solve completely first, then match options.
+2. Clean Unicode formulas (², ³, √x, θ, α, π). Never use LaTeX syntax or dollar signs ($...$).
+3. Options: ALWAYS prefix options with capital A., B., C., D. followed by a dot and a space on separate lines. Never use Hindi letters (क, ख, ग, घ), lowercase letters, or Roman numerals for options.
+4. Sub-statements: Inside the question body, numbered sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like dot (.), comma (,), colon (:), or parenthesis ()) after the number. Protect decimal numbers (e.g., 2.5, 3.14).
+5. Solution Requirements:
+   - Complete step-by-step calculation with dash bullets starting with "- ".
+   - For Hindi MCQs: Steps in pure Hindi with numbers 0-9 and mathematical symbols.
+   - For English MCQs: Steps in English.
+   - The labels "Answer:" and "Solution:" MUST always be in English.
+6. Output ONLY the required format above without any extra commentary, greetings, or markdown bold/italics.`;
+
+// Aliases for backwards compatibility with other modules
+export const PROMPT_GK = UNIFIED_SYSTEM_PROMPT_GK;
+export const PROMPT_MATH = UNIFIED_SYSTEM_PROMPT_MATH;
+export const PROMPT_GK_EN = UNIFIED_SYSTEM_PROMPT_GK;
+export const PROMPT_MATH_EN = UNIFIED_SYSTEM_PROMPT_MATH;
+export const LANG_RULE = "";
+export const GK_LENGTH_NORMAL = "";
+export const GK_LENGTH_LONG = "";
+export const MATH_LENGTH_NORMAL = "";
+export const MATH_LENGTH_LONG = "";
+export const LENGTH_NORMAL = "";
+export const LENGTH_LONG = "";
 
 export interface DeepSeekOptions {
   raw: string;
@@ -387,50 +363,15 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
   }
   if (!cleaned.trim()) throw new Error("Empty question text");
 
-  // Free English translation pipeline:
-  // If the input question contains Hindi, convert it to English for FREE via Google Translate (0 AI cost).
-  // DeepSeek solves in English (English tokens are 3-4x cheaper than Hindi Devanagari tokens),
-  // generating the full 8-10 points detailed solution without token bloat, then converts back to pure Hindi for free.
-  // Exception: Match-the-column questions contain proper nouns (sites, texts, places) like बनावली,
-  // which Google Translate mistranslates as verbs ("She made it"). Match questions are short anyway (~80 tokens)
-  // so process them directly in Hindi.
-  const isMatchColumn = /(?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*\(?(?:I|A|1)\)?/i.test(cleaned) ||
-                        /(?:सुमेलित|मिलान|Match)/i.test(cleaned);
-  const hasHindi = /[\u0900-\u097F]/.test(cleaned);
-  let promptText = cleaned;
-  let translatedToEnglish = false;
+  // Keep system prompt 100% static and unified across all questions in a batch
+  // to guarantee DeepSeek Context / Prompt Caching hits at $0.014 / 1M tokens.
+  const systemPrompt = subjectType === "math" ? UNIFIED_SYSTEM_PROMPT_MATH : UNIFIED_SYSTEM_PROMPT_GK;
 
-  if (hasHindi && !isMatchColumn) {
-    try {
-      const enQ = await gtranslate(cleaned, "auto", "en");
-      if (enQ && enQ.trim().length > 0) {
-        promptText = enQ.trim();
-        translatedToEnglish = true;
-      }
-    } catch (e) {
-      console.warn(`[DeepSeek] Free translation to English failed for Q${idx}, falling back to original language`, e);
-      translatedToEnglish = false;
-    }
-  }
-
-  // Keep system prompt static and clean to maximize DeepSeek Context / Prompt Caching hits across batch calls
-  const basePrompt = translatedToEnglish
-    ? (subjectType === "math" ? PROMPT_MATH_EN : PROMPT_GK_EN)
-    : (subjectType === "math" ? PROMPT_MATH : PROMPT_GK);
-  const lengthRule = translatedToEnglish
-    ? ""
-    : (subjectType === "math"
-      ? (solutionLength === "long" ? MATH_LENGTH_LONG : MATH_LENGTH_NORMAL)
-      : (solutionLength === "long" ? GK_LENGTH_LONG : GK_LENGTH_NORMAL));
-  const systemPrompt = translatedToEnglish
-    ? basePrompt
-    : basePrompt + LANG_RULE + lengthRule;
-
-  // Max tokens: English generation requires ~300-450 tokens for 8-10 full points, leaving ample headroom
-  const maxTokens = subjectType === "math" ? 850 : 800;
+  // Max tokens: 900 tokens provides ample headroom for 8-10 points detailed solutions
+  const maxTokens = 900;
 
   // Standardized user prompt structure for optimal prompt prefix caching
-  const userPrompt = `Solve and format the following MCQ:\n\n${promptText}\n\nReminder: Output strictly in the required format. Question must begin with "${idx}."`;
+  const userPrompt = `Solve and format the following MCQ:\n\n${cleaned}`;
 
   const attempt = async () => {
     const ctl = new AbortController();
@@ -488,21 +429,8 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
         console.log(`[DeepSeek API] Q${idx} Tokens | Cache Hit: ${hit} (@$0.014/1M) | Miss: ${miss} (@$0.14/1M) | Output: ${out} (@$0.28/1M)`);
       }
 
-      let content = json?.choices?.[0]?.message?.content?.trim();
+      const content = json?.choices?.[0]?.message?.content?.trim();
       if (!content) throw new Error("Empty DeepSeek response");
-
-      // If we processed in English, convert the output back to Hindi for FREE via Google Translate (0 AI cost)
-      if (translatedToEnglish) {
-        try {
-          const protectedContent = protectOptionsForTranslation(content);
-          const hiOut = await gtranslate(protectedContent, "en", "hi");
-          if (hiOut && hiOut.trim().length > 0) {
-            content = normalizeTranslated(hiOut, idx);
-          }
-        } catch (e) {
-          console.warn(`[DeepSeek] Free translation to Hindi failed for Q${idx}, keeping English output`, e);
-        }
-      }
 
       return content;
     } finally {

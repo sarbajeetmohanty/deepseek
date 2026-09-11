@@ -7,24 +7,85 @@ import {
   splitHorizontalOptions,
 } from "./normalize-options";
 
-// Free Google Translate endpoint — no API key. Preserves \n between segments.
-// `source` can be "auto" so Google detects the language for us.
+// Robust Google Translate endpoint using HTTP POST with retry and fallback to GET.
+// Eliminates URL query length limits (preventing HTTP 400 Bad Request on large texts).
 export async function gtranslate(text: string, source: string, target: string): Promise<string> {
-  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${source}&tl=${target}&dt=t&q=${encodeURIComponent(text)}`;
-  const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), 20_000);
-  try {
-    const res = await fetch(url, { signal: ctl.signal });
-    if (!res.ok) throw new Error(`Google Translate ${res.status}`);
-    const json = (await res.json()) as unknown;
-    // Response is [[[segment, ...], ...], ...]
-    if (!Array.isArray(json) || !Array.isArray(json[0])) return text;
-    return (json[0] as unknown[])
-      .map((seg) => (Array.isArray(seg) && typeof seg[0] === "string" ? (seg[0] as string) : ""))
-      .join("");
-  } finally {
-    clearTimeout(timer);
+  if (!text || !text.trim()) return text;
+
+  // Split very long texts into chunks (<= 3500 chars) preserving double newlines
+  if (text.length > 3500) {
+    const paragraphs = text.split("\n\n");
+    const chunks: string[] = [];
+    let current = "";
+    for (const p of paragraphs) {
+      if (current.length + p.length + 2 > 3500 && current.length > 0) {
+        chunks.push(current);
+        current = p;
+      } else {
+        current = current ? `${current}\n\n${p}` : p;
+      }
+    }
+    if (current) chunks.push(current);
+    if (chunks.length > 1) {
+      const translatedChunks = await Promise.all(
+        chunks.map((chunk) => gtranslateChunk(chunk, source, target))
+      );
+      return translatedChunks.join("\n\n");
+    }
   }
+
+  return gtranslateChunk(text, source, target);
+}
+
+async function gtranslateChunk(text: string, source: string, target: string): Promise<string> {
+  const MAX_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 20_000);
+    try {
+      // 1. Try HTTP POST first (no URL query length limits)
+      const postRes = await fetch(
+        `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${source}&tl=${target}&dt=t`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded;charset=utf-8" },
+          body: new URLSearchParams({ q: text }),
+          signal: ctl.signal,
+        }
+      );
+      if (postRes.ok) {
+        const json = (await postRes.json()) as unknown;
+        if (Array.isArray(json) && Array.isArray(json[0])) {
+          return (json[0] as unknown[])
+            .map((seg) => (Array.isArray(seg) && typeof seg[0] === "string" ? (seg[0] as string) : ""))
+            .join("");
+        }
+      }
+
+      // 2. Fallback to GET if POST returned an unexpected status
+      const getUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${source}&tl=${target}&dt=t&q=${encodeURIComponent(text)}`;
+      const getRes = await fetch(getUrl, { signal: ctl.signal });
+      if (getRes.ok) {
+        const json = (await getRes.json()) as unknown;
+        if (Array.isArray(json) && Array.isArray(json[0])) {
+          return (json[0] as unknown[])
+            .map((seg) => (Array.isArray(seg) && typeof seg[0] === "string" ? (seg[0] as string) : ""))
+            .join("");
+        }
+      }
+
+      throw new Error(`Google Translate POST failed (${postRes.status}), GET failed (${getRes.status})`);
+    } catch (e) {
+      if (attempt === MAX_ATTEMPTS) {
+        console.error(`Google Translate exhausted ${MAX_ATTEMPTS} attempts for chunk:`, e);
+        return text;
+      }
+      await new Promise((r) => setTimeout(r, 400 * Math.pow(1.5, attempt) + Math.random() * 200));
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return text;
 }
 
 // Re-force canonical labels + question number after translation. Google Translate
@@ -59,6 +120,18 @@ export function normalizeTranslated(text: string, idx: number): string {
   });
   s = s.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=[^\s:.\-])/g, "$1 ");
   s = s.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
+
+  // Remove dots/commas from sub-statements (e.g. "1. Text" -> "1 Text")
+  s = s.replace(/(?<=\n)\s*(?:\(([1-9]|10)\)|([1-9]|10))\s*[.,):\-–—]?\s+(?=\S)/g, (m, g1, g2) => `${g2 || g1.replace(/[\(\)]/g, "")} `);
+
+  // Strictly enforce Column B numbers with NO dot (e.g., "1 Item", "2 Item")
+  const colBMatch = s.match(/(Column\s*B:[\s\S]*)/i);
+  if (colBMatch) {
+    const colBPart = colBMatch[1];
+    const cleanedColB = colBPart.replace(/(?:^|\n)\s*([1-5])\s*[.,):\-–—]\s*(?=\S)/g, "\n$1 ");
+    s = s.slice(0, colBMatch.index) + cleanedColB;
+  }
+
   s = splitHorizontalOptions(s);
   s = s.replace(/(?<=\S)\s+(?=(?:Answer|Ans)\s*[:.-])/gi, "\n");
   s = s.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
@@ -67,11 +140,24 @@ export function normalizeTranslated(text: string, idx: number): string {
   s = s.replace(/(?:^|\n)\s*(?:Step|Chran|Pad|चरण|पद)\s*(\d+)\s*[:.\-)]\s*/gi, "\n$1 ");
   // Break inline numbered steps onto their own line ("... .  2. ..." -> newline, never splitting decimals)
   s = s.replace(/((?<!\d)\.\s+)(?=\d{1,2}\s+[^\s\d])/g, ".\n");
+  // Clean dots after step numbers in Solution
+  const solMatch = s.match(/(Solution:[\s\S]*)/i);
+  if (solMatch) {
+    let solText = solMatch[1];
+    solText = solText.replace(/^([ \t]*)(?:\((\d+)\)|(\d+))\s*[.,):\-–—]?\s+/gm, (m, indent, g1, g2) => `${indent}${g2 || g1} `);
+    s = s.slice(0, solMatch.index) + solText;
+  }
   // Some translations rewrite bullets — restore leading "* " for lines that start with a bullet char.
   s = s.replace(/^\s*[•·●○◦]\s+/gm, "* ");
 
   s = normalizeAnswerInText(s);
   s = normalizeOptionsInText(s);
+
+  // Guarantee the question begins with canonical idx. prefix
+  if (!/^\s*\d{1,4}\.\s+/.test(s)) {
+    s = s.replace(/^\s*\d{1,4}[.:\-)\]\s]+/, `${idx}. `);
+  }
+
   // Collapse 3+ blank lines
   s = s.replace(/\n{3,}/g, "\n\n").trim();
   return s;
