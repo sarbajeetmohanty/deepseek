@@ -50,6 +50,22 @@ function getAvailableKeys(allKeys: string[]): string[] {
   return available.length > 0 ? available : allKeys;
 }
 
+function getResponseTextSafely(response: any): string {
+  try {
+    return response.text();
+  } catch (e: any) {
+    const candidate = response?.candidates?.[0];
+    const partsText = candidate?.content?.parts
+      ?.map((p: any) => (typeof p.text === "string" ? p.text : ""))
+      .filter(Boolean)
+      .join("");
+    if (partsText && partsText.trim().length > 0) {
+      return partsText;
+    }
+    throw e;
+  }
+}
+
 export async function formatQuestionWithGemini({
   raw,
   idx,
@@ -98,7 +114,7 @@ export async function formatQuestionWithGemini({
 
           const result = await model.generateContent([prompt]);
           const response = await result.response;
-          const text = response.text();
+          const text = getResponseTextSafely(response);
           if (text && text.trim().length > 0) {
             return sanitizeAiOutput(latexToText(text), idx, subjectType);
           }

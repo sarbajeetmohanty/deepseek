@@ -33,17 +33,15 @@ const defaultSafetySettings = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
-// Prioritizing fastest and most reliable Flash/Flash-Lite models
+// Prioritizing cheapest, fastest, and most reliable Flash/Flash-Lite models
 const GEMINI_MODELS = [
-  "gemini-2.5-flash-lite",
-  "gemini-2.0-flash-lite",
-  "gemini-2.0-flash",
-  "gemini-1.5-flash",
-  "gemini-1.5-flash-8b",
-  "gemini-flash-lite-latest",
   "gemini-3.5-flash-lite",
+  "gemini-flash-lite-latest",
   "gemini-3.1-flash-lite",
   "gemini-3.7-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-flash-latest",
 ];
 
 function getResponseTextSafely(response: any): string {
