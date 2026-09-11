@@ -246,3 +246,98 @@ export const removeTeamMember = createServerFn({ method: "POST" })
 
     return { ok: true, email: target.email };
   });
+
+// Admin-only: directly create a user account with email and password so they can log in immediately.
+export const createTeamUser = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: { email: string; password: string; fullName?: string; role?: "member" | "admin" }) => {
+    const email = String(data?.email ?? "").trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Valid email required");
+    if (email.length > 320) throw new Error("Email address is too long");
+    const password = String(data?.password ?? "");
+    if (password.length < 6) throw new Error("Password must be at least 6 characters");
+    const fullName = String(data?.fullName ?? "").trim().slice(0, 100);
+    const role: "member" | "admin" = data?.role === "admin" ? "admin" : "member";
+    return { email, password, fullName, role };
+  })
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    await ensureAdmin(supabase, userId);
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    // 1. Create user in auth.users with pre-confirmed email so they can log in immediately
+    const { data: authUser, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+      email: data.email,
+      password: data.password,
+      email_confirm: true,
+      user_metadata: {
+        full_name: data.fullName || data.email.split("@")[0],
+      },
+    });
+
+    if (createErr) {
+      if (/already been registered|already exists|unique/i.test(createErr.message)) {
+        throw new Error("A user with this email address already exists.");
+      }
+      throw new Error(`Failed to create user: ${createErr.message}`);
+    }
+
+    if (!authUser?.user) {
+      throw new Error("User creation did not return a valid user record.");
+    }
+
+    const newUserId = authUser.user.id;
+
+    // 2. Ensure profile row exists
+    await supabaseAdmin.from("profiles").upsert({
+      id: newUserId,
+      email: data.email,
+      full_name: data.fullName || data.email.split("@")[0],
+    });
+
+    // 3. Assign role
+    await supabaseAdmin.from("user_roles").upsert(
+      { user_id: newUserId, role: data.role },
+      { onConflict: "user_id,role" }
+    );
+
+    // 4. Mark or insert invitation as accepted so status is clear
+    await supabaseAdmin.from("invitations").upsert({
+      email: data.email,
+      invited_by: userId,
+      status: "accepted",
+    });
+
+    // 5. Initialize quota profile
+    await supabaseAdmin.from("user_quotas").upsert(
+      { user_id: newUserId, questions_used: 0, api_calls_used: 0 },
+      { onConflict: "user_id" }
+    );
+
+    return { ok: true, userId: newUserId, email: data.email };
+  });
+
+// Admin-only: update or reset any team member's password directly.
+export const updateUserPassword = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((data: { targetUserId: string; newPassword: string }) => {
+    if (!data?.targetUserId || typeof data.targetUserId !== "string") {
+      throw new Error("targetUserId required");
+    }
+    const newPassword = String(data?.newPassword ?? "");
+    if (newPassword.length < 6) throw new Error("Password must be at least 6 characters");
+    return { targetUserId: data.targetUserId, newPassword };
+  })
+  .handler(async ({ data, context }) => {
+    const { supabase, userId } = context;
+    await ensureAdmin(supabase, userId);
+
+    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(data.targetUserId, {
+      password: data.newPassword,
+    });
+    if (error) throw new Error(`Could not update password: ${error.message}`);
+
+    return { ok: true };
+  });

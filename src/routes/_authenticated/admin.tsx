@@ -1,11 +1,23 @@
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { inviteUser, listInvitations, listTeam, revokeInvite, setUserAdmin, getMyRole, listTeamStats, removeTeamMember } from "@/lib/invitations.functions";
+import {
+  inviteUser,
+  listInvitations,
+  listTeam,
+  revokeInvite,
+  setUserAdmin,
+  getMyRole,
+  listTeamStats,
+  removeTeamMember,
+  createTeamUser,
+  updateUserPassword,
+} from "@/lib/invitations.functions";
 import { getDeepseekKeyStatus, setDeepseekApiKey, clearDeepseekApiKey, revealDeepseekApiKey, getGeminiKeyStatus, setGeminiApiKeys, clearGeminiApiKeys, revealGeminiApiKeys } from "@/lib/settings.functions";
 import { listQuotas, setUserQuota } from "@/lib/quotas.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "sonner";
 import { UserAvatar } from "@/components/user-avatar";
@@ -130,6 +142,17 @@ function AdminPage() {
   const [email, setEmail] = useState("");
   const [apiKey, setApiKey] = useState("");
 
+  // Direct user creation state
+  const [newEmail, setNewEmail] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newFullName, setNewFullName] = useState("");
+  const [newRole, setNewRole] = useState<"member" | "admin">("member");
+  const [showNewPassword, setShowNewPassword] = useState(false);
+
+  // Reset password state for existing user
+  const [resettingUserId, setResettingUserId] = useState<string | null>(null);
+  const [resetPasswordVal, setResetPasswordVal] = useState("");
+
   const { data: me } = useQuery({
     queryKey: ["my-role"],
     queryFn: () => getMyRole({ data: {} } as any),
@@ -231,6 +254,34 @@ function AdminPage() {
       qc.invalidateQueries({ queryKey: ["invitations"] });
     },
     onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Could not remove member"),
+  });
+
+  const createUserMutation = useMutation({
+    mutationFn: (data: { email: string; password: string; fullName?: string; role?: "member" | "admin" }) =>
+      createTeamUser({ data }),
+    onSuccess: (res) => {
+      toast.success(`Account created for ${res.email}! They can now log in directly.`);
+      setNewEmail("");
+      setNewPassword("");
+      setNewFullName("");
+      setNewRole("member");
+      qc.invalidateQueries({ queryKey: ["team"] });
+      qc.invalidateQueries({ queryKey: ["team-stats"] });
+      qc.invalidateQueries({ queryKey: ["team-quotas"] });
+      qc.invalidateQueries({ queryKey: ["invitations"] });
+    },
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Could not create user account"),
+  });
+
+  const updatePasswordMutation = useMutation({
+    mutationFn: (data: { targetUserId: string; newPassword: string }) =>
+      updateUserPassword({ data }),
+    onSuccess: () => {
+      toast.success("Password updated successfully");
+      setResettingUserId(null);
+      setResetPasswordVal("");
+    },
+    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Could not update password"),
   });
 
   const { data: keyStatus, error: keyErr } = useQuery({
@@ -507,6 +558,124 @@ function AdminPage() {
         </CardContent>
       </Card>
 
+      <Card className="border-primary/40 shadow-sm">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <span>Add team member (instant login)</span>
+            <span className="text-[10px] bg-primary/15 text-primary font-medium px-2 py-0.5 rounded-full">Direct Account</span>
+          </CardTitle>
+          <CardDescription>
+            Directly create an account with email and password so your teammate can sign in immediately without needing an invite link or separate signup.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!newEmail || !newPassword) return;
+              createUserMutation.mutate({
+                email: newEmail,
+                password: newPassword,
+                fullName: newFullName,
+                role: newRole,
+              });
+            }}
+            className="space-y-4"
+          >
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">User Email / Gmail <span className="text-destructive">*</span></Label>
+                <Input
+                  type="email"
+                  required
+                  placeholder="teammate@gmail.com"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label className="text-xs font-medium">Password <span className="text-destructive">*</span></Label>
+                  <button
+                    type="button"
+                    className="text-[11px] text-primary hover:underline font-medium"
+                    onClick={() => {
+                      const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%";
+                      let gen = "";
+                      for (let i = 0; i < 10; i++) gen += chars[Math.floor(Math.random() * chars.length)];
+                      setNewPassword(gen);
+                      setShowNewPassword(true);
+                    }}
+                  >
+                    Generate secure
+                  </button>
+                </div>
+                <div className="relative">
+                  <Input
+                    type={showNewPassword ? "text" : "password"}
+                    required
+                    minLength={6}
+                    placeholder="Min 6 characters"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="pr-16 font-mono text-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground hover:text-foreground px-1 py-0.5 rounded"
+                  >
+                    {showNewPassword ? "Hide" : "Show"}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Full Name (optional)</Label>
+                <Input
+                  placeholder="e.g. Rahul Sharma"
+                  value={newFullName}
+                  onChange={(e) => setNewFullName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs font-medium">Role</Label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={newRole === "member" ? "default" : "outline"}
+                    onClick={() => setNewRole("member")}
+                    className="flex-1"
+                  >
+                    Member
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={newRole === "admin" ? "default" : "outline"}
+                    onClick={() => setNewRole("admin")}
+                    className="flex-1"
+                  >
+                    Admin
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            <Button
+              type="submit"
+              disabled={createUserMutation.isPending || !newEmail || !newPassword}
+              className="w-full sm:w-auto"
+            >
+              {createUserMutation.isPending ? "Creating Account…" : "Create & Allow Login"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle>Invite a member</CardTitle>
@@ -588,6 +757,34 @@ function AdminPage() {
                         pending={saveQuota.isPending && saveQuota.variables?.userId === p.id}
                         onSave={(kind, value) => saveQuota.mutate({ userId: p.id, [kind]: value })}
                       />
+                      {resettingUserId === p.id && (
+                        <div className="flex flex-wrap items-center gap-2 mt-2 p-2 bg-muted/80 rounded-md border text-xs">
+                          <span className="font-medium text-foreground">Set new password:</span>
+                          <Input
+                            type="text"
+                            placeholder="Min 6 characters"
+                            value={resetPasswordVal}
+                            onChange={(e) => setResetPasswordVal(e.target.value)}
+                            className="h-7 text-xs font-mono w-44 bg-background"
+                          />
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs px-2.5"
+                            disabled={updatePasswordMutation.isPending || resetPasswordVal.length < 6}
+                            onClick={() => updatePasswordMutation.mutate({ targetUserId: p.id, newPassword: resetPasswordVal })}
+                          >
+                            {updatePasswordMutation.isPending ? "Saving…" : "Save"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs px-2"
+                            onClick={() => { setResettingUserId(null); setResetPasswordVal(""); }}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
@@ -596,6 +793,21 @@ function AdminPage() {
                           <span key={r} className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">{r}</span>
                         ))}
                       </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        title="Set or reset password for this user"
+                        onClick={() => {
+                          if (resettingUserId === p.id) {
+                            setResettingUserId(null);
+                          } else {
+                            setResettingUserId(p.id);
+                            setResetPasswordVal("");
+                          }
+                        }}
+                      >
+                        Password
+                      </Button>
                       {isAdmin ? (
                         <Button
                           size="sm"
