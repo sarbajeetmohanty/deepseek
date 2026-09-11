@@ -6,7 +6,8 @@ const activeBatches = new Set<string>();
 // Cross-batch in-memory solution cache to prevent duplicate DeepSeek API billing for identical questions
 const persistentQuestionCache = new Map<string, string>();
 
-// Solve MCQ exclusively using the ultra-fast Google Gemini multi-key pool (100% free, ~2s per question).
+// Solve MCQ primarily using the ultra-fast Google Gemini multi-key pool (100% free, ~2s per question).
+// If all Gemini keys exhaust their Google Cloud daily project quota, seamlessly falls back to DeepSeek.
 async function solveBatchQuestion(opts: {
   raw: string;
   idx: number;
@@ -14,8 +15,8 @@ async function solveBatchQuestion(opts: {
   solutionLength: "normal" | "long";
   signal?: AbortSignal;
 }): Promise<string> {
-  const { formatQuestionWithGemini } = await import("./gemini.server");
-  return await formatQuestionWithGemini(opts);
+  const { formatQuestionWithDeepSeek } = await import("./deepseek.server");
+  return await formatQuestionWithDeepSeek(opts);
 }
 
 export async function processBatchInternal(batchId: string): Promise<void> {
@@ -64,8 +65,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // Set concurrency to 10 parallel workers for smooth quota distribution across the 18 keys (100 questions in ~20s with 0 rate limits)
-    const CONCURRENCY = Math.min(10, pending.length);
+    // Set concurrency to 5 parallel workers for smooth quota distribution across healthy keys without bursting RPM limits
+    const CONCURRENCY = Math.min(5, pending.length);
     const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.

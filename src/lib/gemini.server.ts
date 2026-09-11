@@ -28,16 +28,18 @@ const defaultSafetySettings = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
-// High-quota, ultra-fast free tier models (1,500 RPD each across 18 keys = 108,000+ daily capacity):
-// - gemini-flash-lite-latest: Blazing fast ~2.0s latency with thinkingBudget 256, 1,500 RPD
-// - gemini-3.5-flash-lite: Reliable ~2.2s latency with thinkingBudget 256, 1,500 RPD
-// - gemini-3.1-flash-lite: High capacity fallback, 1,500 RPD
-// - gemini-3.6-flash: High-capability flash model, 1,500 RPD
+// High-quota, ultra-fast free tier models across rotating healthy keys:
+// - gemini-3.5-flash: Active with fresh quota pool, ultra fast ~1.2s response time
+// - gemini-3-flash-preview: Active secondary flash preview with separate quota pool
+// - gemini-flash-lite-latest: High throughput flash-lite model
+// - gemini-3.5-flash-lite: High throughput flash-lite model
+// - gemini-3.1-flash-lite: High capacity fallback model
 const GEMINI_SOLVER_MODELS = [
+  "gemini-3.5-flash",
+  "gemini-3-flash-preview",
   "gemini-flash-lite-latest",
   "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite",
-  "gemini-3.6-flash",
 ];
 
 let keyIndex = 0;
@@ -59,13 +61,28 @@ function isKeyModelAvailable(key: string, modelName: string): boolean {
   return false;
 }
 
-function recordModelRateLimit(key: string, modelName: string, isDailyQuota: boolean, retryAfterMs?: number) {
+function recordModelRateLimit(
+  key: string,
+  modelName: string,
+  isDailyQuota: boolean,
+  retryAfterMs?: number,
+  allKeys?: string[]
+) {
+  if (isDailyQuota) {
+    // If daily quota or project-level quota was hit, cool down this model across all keys in this project
+    // for 60 minutes so we don't waste 18 failed round-trips on keys from the same project
+    const cooldown = 60 * 60_000;
+    if (allKeys && allKeys.length > 0) {
+      for (const k of allKeys) {
+        rateLimitedKeyModels.set(`${k.slice(-8)}:${modelName}`, Date.now() + cooldown);
+      }
+    } else {
+      rateLimitedKeyModels.set(`${key.slice(-8)}:${modelName}`, Date.now() + cooldown);
+    }
+    return;
+  }
   const composite = `${key.slice(-8)}:${modelName}`;
-  // 30-minute cooldown if genuine daily quota/RPD is exhausted for this model on this key;
-  // If Google specified a retryAfterMs (e.g. 5s), use it + 1s padding. Otherwise 4 seconds for temporary RPM burst.
-  const cooldown = isDailyQuota
-    ? 30 * 60_000
-    : (retryAfterMs ? Math.max(retryAfterMs + 1000, 3000) : 4_000);
+  const cooldown = retryAfterMs ? Math.max(retryAfterMs + 1000, 3000) : 4_000;
   rateLimitedKeyModels.set(composite, Date.now() + cooldown);
 }
 
@@ -79,7 +96,7 @@ function getEarliestAvailableDelay(): number {
       if (exp < minWait) minWait = exp;
     }
   }
-  if (minWait === Infinity) return 2500;
+  if (minWait === Infinity) return -1;
   return Math.max(1000, minWait - now);
 }
 
@@ -98,7 +115,10 @@ function classifyError(error: any): { isDailyQuota: boolean; isRateLimitOr503: b
     msg.includes("per day") ||
     msg.includes("requests per day") ||
     msg.includes("generaterequestsperday") ||
+    msg.includes("limit: 500") ||
     msg.includes("limit: 1500") ||
+    msg.includes("limit: 20") ||
+    msg.includes("perproject") ||
     msg.includes("per_day");
 
   const isRateLimitOr503 =
@@ -243,7 +263,7 @@ export async function formatQuestionWithGemini({
           const { isDailyQuota, isRateLimitOr503, retryAfterMs } = classifyError(error);
 
           if (isRateLimitOr503) {
-            recordModelRateLimit(key, modelName, isDailyQuota, retryAfterMs);
+            recordModelRateLimit(key, modelName, isDailyQuota, retryAfterMs, allKeys);
             continue; // Rotate to next available key in 0ms!
           }
 
@@ -257,16 +277,24 @@ export async function formatQuestionWithGemini({
           }
 
           // Unknown error; record short cooldown and continue
-          recordModelRateLimit(key, modelName, false);
+          recordModelRateLimit(key, modelName, false, undefined, allKeys);
           continue;
         }
       }
     }
 
     if (attempt < MAX_RETRIES) {
-      // Dynamic smart wait: if all keys were in cooldown, wait for earliest cooldown expiry instead of burning attempts
-      const earliestDelay = getEarliestAvailableDelay();
-      const baseDelay = triedAtLeastOneKey ? 1000 * Math.pow(1.2, attempt) : earliestDelay;
+      if (!triedAtLeastOneKey) {
+        const earliestDelay = getEarliestAvailableDelay();
+        if (earliestDelay === -1) {
+          // All models have exhausted daily quota; break immediately so fallback can resolve instantly!
+          break;
+        }
+        // Wait for the specific RPM retry delay (up to 30s) + jitter
+        await new Promise((resolve) => setTimeout(resolve, Math.min(earliestDelay, 30000) + Math.random() * 500));
+        continue;
+      }
+      const baseDelay = 1000 * Math.pow(1.2, attempt);
       const jitter = Math.random() * 800;
       const sleepTime = Math.min(Math.max(baseDelay, 1500), 8000) + jitter;
       await new Promise((resolve) => setTimeout(resolve, sleepTime));

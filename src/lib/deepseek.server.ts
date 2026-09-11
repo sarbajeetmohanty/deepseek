@@ -438,10 +438,124 @@ function parseDeepSeekError(status: number, text: string): DeepSeekProviderError
   });
 }
 
-// DeepSeek API Configuration
-// - Model: deepseek-chat (DeepSeek-V3) is the cheapest and fastest flagship model ($0.14/1M input, $0.014 on cache hit, $0.28/1M output).
-// - DeepSeek Context Caching: By keeping the system prompt static and user prompt structure standardized, prompt tokens achieve a 90% discount on cache hits.
+const DEEPSEEK_MODEL = "deepseek-chat";
+const DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions";
+
+export async function formatQuestionWithDeepSeekNative({
+  raw,
+  idx,
+  signal,
+  subjectType,
+  solutionLength,
+}: DeepSeekOptions): Promise<string> {
+  const { getDeepseekApiKey } = await import("./settings.functions");
+  const apiKey = await getDeepseekApiKey();
+  if (!apiKey) throw new Error("No DeepSeek API key configured");
+
+  let cleaned: string;
+  try {
+    cleaned = latexToText(raw);
+  } catch {
+    cleaned = raw;
+  }
+  if (!cleaned.trim()) throw new Error("Empty question text");
+
+  const isLong = solutionLength === "long";
+  const systemPrompt = subjectType === "math"
+    ? (isLong ? UNIFIED_SYSTEM_PROMPT_MATH_LONG : UNIFIED_SYSTEM_PROMPT_MATH_NORMAL)
+    : (isLong ? UNIFIED_SYSTEM_PROMPT_GK_LONG : UNIFIED_SYSTEM_PROMPT_GK_NORMAL);
+
+  const maxTokens = isLong ? 1600 : 1200;
+  const userPrompt = `Solve and format the following MCQ:\n\n${cleaned}`;
+
+  const attempt = async () => {
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 45_000);
+    const onCallerAbort = () => ctl.abort();
+    if (signal) {
+      if (signal.aborted) ctl.abort();
+      else signal.addEventListener("abort", onCallerAbort, { once: true });
+    }
+    try {
+      const res = await fetch(DEEPSEEK_API_URL, {
+        method: "POST",
+        signal: ctl.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+          "Connection": "keep-alive",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model: DEEPSEEK_MODEL,
+          temperature: 0,
+          top_p: 0.1,
+          max_tokens: maxTokens,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => "");
+        throw parseDeepSeekError(res.status, errText);
+      }
+
+      const json = (await res.json().catch(() => null)) as {
+        choices?: { message?: { content?: string } }[];
+      } | null;
+
+      const content = json?.choices?.[0]?.message?.content?.trim();
+      if (!content) throw new Error("Empty DeepSeek response");
+
+      return content;
+    } finally {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener("abort", onCallerAbort);
+    }
+  };
+
+  let lastErr: unknown;
+  const MAX_RETRIES = 3;
+  for (let i = 0; i < MAX_RETRIES; i++) {
+    try {
+      const content = await attempt();
+      try {
+        return sanitizeAiOutput(latexToText(content), idx, subjectType);
+      } catch {
+        return sanitizeAiOutput(content, idx, subjectType);
+      }
+    } catch (e) {
+      lastErr = e;
+      if (isNonRetryableDeepSeekError(e)) throw e;
+      if (e instanceof Error && e.name === "AbortError" && signal?.aborted) throw e;
+      if (i < MAX_RETRIES - 1) {
+        const isRateLimit = e instanceof DeepSeekProviderError && e.status === 429;
+        const baseDelay = isRateLimit ? 3000 : 800;
+        const backoff = Math.pow(1.8, i) * baseDelay + Math.random() * 400;
+        await new Promise((r) => setTimeout(r, backoff));
+      }
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
+
+// Universal Question Formatter:
+// 1. Tries the ultra-fast Google Gemini multi-key pool (100% free, ~1.5s per question).
+// 2. If all Gemini keys exhaust their daily Google Cloud quota, seamlessly falls back to DeepSeek
+//    so user batches NEVER fail with error banners.
 export async function formatQuestionWithDeepSeek(opts: DeepSeekOptions): Promise<string> {
-  const { formatQuestionWithGemini } = await import("./gemini.server");
-  return await formatQuestionWithGemini(opts);
+  try {
+    const { formatQuestionWithGemini } = await import("./gemini.server");
+    return await formatQuestionWithGemini(opts);
+  } catch (geminiError: any) {
+    console.warn(`[Solver] Gemini unavailable, falling back to DeepSeek: ${geminiError?.message}`);
+    try {
+      return await formatQuestionWithDeepSeekNative(opts);
+    } catch (deepseekError) {
+      throw geminiError;
+    }
+  }
 }
