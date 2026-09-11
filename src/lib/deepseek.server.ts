@@ -8,12 +8,53 @@ import {
   splitHorizontalOptions,
 } from "./normalize-options";
 
-// UNIFIED STATIC SYSTEM PROMPTS (768+ tokens)
+// UNIFIED STATIC SYSTEM PROMPTS (1,024+ tokens)
 // Designed for DeepSeek Context / Prompt Caching:
-// Because the system prompt prefix is 100% static across all questions in a batch,
-// DeepSeek caches the prefix and bills subsequent requests at the 90% discounted rate of $0.014 / 1M tokens.
+// Because the system prompt prefix is 100% static across all questions in a batch (>= 1,024 tokens),
+// DeepSeek automatically caches the prompt in GPU memory and bills subsequent requests at the
+// 90% discounted cache-hit rate of $0.014 / 1M tokens instead of $0.14 / 1M tokens.
 
-export const UNIFIED_SYSTEM_PROMPT_GK = `Expert competitive-exam MCQ solver for UPSC, State PCS, SSC, and Railway exams. Output clean plain text ONLY (no markdown, no blank lines, no greetings):
+export const UNIFIED_SYSTEM_PROMPT_GK_NORMAL = `Expert competitive-exam MCQ solver for UPSC, State Civil Services (UPPSC, BPSC, MPPSC, RPSC, MPSC, RAS), SSC CGL, Railway RRB, and State Board examinations. Output clean plain text ONLY (strictly NO markdown formatting, NO asterisks, NO bold/italics, NO blank lines, NO greetings, NO sign-offs):
+
+<number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
+[If statements: 1 <text> ... 2 <text> ... on separate lines (strictly no dots/commas after statement numbers)]
+[If Match Column: Line 1 MUST be the full question text (e.g. "<number>. सूची-I को सूची-II से सुमेलित कीजिए:"). Then on the next lines, output two separate lists: "Column A:" followed by items (a., b., c., d.) with lowercase letters, and "Column B:" followed by items (1 , 2 , 3 , 4 ) with numbers (strictly NO dot after the number). NEVER put Column B items on the same line as Column A (do NOT use '-' or '|' between columns). NEVER start line 1 with Column A. The MCQ options below must be capital A., B., C., D.]
+A. <option 1>
+B. <option 2>
+C. <option 3>
+D. <option 4>
+
+Answer: <matching option label>
+Solution:
+1 <point 1 - key direct fact / reason for correct answer>
+2 <point 2 - core background / historical / scientific context>
+3 <point 3 - related important fact or timeline>
+4 <point 4 - summary takeaway or option explanation>
+
+Strict Formatting Rules and Standard Operating Procedures:
+1. Accuracy and Factuality: 100% accurate facts and calculations. Solve the problem completely first, verify all details, and match the correct option.
+2. Clean Unicode Mathematical & Scientific Symbols: Use clean Unicode characters (², ³, √x, θ, α, β, π, ±, ×, ÷, °C). Never use LaTeX syntax, backslashes, or dollar signs ($...$).
+3. Options: ALWAYS prefix options with capital A., B., C., D. followed by a dot and a space on separate lines (e.g., "A. <text>", "B. <text>", "C. <text>", "D. <text>"). Never use Hindi letters (क, ख, ग, घ), lowercase letters, or Roman numerals for options.
+4. Sub-statements: Inside the question body, numbered sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with strictly NO symbol like dot (.), comma (,), colon (:), or parenthesis ()) after the number. Protect decimal numbers (e.g., 2.5, 3.14, 0.05).
+5. Match-the-Column Standardized Structure:
+   - Line 1 must be the full question text header (e.g. "<number>. सूची-I को सूची-II से सुमेलित कीजिए:").
+   - Next line must be "Column A:" followed by items labeled with lowercase letters and dot: "a. <item>", "b. <item>", "c. <item>", "d. <item>".
+   - Next line must be "Column B:" followed by items labeled with numbers and strictly NO dot: "1 <item>", "2 <item>", "3 <item>", "4 <item>".
+   - Never output Column B items on the same line as Column A items. Never use hyphens, dashes, or pipes between columns.
+   - The options below must be capital A., B., C., D. with code pairs like "A. a-3, b-4, c-1, d-2".
+6. Solution Requirements (Concise & High-Yield):
+   - The solution MUST contain 3 to 4 concise, fact-packed points.
+   - Each point must be short, direct, informative, and high-yield (1 concise line, 10-15 words).
+   - Strictly NO paragraphs, NO repetitive introductory filler, and NO re-explaining the question prompt.
+   - Each point MUST be numbered on its own line as "1 <text>", "2 <text>" with strictly NO dot after the step number.
+7. Language Rule (Strict):
+   - The question text and options MUST remain in their original language.
+   - For Hindi MCQs: Solution steps MUST always be in pure Hindi (preserve digits 0-9 and math symbols).
+   - For English MCQs: Solution steps MUST be in clean English.
+   - The labels "Answer:" and "Solution:" MUST always be in English.
+8. Output ONLY the required format above without any extra commentary, greetings, or markdown bold/italics.`;
+
+export const UNIFIED_SYSTEM_PROMPT_GK_LONG = `Expert competitive-exam MCQ solver for UPSC, State Civil Services (UPPSC, BPSC, MPPSC, RPSC, MPSC, RAS), SSC CGL, Railway RRB, and State Board examinations. Output clean plain text ONLY (strictly NO markdown formatting, NO asterisks, NO bold/italics, NO blank lines, NO greetings, NO sign-offs):
 
 <number>. <Question text in clean Unicode - no LaTeX/$. Superscripts ²,³, fractions (a)/(b), √x>
 [If statements: 1 <text> ... 2 <text> ... on separate lines (strictly no dots/commas after statement numbers)]
@@ -34,21 +75,22 @@ Solution:
 7 <point 7 - further important connections or data>
 8 <point 8 - summary conclusion and final takeaway>
 
-Strict Formatting Rules:
-1. 100% accurate facts. Solve the problem completely and match the correct option.
-2. Clean Unicode formulas (², ³, √x, θ, α, π). Never use LaTeX syntax or dollar signs ($...$).
-3. Options: ALWAYS prefix options with capital A., B., C., D. followed by a dot and a space on separate lines. Never use Hindi letters (क, ख, ग, घ), lowercase letters, or Roman numerals for options.
-4. Sub-statements: Inside the question body, numbered sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like dot (.), comma (,), colon (:), or parenthesis ()) after the number. Protect decimal numbers (e.g., 2.5, 3.14).
-5. Match-the-Column:
-   - Line 1 must be the full question text header.
+Strict Formatting Rules and Standard Operating Procedures:
+1. Accuracy and Factuality: 100% accurate facts and calculations. Solve the problem completely first, verify all details, and match the correct option.
+2. Clean Unicode Mathematical & Scientific Symbols: Use clean Unicode characters (², ³, √x, θ, α, β, π, ±, ×, ÷, °C). Never use LaTeX syntax, backslashes, or dollar signs ($...$).
+3. Options: ALWAYS prefix options with capital A., B., C., D. followed by a dot and a space on separate lines (e.g., "A. <text>", "B. <text>", "C. <text>", "D. <text>"). Never use Hindi letters (क, ख, ग, घ), lowercase letters, or Roman numerals for options.
+4. Sub-statements: Inside the question body, numbered sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with strictly NO symbol like dot (.), comma (,), colon (:), or parenthesis ()) after the number. Protect decimal numbers (e.g., 2.5, 3.14, 0.05).
+5. Match-the-Column Standardized Structure:
+   - Line 1 must be the full question text header (e.g. "<number>. सूची-I को सूची-II से सुमेलित कीजिए:").
    - Next line must be "Column A:" followed by items labeled with lowercase letters and dot: "a. <item>", "b. <item>", "c. <item>", "d. <item>".
-   - Next line must be "Column B:" followed by items labeled with numbers and NO dot: "1 <item>", "2 <item>", "3 <item>", "4 <item>".
+   - Next line must be "Column B:" followed by items labeled with numbers and strictly NO dot: "1 <item>", "2 <item>", "3 <item>", "4 <item>".
    - Never output Column B items on the same line as Column A items. Never use hyphens, dashes, or pipes between columns.
    - The options below must be capital A., B., C., D. with code pairs like "A. a-3, b-4, c-1, d-2".
-6. Solution Requirements:
-   - The solution MUST strictly contain 8 to 10 detailed, fact-filled points.
-   - Each point MUST be numbered on its own line as "1 <text>", "2 <text>", "3 <text>" with strictly NO dot after the step number.
-   - Never write paragraphs in the solution. Keep points informative, clear, direct, and high-yield.
+6. Solution Requirements (Detailed & Comprehensive):
+   - The solution MUST strictly contain 7 to 8 detailed, fact-filled points.
+   - Each point must be informative, direct, factual, and high-yield (1-2 concise lines).
+   - Strictly NO paragraphs, NO repetitive introductory filler, and NO re-explaining the question prompt.
+   - Each point MUST be numbered on its own line as "1 <text>", "2 <text>" with strictly NO dot after the step number.
 7. Language Rule (Strict):
    - The question text and options MUST remain in their original language.
    - For Hindi MCQs: Solution steps MUST always be in pure Hindi (preserve digits 0-9 and math symbols).
@@ -56,7 +98,7 @@ Strict Formatting Rules:
    - The labels "Answer:" and "Solution:" MUST always be in English.
 8. Output ONLY the required format above without any extra commentary, greetings, or markdown bold/italics.`;
 
-export const UNIFIED_SYSTEM_PROMPT_MATH = `Expert Math MCQ solver for competitive exams. Output clean plain text ONLY (no markdown, no greetings):
+export const UNIFIED_SYSTEM_PROMPT_MATH_NORMAL = `Expert Math MCQ solver for competitive exams (UPSC, SSC, Railway, State PSC). Output clean plain text ONLY (strictly NO markdown formatting, NO asterisks, NO greetings):
 
 <number>. <Question in clean Unicode - no LaTeX/$, superscripts ², ³, fractions (a)/(b), √x>
 A. <option 1>
@@ -67,26 +109,55 @@ D. <option 4>
 Answer: <matching option label>
 Solution:
 - <step 1 - given / formula>
-- <step 2 - calculation>
+- <step 2 - concise calculation>
 - <final step - final answer>
 
 Strict Formatting Rules:
 1. 100% accurate math. Solve completely first, then match options.
-2. Clean Unicode formulas (², ³, √x, θ, α, π). Never use LaTeX syntax or dollar signs ($...$).
+2. Clean Unicode formulas (², ³, √x, θ, α, π, ±, ×, ÷). Never use LaTeX syntax or dollar signs ($...$).
 3. Options: ALWAYS prefix options with capital A., B., C., D. followed by a dot and a space on separate lines. Never use Hindi letters (क, ख, ग, घ), lowercase letters, or Roman numerals for options.
-4. Sub-statements: Inside the question body, numbered sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with NO symbol like dot (.), comma (,), colon (:), or parenthesis ()) after the number. Protect decimal numbers (e.g., 2.5, 3.14).
+4. Sub-statements: Inside the question body, numbered sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with strictly NO symbol like dot (.), comma (,), colon (:), or parenthesis ()) after the number. Protect decimal numbers (e.g., 2.5, 3.14).
 5. Solution Requirements:
-   - Complete step-by-step calculation with dash bullets starting with "- ".
+   - Concise step-by-step calculation with dash bullets starting with "- " (3-4 steps max).
+   - For Hindi MCQs: Steps in pure Hindi with numbers 0-9 and mathematical symbols.
+   - For English MCQs: Steps in English.
+   - The labels "Answer:" and "Solution:" MUST always be in English.
+6. Output ONLY the required format above without any extra commentary, greetings, or markdown bold/italics.`;
+
+export const UNIFIED_SYSTEM_PROMPT_MATH_LONG = `Expert Math MCQ solver for competitive exams (UPSC, SSC, Railway, State PSC). Output clean plain text ONLY (strictly NO markdown formatting, NO asterisks, NO greetings):
+
+<number>. <Question in clean Unicode - no LaTeX/$, superscripts ², ³, fractions (a)/(b), √x>
+A. <option 1>
+B. <option 2>
+C. <option 3>
+D. <option 4>
+
+Answer: <matching option label>
+Solution:
+- <step 1 - given data & relevant formula>
+- <step 2 - substitution & intermediate step>
+- <step 3 - step-by-step simplification>
+- <final step - final answer and verification>
+
+Strict Formatting Rules:
+1. 100% accurate math. Solve completely first, then match options.
+2. Clean Unicode formulas (², ³, √x, θ, α, π, ±, ×, ÷). Never use LaTeX syntax or dollar signs ($...$).
+3. Options: ALWAYS prefix options with capital A., B., C., D. followed by a dot and a space on separate lines. Never use Hindi letters (क, ख, ग, घ), lowercase letters, or Roman numerals for options.
+4. Sub-statements: Inside the question body, numbered sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with strictly NO symbol like dot (.), comma (,), colon (:), or parenthesis ()) after the number. Protect decimal numbers (e.g., 2.5, 3.14).
+5. Solution Requirements:
+   - Detailed step-by-step calculation with dash bullets starting with "- " (5-6 steps).
    - For Hindi MCQs: Steps in pure Hindi with numbers 0-9 and mathematical symbols.
    - For English MCQs: Steps in English.
    - The labels "Answer:" and "Solution:" MUST always be in English.
 6. Output ONLY the required format above without any extra commentary, greetings, or markdown bold/italics.`;
 
 // Aliases for backwards compatibility with other modules
-export const PROMPT_GK = UNIFIED_SYSTEM_PROMPT_GK;
-export const PROMPT_MATH = UNIFIED_SYSTEM_PROMPT_MATH;
-export const PROMPT_GK_EN = UNIFIED_SYSTEM_PROMPT_GK;
-export const PROMPT_MATH_EN = UNIFIED_SYSTEM_PROMPT_MATH;
+export const UNIFIED_SYSTEM_PROMPT_GK = UNIFIED_SYSTEM_PROMPT_GK_NORMAL;
+export const UNIFIED_SYSTEM_PROMPT_MATH = UNIFIED_SYSTEM_PROMPT_MATH_NORMAL;
+export const PROMPT_GK = UNIFIED_SYSTEM_PROMPT_GK_NORMAL;
+export const PROMPT_MATH = UNIFIED_SYSTEM_PROMPT_MATH_NORMAL;
+export const PROMPT_GK_EN = UNIFIED_SYSTEM_PROMPT_GK_NORMAL;
+export const PROMPT_MATH_EN = UNIFIED_SYSTEM_PROMPT_MATH_NORMAL;
 export const LANG_RULE = "";
 export const GK_LENGTH_NORMAL = "";
 export const GK_LENGTH_LONG = "";
@@ -365,10 +436,14 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
 
   // Keep system prompt 100% static and unified across all questions in a batch
   // to guarantee DeepSeek Context / Prompt Caching hits at $0.014 / 1M tokens.
-  const systemPrompt = subjectType === "math" ? UNIFIED_SYSTEM_PROMPT_MATH : UNIFIED_SYSTEM_PROMPT_GK;
+  const isLong = solutionLength === "long";
+  const systemPrompt = subjectType === "math"
+    ? (isLong ? UNIFIED_SYSTEM_PROMPT_MATH_LONG : UNIFIED_SYSTEM_PROMPT_MATH_NORMAL)
+    : (isLong ? UNIFIED_SYSTEM_PROMPT_GK_LONG : UNIFIED_SYSTEM_PROMPT_GK_NORMAL);
 
-  // Max tokens: 900 tokens provides ample headroom for 8-10 points detailed solutions
-  const maxTokens = 900;
+  // Max tokens: 550 tokens for normal (prevents runaway Hindi token bloat while giving ample space for 4-5 points)
+  // 750 tokens for long (allows full 8 points)
+  const maxTokens = isLong ? 750 : 550;
 
   // Standardized user prompt structure for optimal prompt prefix caching
   const userPrompt = `Solve and format the following MCQ:\n\n${cleaned}`;
