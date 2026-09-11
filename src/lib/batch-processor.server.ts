@@ -62,8 +62,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // Set concurrency to 10 parallel workers across the 18 Gemini keys pool for ultra-fast throughput
-    const CONCURRENCY = Math.min(10, pending.length);
+    // Set concurrency to 12 parallel workers across the 18 Gemini keys pool (100 questions finish in ~20-25 seconds)
+    const CONCURRENCY = Math.min(12, pending.length);
     const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
     // Flush UI counters every 3 questions for responsive UI progress updates.
     const COUNTER_FLUSH_EVERY = 3;
