@@ -6,6 +6,36 @@ const activeBatches = new Set<string>();
 // Cross-batch in-memory solution cache to prevent duplicate DeepSeek API billing for identical questions
 const persistentQuestionCache = new Map<string, string>();
 
+// Solve MCQ using the 100% Free Gemini key pool by default (0 Rs cost),
+// with seamless automatic fallback to DeepSeek if Gemini pool is unavailable.
+async function solveBatchQuestion(opts: {
+  raw: string;
+  idx: number;
+  subjectType: "math" | "gk_english";
+  solutionLength: "normal" | "long";
+  signal?: AbortSignal;
+}): Promise<string> {
+  const { getGeminiApiKeys } = await import("./settings.functions");
+  const geminiKeys = await getGeminiApiKeys().catch(() => []);
+
+  // 1. If Gemini free keys are configured in app_settings (12 keys pool), solve 100% FREE ($0 / 0 Rs)!
+  if (geminiKeys.length > 0) {
+    try {
+      const { formatQuestionWithGemini } = await import("./gemini.server");
+      return await formatQuestionWithGemini(opts);
+    } catch (geminiErr) {
+      console.warn(
+        `[BatchProcessor] Free Gemini engine failed for Q${opts.idx}, falling back to DeepSeek:`,
+        geminiErr instanceof Error ? geminiErr.message : String(geminiErr)
+      );
+    }
+  }
+
+  // 2. Fallback to DeepSeek if Gemini pool is unavailable or exhausted
+  const { formatQuestionWithDeepSeek } = await import("./deepseek.server");
+  return await formatQuestionWithDeepSeek(opts);
+}
+
 export async function processBatchInternal(batchId: string): Promise<void> {
   if (activeBatches.has(batchId)) {
     console.log(`[BatchProcessor] Batch ${batchId} is already actively processing. Skipping duplicate worker.`);
@@ -15,7 +45,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
 
   try {
     const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { formatQuestionWithDeepSeek, isNonRetryableDeepSeekError } = await import("./deepseek.server");
+    const { isNonRetryableDeepSeekError } = await import("./deepseek.server");
 
     const { data: batchRow } = await supabaseAdmin
       .from("batches")
@@ -158,7 +188,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
             let job = dedupe.get(key);
             const wasNew = !job;
             if (!job) {
-              job = formatQuestionWithDeepSeek({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength });
+              job = solveBatchQuestion({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength });
               dedupe.set(key, job);
             }
             output = await job;
@@ -190,8 +220,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       }
     };
 
-    // Warm up DeepSeek prompt cache with the first question so that all subsequent concurrent requests
-    // achieve immediate 90%+ cache hits at $0.014/1M instead of parallel cold cache misses.
+    // Warm up the solver with the first question so that subsequent concurrent requests
+    // achieve immediate cache hits / optimal throughput without race conditions.
     if (queue.length > 1 && !providerBlock.message) {
       const firstQ = queue.shift()!;
       try {
@@ -200,7 +230,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
         if (persistentQuestionCache.has(key)) {
           output = persistentQuestionCache.get(key)!;
         } else {
-          const job = formatQuestionWithDeepSeek({ raw: firstQ.raw_text, idx: firstQ.idx, subjectType, solutionLength });
+          const job = solveBatchQuestion({ raw: firstQ.raw_text, idx: firstQ.idx, subjectType, solutionLength });
           dedupe.set(key, job);
           output = await job;
           apiCallsSinceFlush++;

@@ -3,11 +3,10 @@ import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/ge
 import { latexToText } from "./latex-to-text";
 import { getGeminiApiKeys } from "./settings.functions";
 import {
-  PROMPT_GK,
-  PROMPT_MATH,
-  LANG_RULE,
-  LENGTH_NORMAL,
-  LENGTH_LONG,
+  UNIFIED_SYSTEM_PROMPT_GK_NORMAL,
+  UNIFIED_SYSTEM_PROMPT_GK_LONG,
+  UNIFIED_SYSTEM_PROMPT_MATH_NORMAL,
+  UNIFIED_SYSTEM_PROMPT_MATH_LONG,
   sanitizeAiOutput,
   type DeepSeekOptions,
 } from "./deepseek.server";
@@ -20,15 +19,12 @@ const defaultSafetySettings = [
 ];
 
 const GEMINI_SOLVER_MODELS = [
-  "gemini-2.5-flash-lite",
-  "gemini-2.0-flash-lite",
-  "gemini-2.0-flash",
-  "gemini-1.5-flash",
-  "gemini-1.5-flash-8b",
-  "gemini-flash-lite-latest",
-  "gemini-3.5-flash-lite",
-  "gemini-3.1-flash-lite",
   "gemini-3.7-flash",
+  "gemini-3.5-flash",
+  "gemini-flash-latest",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash-lite",
+  "gemini-flash-lite-latest",
 ];
 
 let keyIndex = 0;
@@ -63,10 +59,12 @@ export async function formatQuestionWithGemini({
   }
   if (!cleaned.trim()) throw new Error("Empty question text");
 
-  const basePrompt = subjectType === "math" ? PROMPT_MATH : PROMPT_GK;
-  const lengthRule = subjectType === "math" ? (solutionLength === "long" ? LENGTH_LONG : LENGTH_NORMAL) : "";
-  const systemInstruction = basePrompt + LANG_RULE + lengthRule;
-  const prompt = `Solve and format the following MCQ:\n\n${cleaned}\n\nReminder: Output strictly in the required format. Question must begin with "${idx}."`;
+  const isLong = solutionLength === "long";
+  const systemInstruction = subjectType === "math"
+    ? (isLong ? UNIFIED_SYSTEM_PROMPT_MATH_LONG : UNIFIED_SYSTEM_PROMPT_MATH_NORMAL)
+    : (isLong ? UNIFIED_SYSTEM_PROMPT_GK_LONG : UNIFIED_SYSTEM_PROMPT_GK_NORMAL);
+
+  const prompt = `Solve and format the following MCQ:\n\n${cleaned}`;
 
   let lastError: any = null;
   const MAX_RETRIES = 6;
@@ -87,7 +85,7 @@ export async function formatQuestionWithGemini({
             generationConfig: {
               temperature: 0.1,
               topP: 0.1,
-              maxOutputTokens: subjectType === "math" && solutionLength === "normal" ? 600 : 1000,
+              maxOutputTokens: 2048,
             },
             safetySettings: defaultSafetySettings,
           });
