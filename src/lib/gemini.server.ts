@@ -11,6 +11,16 @@ import {
   type DeepSeekOptions,
 } from "./deepseek.server";
 
+// Type augmentation: @google/generative-ai v0.24.1 does not yet include thinkingConfig in GenerationConfig
+declare module "@google/generative-ai" {
+  interface GenerationConfig {
+    thinkingConfig?: {
+      thinkingBudget?: number;
+      turnOffThinking?: boolean;
+    };
+  }
+}
+
 const defaultSafetySettings = [
   { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
   { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
@@ -51,16 +61,16 @@ function isKeyModelAvailable(key: string, modelName: string): boolean {
 
 function recordModelRateLimit(key: string, modelName: string, isDailyQuota: boolean, retryAfterMs?: number) {
   const composite = `${key.slice(-8)}:${modelName}`;
-  // 60-minute cooldown if daily quota/RPD is exhausted for this model on this key;
-  // If Google specified a retryAfterMs (e.g. 42s), use it + 2s padding. Otherwise 8 seconds for temporary RPM burst.
+  // 30-minute cooldown if genuine daily quota/RPD is exhausted for this model on this key;
+  // If Google specified a retryAfterMs (e.g. 5s), use it + 1s padding. Otherwise 4 seconds for temporary RPM burst.
   const cooldown = isDailyQuota
-    ? 60 * 60_000
-    : (retryAfterMs ? Math.max(retryAfterMs + 2000, 8000) : 8_000);
+    ? 30 * 60_000
+    : (retryAfterMs ? Math.max(retryAfterMs + 1000, 3000) : 4_000);
   rateLimitedKeyModels.set(composite, Date.now() + cooldown);
 }
 
 function getEarliestAvailableDelay(): number {
-  if (rateLimitedKeyModels.size === 0) return 3000;
+  if (rateLimitedKeyModels.size === 0) return 2000;
   let minWait = Infinity;
   const now = Date.now();
   for (const exp of rateLimitedKeyModels.values()) {
@@ -69,8 +79,8 @@ function getEarliestAvailableDelay(): number {
       if (exp < minWait) minWait = exp;
     }
   }
-  if (minWait === Infinity) return 3500;
-  return Math.max(1500, minWait - now);
+  if (minWait === Infinity) return 2500;
+  return Math.max(1000, minWait - now);
 }
 
 function classifyError(error: any): { isDailyQuota: boolean; isRateLimitOr503: boolean; retryAfterMs?: number } {
@@ -86,13 +96,10 @@ function classifyError(error: any): { isDailyQuota: boolean; isRateLimitOr503: b
 
   const isDaily =
     msg.includes("per day") ||
-    msg.includes("daily") ||
     msg.includes("requests per day") ||
     msg.includes("generaterequestsperday") ||
-    msg.includes("generate_content_free_tier_requests") ||
     msg.includes("limit: 1500") ||
-    msg.includes("limit: 20") ||
-    msg.includes("free_tier_requests_per_day");
+    msg.includes("per_day");
 
   const isRateLimitOr503 =
     status === 429 ||
@@ -150,7 +157,7 @@ export async function formatQuestionWithGemini({
   const prompt = `Solve and format the following MCQ:\n\n${cleaned}`;
 
   let lastError: any = null;
-  const MAX_RETRIES = 6;
+  const MAX_RETRIES = 10;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     let triedAtLeastOneKey = false;
@@ -175,18 +182,21 @@ export async function formatQuestionWithGemini({
 
         try {
           const genAI = new GoogleGenerativeAI(key);
-          const model = genAI.getGenerativeModel({
-            model: modelName,
-            systemInstruction,
-            generationConfig: {
-              temperature: 0.1,
-              topP: 0.1,
-              maxOutputTokens: 2048,
-              // Cap thinking budget to 128 tokens for blazing ~1.9s response time while keeping 8-10 points depth
-              thinkingConfig: { thinkingBudget: 128 },
+          const model = genAI.getGenerativeModel(
+            {
+              model: modelName,
+              systemInstruction,
+              generationConfig: {
+                temperature: 0.1,
+                topP: 0.1,
+                maxOutputTokens: 2048,
+                // Cap thinking budget to 128 tokens for blazing ~1.9s response time while keeping 8-10 points depth
+                thinkingConfig: { thinkingBudget: 128 },
+              },
+              safetySettings: defaultSafetySettings,
             },
-            safetySettings: defaultSafetySettings,
-          });
+            { timeout: 12000 }
+          );
 
           let result;
           try {
@@ -195,16 +205,19 @@ export async function formatQuestionWithGemini({
             const errMsg = (genErr?.message || "").toLowerCase();
             // If the model does not support thinkingConfig, immediately retry without it
             if (errMsg.includes("invalid argument") || errMsg.includes("thinking")) {
-              const fallbackModel = genAI.getGenerativeModel({
-                model: modelName,
-                systemInstruction,
-                generationConfig: {
-                  temperature: 0.1,
-                  topP: 0.1,
-                  maxOutputTokens: 2048,
+              const fallbackModel = genAI.getGenerativeModel(
+                {
+                  model: modelName,
+                  systemInstruction,
+                  generationConfig: {
+                    temperature: 0.1,
+                    topP: 0.1,
+                    maxOutputTokens: 2048,
+                  },
+                  safetySettings: defaultSafetySettings,
                 },
-                safetySettings: defaultSafetySettings,
-              });
+                { timeout: 12000 }
+              );
               result = await fallbackModel.generateContent([prompt]);
             } else {
               throw genErr;
@@ -253,9 +266,9 @@ export async function formatQuestionWithGemini({
     if (attempt < MAX_RETRIES) {
       // Dynamic smart wait: if all keys were in cooldown, wait for earliest cooldown expiry instead of burning attempts
       const earliestDelay = getEarliestAvailableDelay();
-      const baseDelay = triedAtLeastOneKey ? 2000 * Math.pow(1.3, attempt) : earliestDelay;
-      const jitter = Math.random() * 1000;
-      const sleepTime = Math.min(Math.max(baseDelay, 2500), 10000) + jitter;
+      const baseDelay = triedAtLeastOneKey ? 1000 * Math.pow(1.2, attempt) : earliestDelay;
+      const jitter = Math.random() * 800;
+      const sleepTime = Math.min(Math.max(baseDelay, 1500), 8000) + jitter;
       await new Promise((resolve) => setTimeout(resolve, sleepTime));
     }
   }

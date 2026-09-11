@@ -1,5 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireSupabaseAuth } from "../integrations/supabase/auth-middleware";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 // Admin-only settings surface. The raw value never leaves the server:
@@ -66,7 +66,7 @@ export const getDeepseekKeyStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     await ensureAdmin(context.supabase, context.userId);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { supabaseAdmin } = await import("../integrations/supabase/client.server");
     const { data, error } = await supabaseAdmin
       .from("app_settings")
       .select("value, updated_at, updated_by")
@@ -182,7 +182,7 @@ let geminiCached: { value: string[]; fetchedAt: number } | null = null;
 
 export async function getGeminiApiKeys(): Promise<string[]> {
   if (geminiCached && Date.now() - geminiCached.fetchedAt < CACHE_TTL_MS) return geminiCached.value;
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { supabaseAdmin } = await import("../integrations/supabase/client.server");
   const { data, error } = await supabaseAdmin
     .from("app_settings")
     .select("value")
@@ -215,7 +215,7 @@ export const getGeminiKeyStatus = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     await ensureAdmin(context.supabase, context.userId);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { supabaseAdmin } = await import("../integrations/supabase/client.server");
     const { data, error } = await supabaseAdmin
       .from("app_settings")
       .select("value, updated_at, updated_by")
@@ -273,7 +273,7 @@ export const setGeminiApiKeys = createServerFn({ method: "POST" })
   })
   .handler(async ({ data, context }) => {
     await ensureAdmin(context.supabase, context.userId);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { supabaseAdmin } = await import("../integrations/supabase/client.server");
     const { error } = await supabaseAdmin
       .from("app_settings")
       .upsert(
@@ -294,7 +294,7 @@ export const clearGeminiApiKeys = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
     await ensureAdmin(context.supabase, context.userId);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { supabaseAdmin } = await import("../integrations/supabase/client.server");
     const { error } = await supabaseAdmin.from("app_settings").delete().eq("key", GEMINI_KEYS_SETTING);
     if (error) throw new Error(`Could not clear keys: ${error.message}`);
     invalidateGeminiCache();

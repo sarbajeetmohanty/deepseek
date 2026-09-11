@@ -26,7 +26,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
   activeBatches.add(batchId);
 
   try {
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+    const { supabaseAdmin } = await import("../integrations/supabase/client.server");
 
     const { data: batchRow } = await supabaseAdmin
       .from("batches")
@@ -50,11 +50,13 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       apiCallsUsed = Number(q?.api_calls_used ?? 0);
     }
 
+    const initialDone = await countStatus(batchId, "done");
+
     const { data: pending, error } = await supabaseAdmin
       .from("questions")
       .select("id, idx, raw_text")
       .eq("batch_id", batchId)
-      .in("status", ["pending", "failed"])
+      .neq("status", "done")
       .order("idx", { ascending: true });
     if (error) throw new Error(`Load questions failed: ${error.message}`);
     if (!pending || pending.length === 0) {
@@ -62,8 +64,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // Set concurrency to 16 parallel workers across the 18 Gemini keys pool for maximum throughput
-    const CONCURRENCY = Math.min(16, pending.length);
+    // Set concurrency to 10 parallel workers for smooth quota distribution across the 18 keys (100 questions in ~20s with 0 rate limits)
+    const CONCURRENCY = Math.min(10, pending.length);
     const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
@@ -75,10 +77,10 @@ export async function processBatchInternal(batchId: string): Promise<void> {
         .in("id", ids);
       if (mErr) console.error("mark processing failed", mErr.message);
     }
-    // Reset counters and status now that we've begun.
+    // Update batch status and preserve already-completed count
     await supabaseAdmin
       .from("batches")
-      .update({ status: "processing", completed: 0, failed: 0 })
+      .update({ status: "processing", completed: initialDone, failed: 0 })
       .eq("id", batchId);
 
     const queue = [...pending];
@@ -94,7 +96,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     };
     const pendingUpdates: any[] = [];
     
-    let completedCount = 0;
+    let completedCount = initialDone;
     let failedCount = 0;
     let apiCallsSinceFlush = 0;
     let isFlushing = false;
@@ -220,7 +222,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
   } catch (e) {
     console.error("processBatchInternal fatal", e);
     try {
-      const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+      const { supabaseAdmin } = await import("../integrations/supabase/client.server");
       const msg = e instanceof Error ? e.message : String(e);
       await supabaseAdmin
         .from("batches")
@@ -240,7 +242,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
 }
 
 async function countStatus(batchId: string, status: string): Promise<number> {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { supabaseAdmin } = await import("../integrations/supabase/client.server");
   const { count } = await supabaseAdmin
     .from("questions")
     .select("*", { count: "exact", head: true })
@@ -250,7 +252,7 @@ async function countStatus(batchId: string, status: string): Promise<number> {
 }
 
 async function finalize(batchId: string): Promise<void> {
-  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  const { supabaseAdmin } = await import("../integrations/supabase/client.server");
   try {
     const done = await countStatus(batchId, "done");
     const failed = await countStatus(batchId, "failed");

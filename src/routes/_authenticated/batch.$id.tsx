@@ -107,8 +107,12 @@ function BatchView() {
 
   const resume = useMutation({
     mutationFn: () => resumeBatch({ data: { batchId: id } }),
-    onSuccess: () => toast.success("Retrying failed questions"),
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not retry"),
+    onSuccess: () => {
+      toast.success("Resuming batch processing...");
+      qc.invalidateQueries({ queryKey: ["batch", id] });
+      qc.invalidateQueries({ queryKey: ["questions", id] });
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not resume"),
   });
 
   const nav = useNavigate();
@@ -242,9 +246,17 @@ function BatchView() {
             >
               {downloading === "translated" ? "Translating & building…" : "Download translated .docx"}
             </Button>
-            {failedQs.length > 0 && (
-              <Button variant="outline" onClick={() => resume.mutate()} disabled={resume.isPending}>
-                {providerBlocked ? `I topped up — retry ${failedQs.length}` : `Retry ${failedQs.length} failed`}
+            {(failedQs.length > 0 || (batch && batch.completed < batch.total)) && (
+              <Button
+                variant={failedQs.length > 0 ? "outline" : "default"}
+                onClick={() => resume.mutate()}
+                disabled={resume.isPending}
+              >
+                {resume.isPending
+                  ? "Resuming…"
+                  : failedQs.length > 0
+                  ? (providerBlocked ? `I topped up — retry ${failedQs.length}` : `Retry ${failedQs.length} failed`)
+                  : `Resume processing (${batch.total - batch.completed} remaining)`}
               </Button>
             )}
           </div>
