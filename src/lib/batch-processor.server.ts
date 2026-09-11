@@ -62,11 +62,9 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // Set concurrency to 12 parallel workers across the 18 Gemini keys pool (100 questions finish in ~20-25 seconds)
-    const CONCURRENCY = Math.min(12, pending.length);
+    // Set concurrency to 16 parallel workers across the 18 Gemini keys pool for maximum throughput
+    const CONCURRENCY = Math.min(16, pending.length);
     const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
-    // Flush UI counters every 3 questions for responsive UI progress updates.
-    const COUNTER_FLUSH_EVERY = 3;
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
     for (let i = 0; i < pending.length; i += 400) {
@@ -96,44 +94,53 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     };
     const pendingUpdates: any[] = [];
     
-    let doneSinceFlush = 0;
-    let failedSinceFlush = 0;
+    let completedCount = 0;
+    let failedCount = 0;
     let apiCallsSinceFlush = 0;
+    let isFlushing = false;
+
     const flushCounters = async () => {
-      if (doneSinceFlush === 0 && failedSinceFlush === 0 && apiCallsSinceFlush === 0 && pendingUpdates.length === 0) return;
-      const d = doneSinceFlush, f = failedSinceFlush;
-      const c = apiCallsSinceFlush;
-      const updatesToFlush = [...pendingUpdates];
-      doneSinceFlush = 0; failedSinceFlush = 0; apiCallsSinceFlush = 0; pendingUpdates.length = 0;
+      if (isFlushing) return;
+      if (pendingUpdates.length === 0 && apiCallsSinceFlush === 0) return;
+      isFlushing = true;
+      const updatesToFlush = pendingUpdates.splice(0, pendingUpdates.length);
+      const callsToFlush = apiCallsSinceFlush;
+      apiCallsSinceFlush = 0;
+      const currentCompleted = completedCount;
+      const currentFailed = failedCount;
+
       try {
         if (updatesToFlush.length > 0) {
           const { error: uErr } = await supabaseAdmin.from("questions").upsert(updatesToFlush);
           if (uErr) console.error("bulk upsert failed", uErr.message);
         }
 
-        // Recount authoritatively (cheap with idx_questions_batch_status index).
-        const [done, failed] = await Promise.all([
-          countStatus(batchId, "done"),
-          countStatus(batchId, "failed"),
-        ]);
         await supabaseAdmin
           .from("batches")
-          .update({ completed: done, failed })
+          .update({ completed: currentCompleted, failed: currentFailed })
           .eq("id", batchId);
-        if (ownerId && c > 0) {
+
+        if (ownerId && callsToFlush > 0) {
           const { error: rpcErr } = await supabaseAdmin.rpc("increment_user_usage", {
             _user_id: ownerId,
             _add_questions: 0,
-            _add_calls: c,
+            _add_calls: callsToFlush,
           });
           if (rpcErr) console.error("api_calls flush failed", rpcErr.message);
         }
       } catch (e) {
         console.error("counter flush failed", e);
-        doneSinceFlush += d; failedSinceFlush += f; apiCallsSinceFlush += c; // put back
-        pendingUpdates.push(...updatesToFlush);
+        pendingUpdates.unshift(...updatesToFlush);
+        apiCallsSinceFlush += callsToFlush;
+      } finally {
+        isFlushing = false;
       }
     };
+
+    // Non-blocking background periodic flush timer so workers NEVER pause on DB round-trips!
+    const flushTimer = setInterval(() => {
+      flushCounters().catch(() => {});
+    }, 1200);
 
     const updateRow = (q: any, patch: QuestionPatch) => {
       pendingUpdates.push({
@@ -182,24 +189,22 @@ export async function processBatchInternal(batchId: string): Promise<void> {
           // Re-run the idx replacement so the question number matches this specific row.
           output = output.replace(/^\s*(?:Q\.?\s*)?\d{1,4}[.:)\-–—]?\s+/i, `${q.idx}. `);
           updateRow(q, { status: "done", formatted_output: output, error: null });
-          doneSinceFlush++;
+          completedCount++;
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           // Count failed API attempts too
           apiCallsSinceFlush++;
           updateRow(q, { status: "failed", error: msg.slice(0, 500) });
-          failedSinceFlush++;
+          failedCount++;
         }
-        if (doneSinceFlush + failedSinceFlush >= COUNTER_FLUSH_EVERY) {
-          await flushCounters();
-        }
+        // Workers never pause on DB calls — they immediately process the next question!
       }
     };
 
     // Launch all workers immediately in parallel across the multi-key pool
-
     for (let i = 0; i < ACTUAL_CONCURRENCY; i++) workers.push(worker());
     await Promise.allSettled(workers);
+    clearInterval(flushTimer);
     await flushCounters();
 
     if (providerBlock.message) {
