@@ -19,26 +19,26 @@ const defaultSafetySettings = [
 ];
 
 // Prioritize Google Gemini's cheapest, fastest, and highest-quota Flash-Lite models
-// - gemini-3.5-flash-lite: Cheapest model ($0.075/1M), 30 RPM free tier, ~1.8s latency
+// - gemini-3.5-flash-lite: Cheapest model ($0.075/1M), 30 RPM free tier, ~1.4s latency
 // - gemini-flash-lite-latest: Latest auto-updating cheapest lightweight tier
 // - gemini-3.1-flash-lite: Reliable lightweight fallback
 // - gemini-3.7-flash: High-capability flash fallback
+// - gemini-flash-latest: Auto-updating standard flash fallback
 const GEMINI_SOLVER_MODELS = [
   "gemini-3.5-flash-lite",
   "gemini-flash-lite-latest",
   "gemini-3.1-flash-lite",
   "gemini-3.7-flash",
-  "gemini-3.6-flash",
-  "gemini-3.5-flash",
   "gemini-flash-latest",
 ];
 
 let keyIndex = 0;
-// Track rate limits and quota cooldowns per (key + model) pair so exhausting
-// one model family automatically unlocks the next model family on the same key.
+// Track rate limits and quota cooldowns per (key + model) pair
 const rateLimitedKeyModels = new Map<string, number>();
+const permanentlyUnavailableModels = new Set<string>();
 
 function isKeyModelAvailable(key: string, modelName: string): boolean {
+  if (permanentlyUnavailableModels.has(modelName)) return false;
   const composite = `${key.slice(-8)}:${modelName}`;
   const timeout = rateLimitedKeyModels.get(composite);
   if (!timeout) return true;
@@ -49,11 +49,34 @@ function isKeyModelAvailable(key: string, modelName: string): boolean {
   return false;
 }
 
-function recordModelRateLimit(key: string, modelName: string, isQuota: boolean) {
+function recordModelRateLimit(key: string, modelName: string, isDailyQuota: boolean) {
   const composite = `${key.slice(-8)}:${modelName}`;
-  // 60-second cooldown if daily quota/resource exhausted; 6 seconds for temporary 429/503 spikes
-  const cooldown = isQuota ? 60_000 : 6_000;
+  // 30-minute cooldown if daily quota/RPD is exhausted; 6 seconds for temporary 429/503 RPM spikes
+  const cooldown = isDailyQuota ? 30 * 60_000 : 6_000;
   rateLimitedKeyModels.set(composite, Date.now() + cooldown);
+}
+
+function classifyError(error: any): { isDailyQuota: boolean; isRateLimitOr503: boolean } {
+  const msg = (error?.message || "").toLowerCase();
+  const status = error?.status;
+  const isDaily =
+    msg.includes("per day") ||
+    msg.includes("daily") ||
+    msg.includes("requests per day") ||
+    msg.includes("limit: 1500") ||
+    msg.includes("free_tier_requests_per_day");
+
+  const isRateLimitOr503 =
+    status === 429 ||
+    status === 503 ||
+    msg.includes("429") ||
+    msg.includes("503") ||
+    msg.includes("resourceexhausted") ||
+    msg.includes("quota") ||
+    msg.includes("high demand") ||
+    msg.includes("spikes in demand");
+
+  return { isDailyQuota: isDaily, isRateLimitOr503 };
 }
 
 function getResponseTextSafely(response: any): string {
@@ -95,16 +118,23 @@ export async function formatQuestionWithGemini({
   const prompt = `Solve and format the following MCQ:\n\n${cleaned}`;
 
   let lastError: any = null;
-  const MAX_RETRIES = 6;
+  const MAX_RETRIES = 5;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    for (let i = 0; i < allKeys.length; i++) {
-      const index = keyIndex++ % allKeys.length;
-      const key = allKeys[index];
+    // Level 1: Prioritize the fastest/cheapest model (gemini-3.5-flash-lite) across rotating keys.
+    // If all keys are rate-limited on model 1, smoothly fall back to model 2 across keys, etc.
+    for (const modelName of GEMINI_SOLVER_MODELS) {
+      if (permanentlyUnavailableModels.has(modelName)) continue;
 
-      for (const modelName of GEMINI_SOLVER_MODELS) {
+      // Rotate starting key index so concurrent requests distribute evenly across the 18 keys
+      const startKeyIdx = keyIndex++ % allKeys.length;
+
+      for (let k = 0; k < allKeys.length; k++) {
+        const keyIdx = (startKeyIdx + k) % allKeys.length;
+        const key = allKeys[keyIdx];
+
         if (!isKeyModelAvailable(key, modelName)) {
-          continue; // Skip models currently in cooldown on this key
+          continue; // In active cooldown on this key; skip to next key instantly in 0ms
         }
 
         try {
@@ -128,25 +158,26 @@ export async function formatQuestionWithGemini({
           }
         } catch (error: any) {
           lastError = error;
-          const msg = error.message?.toLowerCase() || "";
-          const isRateOrQuota =
-            error.status === 429 ||
-            error.status === 503 ||
-            msg.includes("429") ||
-            msg.includes("503") ||
-            msg.includes("resourceexhausted") ||
-            msg.includes("quota");
+          const { isDailyQuota, isRateLimitOr503 } = classifyError(error);
 
-          if (isRateOrQuota) {
-            const isDailyQuota = msg.includes("quota") || msg.includes("resourceexhausted");
+          if (isRateLimitOr503) {
             recordModelRateLimit(key, modelName, isDailyQuota);
-            // Multi-model quota stacking: continue to next model family instead of discarding key!
-            continue;
+            continue; // Rotate to next available key in 0ms!
           }
-          if (msg.includes("recitation") || msg.includes("safety") || msg.includes("not found")) {
-            continue; // Try next model in pool
+
+          const msg = (error?.message || "").toLowerCase();
+          if (msg.includes("not found") || msg.includes("deprecated")) {
+            permanentlyUnavailableModels.add(modelName);
+            break; // Don't try this deprecated model on any other keys
           }
-          break;
+
+          if (msg.includes("recitation") || msg.includes("safety")) {
+            continue; // Safety edge case; try next model
+          }
+
+          // Unknown error; record short cooldown and continue
+          recordModelRateLimit(key, modelName, false);
+          continue;
         }
       }
     }
@@ -156,5 +187,5 @@ export async function formatQuestionWithGemini({
     }
   }
 
-  throw new Error(lastError?.message || "Failed to solve question using Gemini pool.");
+  throw new Error(lastError?.message || "Failed to solve question across all Gemini keys and models.");
 }
