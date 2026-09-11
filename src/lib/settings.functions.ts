@@ -256,8 +256,15 @@ export const setGeminiApiKeys = createServerFn({ method: "POST" })
   .inputValidator((data: { apiKeys: string }) => {
     const keysRaw = String(data?.apiKeys ?? "").trim();
     if (!keysRaw) throw new Error("API keys are required");
-    // Validate comma separated list
-    const keys = keysRaw.split(",").map(k => k.trim()).filter(Boolean);
+    // Validate comma or newline separated list with automatic deduplication
+    const keys = Array.from(
+      new Set(
+        keysRaw
+          .split(/[\n,]+/)
+          .map((k) => k.trim())
+          .filter(Boolean)
+      )
+    );
     if (keys.length === 0) throw new Error("No valid keys provided");
     for (const key of keys) {
       if (key.length < 20) throw new Error(`Key starting with ${key.substring(0, 4)}... looks invalid`);
