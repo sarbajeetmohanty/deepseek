@@ -463,7 +463,7 @@ export function normalizeOptionsInText(text: string): string {
         const colAItems = healLines.slice(i + 1, colBIdx).map(s => s.trim()).filter(Boolean);
         
         const isColADummy = colAItems.length === 0 || colAItems.every(item => {
-          const stripped = item.replace(/^\s*(?:[A-Da-d1-5][.)\s]|\([A-Da-d1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
+          const stripped = item.replace(/^\s*(?:[A-Ea-e1-5][.)\s]|\([A-Ea-e1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
           return stripped.length <= 1 || /^\d+$/.test(stripped);
         });
 

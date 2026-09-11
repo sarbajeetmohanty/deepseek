@@ -347,11 +347,11 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       const colALetters = ["a. ", "b. ", "c. ", "d. ", "e. "];
       const colBNumbers = ["1 ", "2 ", "3 ", "4 ", "5 "];
       for (let k = 0; k < colA.length; k++) {
-        const stripped = colA[k].replace(/^\s*(?:[A-Da-d1-5][.)\s]|\([A-Da-d1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
+        const stripped = colA[k].replace(/^\s*(?:[A-Ea-e1-5][.)\s]|\([A-Ea-e1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
         if (k < colALetters.length) colA[k] = colALetters[k] + stripped;
       }
       for (let k = 0; k < colB.length; k++) {
-        const stripped = colB[k].replace(/^\s*(?:[A-Da-d1-5][.)\s]|\([A-Da-d1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
+        const stripped = colB[k].replace(/^\s*(?:[A-Ea-e1-5][.)\s]|\([A-Ea-e1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
         if (k < colBNumbers.length) colB[k] = colBNumbers[k] + stripped;
       }
 
