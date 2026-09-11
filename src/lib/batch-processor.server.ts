@@ -84,11 +84,11 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // Set concurrency to 8 parallel workers across the 18 Gemini keys pool for ultra-fast, rate-limit safe processing
-    const CONCURRENCY = Math.min(8, pending.length);
+    // Set concurrency to 10 parallel workers across the 18 Gemini keys pool for ultra-fast throughput
+    const CONCURRENCY = Math.min(10, pending.length);
     const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
-    // Flush UI counters periodically to reduce DB bottlenecks while keeping UI responsive.
-    const COUNTER_FLUSH_EVERY = 10;
+    // Flush UI counters every 3 questions for responsive UI progress updates.
+    const COUNTER_FLUSH_EVERY = 3;
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
     for (let i = 0; i < pending.length; i += 400) {
@@ -223,37 +223,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       }
     };
 
-    // Warm up the solver with the first question so that subsequent concurrent requests
-    // achieve immediate cache hits / optimal throughput without race conditions.
-    if (queue.length > 1 && !providerBlock.message) {
-      const firstQ = queue.shift()!;
-      try {
-        const key = `${subjectType}:${solutionLength}:${firstQ.raw_text.trim().replace(/\s+/g, " ")}`;
-        let output: string;
-        if (persistentQuestionCache.has(key)) {
-          output = persistentQuestionCache.get(key)!;
-        } else {
-          const job = solveBatchQuestion({ raw: firstQ.raw_text, idx: firstQ.idx, subjectType, solutionLength });
-          dedupe.set(key, job);
-          output = await job;
-          apiCallsSinceFlush++;
-          persistentQuestionCache.set(key, output);
-        }
-        output = output.replace(/^\s*(?:Q\.?\s*)?\d{1,4}[.:)\-–—]?\s+/i, `${firstQ.idx}. `);
-        updateRow(firstQ, { status: "done", formatted_output: output, error: null });
-        doneSinceFlush++;
-        await flushCounters();
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        apiCallsSinceFlush++;
-        updateRow(firstQ, { status: "failed", error: msg.slice(0, 500) });
-        failedSinceFlush++;
-        if (isNonRetryableDeepSeekError(e)) {
-          providerBlock.message = msg;
-          queue.length = 0;
-        }
-      }
-    }
+    // Launch all workers immediately in parallel across the multi-key pool
 
     for (let i = 0; i < ACTUAL_CONCURRENCY; i++) workers.push(worker());
     await Promise.allSettled(workers);
