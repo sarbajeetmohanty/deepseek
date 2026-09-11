@@ -26,10 +26,14 @@ D. <option 4>
 
 Answer: <matching option label>
 Solution:
-1 <point 1 - key direct fact / reason for correct answer>
-2 <point 2 - core background / historical / scientific context>
-3 <point 3 - related important fact or timeline>
-4 <point 4 - summary takeaway or option explanation>
+1 <point 1 - direct core fact and clear reason for the correct answer>
+2 <point 2 - foundational background and historical / scientific / conceptual context>
+3 <point 3 - detailed explanation of the concept, event, or mechanism>
+4 <point 4 - relevant dates, timeline, key provisions, or related laws>
+5 <point 5 - specific analysis and factual clarification of the options>
+6 <point 6 - high-yield related facts frequently asked in competitive exams>
+7 <point 7 - further important connections, geographical / statistical data, or constitutional articles>
+8 <point 8 - summary conclusion, core takeaway, and exam revision note>
 
 Strict Formatting Rules and Standard Operating Procedures:
 1. Accuracy and Factuality: 100% accurate facts and calculations. Solve the problem completely first, verify all details, and match the correct option.
@@ -42,11 +46,11 @@ Strict Formatting Rules and Standard Operating Procedures:
    - Next line must be "Column B:" followed by items labeled with numbers and strictly NO dot: "1 <item>", "2 <item>", "3 <item>", "4 <item>".
    - Never output Column B items on the same line as Column A items. Never use hyphens, dashes, or pipes between columns.
    - The options below must be capital A., B., C., D. with code pairs like "A. a-3, b-4, c-1, d-2".
-6. Solution Requirements (Concise & High-Yield):
-   - The solution MUST contain 3 to 4 concise, fact-packed points.
-   - Each point must be short, direct, informative, and high-yield (1 concise line, 10-15 words).
+6. Solution Requirements (Comprehensive & Fact-Packed - Strictly 8+ Points):
+   - The solution MUST strictly contain AT LEAST 8 to 10 detailed, fact-packed points (strictly 8+ points / lines, never fewer than 8).
+   - Each point must be informative, direct, factual, and high-yield.
    - Strictly NO paragraphs, NO repetitive introductory filler, and NO re-explaining the question prompt.
-   - Each point MUST be numbered on its own line as "1 <text>", "2 <text>" with strictly NO dot after the step number.
+   - Each point MUST be numbered on its own line as "1 <text>", "2 <text>", ... "8 <text>" with strictly NO dot after the step number.
 7. Language Rule (Strict):
    - The question text and options MUST remain in their original language.
    - For Hindi MCQs: Solution steps MUST always be in pure Hindi (preserve digits 0-9 and math symbols).
@@ -66,14 +70,16 @@ D. <option 4>
 
 Answer: <matching option label>
 Solution:
-1 <point 1 - key direct fact / reason for correct answer>
-2 <point 2 - core background / context>
-3 <point 3 - related historical, scientific, or geographical facts>
-4 <point 4 - detailed explanation of the concept or timeline>
-5 <point 5 - specific analysis / elimination of other options>
-6 <point 6 - additional high-yield exam points>
-7 <point 7 - further important connections or data>
-8 <point 8 - summary conclusion and final takeaway>
+1 <point 1 - direct core fact and clear reason for the correct answer>
+2 <point 2 - foundational background and historical / scientific context>
+3 <point 3 - comprehensive analysis of the core concept or event>
+4 <point 4 - relevant dates, timeline, key provisions, or related laws>
+5 <point 5 - detailed point-by-point analysis and elimination of other options>
+6 <point 6 - high-yield related facts frequently asked in competitive exams>
+7 <point 7 - constitutional articles, statutory provisions, or geographical data>
+8 <point 8 - key personalities, institutions, or historical milestones>
+9 <point 9 - critical comparative context and related exam concepts>
+10 <point 10 - summary conclusion, core takeaway, and high-yield revision note>
 
 Strict Formatting Rules and Standard Operating Procedures:
 1. Accuracy and Factuality: 100% accurate facts and calculations. Solve the problem completely first, verify all details, and match the correct option.
@@ -86,11 +92,11 @@ Strict Formatting Rules and Standard Operating Procedures:
    - Next line must be "Column B:" followed by items labeled with numbers and strictly NO dot: "1 <item>", "2 <item>", "3 <item>", "4 <item>".
    - Never output Column B items on the same line as Column A items. Never use hyphens, dashes, or pipes between columns.
    - The options below must be capital A., B., C., D. with code pairs like "A. a-3, b-4, c-1, d-2".
-6. Solution Requirements (Detailed & Comprehensive):
-   - The solution MUST strictly contain 7 to 8 detailed, fact-filled points.
+6. Solution Requirements (Deep, Comprehensive & Detailed - Strictly 10+ Points):
+   - The solution MUST strictly contain AT LEAST 10 to 12 detailed, fact-filled points (strictly 10+ points / lines).
    - Each point must be informative, direct, factual, and high-yield (1-2 concise lines).
    - Strictly NO paragraphs, NO repetitive introductory filler, and NO re-explaining the question prompt.
-   - Each point MUST be numbered on its own line as "1 <text>", "2 <text>" with strictly NO dot after the step number.
+   - Each point MUST be numbered on its own line as "1 <text>", "2 <text>", ... "10 <text>" with strictly NO dot after the step number.
 7. Language Rule (Strict):
    - The question text and options MUST remain in their original language.
    - For Hindi MCQs: Solution steps MUST always be in pure Hindi (preserve digits 0-9 and math symbols).
@@ -108,9 +114,14 @@ D. <option 4>
 
 Answer: <matching option label>
 Solution:
-- <step 1 - given / formula>
-- <step 2 - concise calculation>
-- <final step - final answer>
+- <step 1 - given data & relevant principle / formula>
+- <step 2 - detailed formula representation & initial setup>
+- <step 3 - first algebraic / numerical substitution>
+- <step 4 - intermediate calculation & simplification>
+- <step 5 - step-by-step resolution of intermediate equation>
+- <step 6 - final calculation step leading to answer>
+- <step 7 - confirmation of final result matching the option>
+- <step 8 - conceptual takeaway or alternative verification method>
 
 Strict Formatting Rules:
 1. 100% accurate math. Solve completely first, then match options.
@@ -118,7 +129,7 @@ Strict Formatting Rules:
 3. Options: ALWAYS prefix options with capital A., B., C., D. followed by a dot and a space on separate lines. Never use Hindi letters (क, ख, ग, घ), lowercase letters, or Roman numerals for options.
 4. Sub-statements: Inside the question body, numbered sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with strictly NO symbol like dot (.), comma (,), colon (:), or parenthesis ()) after the number. Protect decimal numbers (e.g., 2.5, 3.14).
 5. Solution Requirements:
-   - Concise step-by-step calculation with dash bullets starting with "- " (3-4 steps max).
+   - Detailed step-by-step calculation with dash bullets starting with "- " (strictly at least 8 steps / lines).
    - For Hindi MCQs: Steps in pure Hindi with numbers 0-9 and mathematical symbols.
    - For English MCQs: Steps in English.
    - The labels "Answer:" and "Solution:" MUST always be in English.
@@ -134,10 +145,16 @@ D. <option 4>
 
 Answer: <matching option label>
 Solution:
-- <step 1 - given data & relevant formula>
-- <step 2 - substitution & intermediate step>
-- <step 3 - step-by-step simplification>
-- <final step - final answer and verification>
+- <step 1 - given data & relevant principle / formula>
+- <step 2 - comprehensive formula derivation / breakdown>
+- <step 3 - precise substitution of all given values>
+- <step 4 - first stage algebraic reduction>
+- <step 5 - step-by-step intermediate calculation>
+- <step 6 - solving quadratic / system / equation components>
+- <step 7 - final calculation step isolating the variable>
+- <step 8 - obtaining final numerical value>
+- <step 9 - matching directly to the corresponding option>
+- <step 10 - alternative shortcut or conceptual verification for competitive exams>
 
 Strict Formatting Rules:
 1. 100% accurate math. Solve completely first, then match options.
@@ -145,7 +162,7 @@ Strict Formatting Rules:
 3. Options: ALWAYS prefix options with capital A., B., C., D. followed by a dot and a space on separate lines. Never use Hindi letters (क, ख, ग, घ), lowercase letters, or Roman numerals for options.
 4. Sub-statements: Inside the question body, numbered sub-statements must be strictly formatted as "1 <text>", "2 <text>", "3 <text>" with strictly NO symbol like dot (.), comma (,), colon (:), or parenthesis ()) after the number. Protect decimal numbers (e.g., 2.5, 3.14).
 5. Solution Requirements:
-   - Detailed step-by-step calculation with dash bullets starting with "- " (5-6 steps).
+   - Comprehensive step-by-step calculation with dash bullets starting with "- " (strictly at least 8 to 10 steps / lines).
    - For Hindi MCQs: Steps in pure Hindi with numbers 0-9 and mathematical symbols.
    - For English MCQs: Steps in English.
    - The labels "Answer:" and "Solution:" MUST always be in English.
@@ -441,9 +458,9 @@ export async function formatQuestionWithDeepSeek({ raw, idx, signal, subjectType
     ? (isLong ? UNIFIED_SYSTEM_PROMPT_MATH_LONG : UNIFIED_SYSTEM_PROMPT_MATH_NORMAL)
     : (isLong ? UNIFIED_SYSTEM_PROMPT_GK_LONG : UNIFIED_SYSTEM_PROMPT_GK_NORMAL);
 
-  // Max tokens: 550 tokens for normal (prevents runaway Hindi token bloat while giving ample space for 4-5 points)
-  // 750 tokens for long (allows full 8 points)
-  const maxTokens = isLong ? 750 : 550;
+  // Max tokens: 1200 tokens for normal (ample space for 8-10 points in Devanagari Hindi/English)
+  // 1600 tokens for long (allows 10-12 points)
+  const maxTokens = isLong ? 1600 : 1200;
 
   // Standardized user prompt structure for optimal prompt prefix caching
   const userPrompt = `Solve and format the following MCQ:\n\n${cleaned}`;

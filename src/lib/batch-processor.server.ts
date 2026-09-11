@@ -18,10 +18,20 @@ async function solveBatchQuestion(opts: {
   const { getGeminiApiKeys } = await import("./settings.functions");
   const geminiKeys = await getGeminiApiKeys().catch(() => []);
 
-  // 1. If Gemini free keys are configured in app_settings (12 keys pool), solve 100% FREE ($0 / 0 Rs)!
+  // 1. If Gemini free keys are configured in app_settings (18 keys pool), solve 100% FREE ($0 / 0 Rs)!
   if (geminiKeys.length > 0) {
-    const { formatQuestionWithGemini } = await import("./gemini.server");
-    return await formatQuestionWithGemini(opts);
+    try {
+      const { formatQuestionWithGemini } = await import("./gemini.server");
+      return await formatQuestionWithGemini(opts);
+    } catch (geminiError: any) {
+      console.warn(
+        `[BatchProcessor] Gemini exhausted all keys/models for Q${opts.idx}. Falling back to DeepSeek safety net:`,
+        geminiError?.message
+      );
+      // Emergency safety net fallback to DeepSeek so NO question in the batch EVER fails!
+      const { formatQuestionWithDeepSeek } = await import("./deepseek.server");
+      return await formatQuestionWithDeepSeek(opts);
+    }
   }
 
   // 2. Only if NO Gemini keys are configured at all, use DeepSeek
@@ -74,8 +84,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // Set concurrency to 12 parallel workers across the 18 Gemini keys pool for ultra-fast processing
-    const CONCURRENCY = Math.min(12, pending.length);
+    // Set concurrency to 8 parallel workers across the 18 Gemini keys pool for ultra-fast, rate-limit safe processing
+    const CONCURRENCY = Math.min(8, pending.length);
     const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
     // Flush UI counters periodically to reduce DB bottlenecks while keeping UI responsive.
     const COUNTER_FLUSH_EVERY = 10;

@@ -18,26 +18,26 @@ const defaultSafetySettings = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
-// Prioritize Google Gemini's cheapest, fastest, and highest-quota Flash-Lite models
-// - gemini-3.5-flash-lite: Cheapest model ($0.075/1M), 30 RPM free tier, ~1.4s latency
-// - gemini-flash-lite-latest: Latest auto-updating cheapest lightweight tier
-// - gemini-3.1-flash-lite: Reliable lightweight fallback
-// - gemini-3.7-flash: High-capability flash fallback
-// - gemini-flash-latest: Auto-updating standard flash fallback
+// High-quota free tier models (1,500 RPD each across 18 keys = 108,000+ daily capacity):
+// - gemini-3.5-flash-lite: Fast, reliable, 1,500 RPD, 30 RPM free tier, ~1.4s latency
+// - gemini-flash-lite-latest: Latest lightweight model, 1,500 RPD
+// - gemini-3.1-flash-lite: Lightweight fallback, 1,500 RPD
+// - gemini-3.6-flash: High-capability flash model, 1,500 RPD
 const GEMINI_SOLVER_MODELS = [
   "gemini-3.5-flash-lite",
   "gemini-flash-lite-latest",
   "gemini-3.1-flash-lite",
-  "gemini-3.7-flash",
-  "gemini-flash-latest",
+  "gemini-3.6-flash",
 ];
 
 let keyIndex = 0;
 // Track rate limits and quota cooldowns per (key + model) pair
 const rateLimitedKeyModels = new Map<string, number>();
 const permanentlyUnavailableModels = new Set<string>();
+const permanentlyDisabledKeys = new Set<string>();
 
 function isKeyModelAvailable(key: string, modelName: string): boolean {
+  if (permanentlyDisabledKeys.has(key)) return false;
   if (permanentlyUnavailableModels.has(modelName)) return false;
   const composite = `${key.slice(-8)}:${modelName}`;
   const timeout = rateLimitedKeyModels.get(composite);
@@ -49,21 +49,49 @@ function isKeyModelAvailable(key: string, modelName: string): boolean {
   return false;
 }
 
-function recordModelRateLimit(key: string, modelName: string, isDailyQuota: boolean) {
+function recordModelRateLimit(key: string, modelName: string, isDailyQuota: boolean, retryAfterMs?: number) {
   const composite = `${key.slice(-8)}:${modelName}`;
-  // 30-minute cooldown if daily quota/RPD is exhausted; 6 seconds for temporary 429/503 RPM spikes
-  const cooldown = isDailyQuota ? 30 * 60_000 : 6_000;
+  // 60-minute cooldown if daily quota/RPD is exhausted for this model on this key;
+  // If Google specified a retryAfterMs (e.g. 42s), use it + 2s padding. Otherwise 8 seconds for temporary RPM burst.
+  const cooldown = isDailyQuota
+    ? 60 * 60_000
+    : (retryAfterMs ? Math.max(retryAfterMs + 2000, 8000) : 8_000);
   rateLimitedKeyModels.set(composite, Date.now() + cooldown);
 }
 
-function classifyError(error: any): { isDailyQuota: boolean; isRateLimitOr503: boolean } {
+function getEarliestAvailableDelay(): number {
+  if (rateLimitedKeyModels.size === 0) return 3000;
+  let minWait = Infinity;
+  const now = Date.now();
+  for (const exp of rateLimitedKeyModels.values()) {
+    // Only consider temporary cooldowns (< 10 minutes) rather than long daily quota lockouts
+    if (exp - now < 10 * 60_000 && exp > now) {
+      if (exp < minWait) minWait = exp;
+    }
+  }
+  if (minWait === Infinity) return 3500;
+  return Math.max(1500, minWait - now);
+}
+
+function classifyError(error: any): { isDailyQuota: boolean; isRateLimitOr503: boolean; retryAfterMs?: number } {
   const msg = (error?.message || "").toLowerCase();
   const status = error?.status;
+
+  // Detect explicit retry delays in error message e.g. "Please retry in 42.59s" or "retryDelay":"42s"
+  let retryAfterMs: number | undefined;
+  const retryMatch = msg.match(/(?:retry in|retrydelay["']?:\s*["']?)(\d+(?:\.\d+)?)/i);
+  if (retryMatch) {
+    retryAfterMs = Math.ceil(parseFloat(retryMatch[1]) * 1000);
+  }
+
   const isDaily =
     msg.includes("per day") ||
     msg.includes("daily") ||
     msg.includes("requests per day") ||
+    msg.includes("generaterequestsperday") ||
+    msg.includes("generate_content_free_tier_requests") ||
     msg.includes("limit: 1500") ||
+    msg.includes("limit: 20") ||
     msg.includes("free_tier_requests_per_day");
 
   const isRateLimitOr503 =
@@ -76,7 +104,7 @@ function classifyError(error: any): { isDailyQuota: boolean; isRateLimitOr503: b
     msg.includes("high demand") ||
     msg.includes("spikes in demand");
 
-  return { isDailyQuota: isDaily, isRateLimitOr503 };
+  return { isDailyQuota: isDaily, isRateLimitOr503, retryAfterMs };
 }
 
 function getResponseTextSafely(response: any): string {
@@ -101,7 +129,11 @@ export async function formatQuestionWithGemini({
   subjectType,
   solutionLength,
 }: DeepSeekOptions): Promise<string> {
-  const allKeys = await getGeminiApiKeys();
+  const allKeys = (await getGeminiApiKeys()).filter((k) => !permanentlyDisabledKeys.has(k));
+  if (allKeys.length === 0) {
+    throw new Error("No available Gemini API keys configured");
+  }
+
   let cleaned: string;
   try {
     cleaned = latexToText(raw);
@@ -118,11 +150,12 @@ export async function formatQuestionWithGemini({
   const prompt = `Solve and format the following MCQ:\n\n${cleaned}`;
 
   let lastError: any = null;
-  const MAX_RETRIES = 5;
+  const MAX_RETRIES = 6;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    // Level 1: Prioritize the fastest/cheapest model (gemini-3.5-flash-lite) across rotating keys.
-    // If all keys are rate-limited on model 1, smoothly fall back to model 2 across keys, etc.
+    let triedAtLeastOneKey = false;
+
+    // Prioritize high-quota flash-lite models across rotating healthy keys
     for (const modelName of GEMINI_SOLVER_MODELS) {
       if (permanentlyUnavailableModels.has(modelName)) continue;
 
@@ -137,6 +170,8 @@ export async function formatQuestionWithGemini({
         if (!isKeyModelAvailable(key, modelName)) {
           continue; // In active cooldown on this key; skip to next key instantly in 0ms
         }
+
+        triedAtLeastOneKey = true;
 
         try {
           const genAI = new GoogleGenerativeAI(key);
@@ -159,14 +194,22 @@ export async function formatQuestionWithGemini({
           }
         } catch (error: any) {
           lastError = error;
-          const { isDailyQuota, isRateLimitOr503 } = classifyError(error);
+          const msg = (error?.message || "").toLowerCase();
+          const status = error?.status;
+
+          // If the key itself is disabled/forbidden, permanently mark it
+          if (status === 403 || msg.includes("denied access") || msg.includes("api_key_invalid") || msg.includes("consumer_suspended")) {
+            permanentlyDisabledKeys.add(key);
+            continue;
+          }
+
+          const { isDailyQuota, isRateLimitOr503, retryAfterMs } = classifyError(error);
 
           if (isRateLimitOr503) {
-            recordModelRateLimit(key, modelName, isDailyQuota);
+            recordModelRateLimit(key, modelName, isDailyQuota, retryAfterMs);
             continue; // Rotate to next available key in 0ms!
           }
 
-          const msg = (error?.message || "").toLowerCase();
           if (msg.includes("not found") || msg.includes("deprecated")) {
             permanentlyUnavailableModels.add(modelName);
             break; // Don't try this deprecated model on any other keys
@@ -184,7 +227,12 @@ export async function formatQuestionWithGemini({
     }
 
     if (attempt < MAX_RETRIES) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      // Dynamic smart wait: if all keys were in cooldown, wait for earliest cooldown expiry instead of burning attempts
+      const earliestDelay = getEarliestAvailableDelay();
+      const baseDelay = triedAtLeastOneKey ? 2000 * Math.pow(1.3, attempt) : earliestDelay;
+      const jitter = Math.random() * 1000;
+      const sleepTime = Math.min(Math.max(baseDelay, 2500), 10000) + jitter;
+      await new Promise((resolve) => setTimeout(resolve, sleepTime));
     }
   }
 
