@@ -127,7 +127,8 @@ export async function formatQuestionWithGemini({
       if (permanentlyUnavailableModels.has(modelName)) continue;
 
       // Rotate starting key index so concurrent requests distribute evenly across the 18 keys
-      const startKeyIdx = keyIndex++ % allKeys.length;
+      const startKeyIdx = keyIndex % allKeys.length;
+      keyIndex = (keyIndex + 1) % 1_000_000;
 
       for (let k = 0; k < allKeys.length; k++) {
         const keyIdx = (startKeyIdx + k) % allKeys.length;

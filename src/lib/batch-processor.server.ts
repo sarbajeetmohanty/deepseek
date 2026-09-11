@@ -192,7 +192,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
           }
 
           // Re-run the idx replacement so the question number matches this specific row.
-          output = output.replace(/^\s*\d{1,4}\.\s+/, `${q.idx}. `);
+          output = output.replace(/^\s*(?:Q\.?\s*)?\d{1,4}[.:)\-–—]?\s+/i, `${q.idx}. `);
           updateRow(q, { status: "done", formatted_output: output, error: null });
           doneSinceFlush++;
         } catch (e) {
@@ -229,7 +229,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
           apiCallsSinceFlush++;
           persistentQuestionCache.set(key, output);
         }
-        output = output.replace(/^\s*\d{1,4}\.\s+/, `${firstQ.idx}. `);
+        output = output.replace(/^\s*(?:Q\.?\s*)?\d{1,4}[.:)\-–—]?\s+/i, `${firstQ.idx}. `);
         updateRow(firstQ, { status: "done", formatted_output: output, error: null });
         doneSinceFlush++;
         await flushCounters();
