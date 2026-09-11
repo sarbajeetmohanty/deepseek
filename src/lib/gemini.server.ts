@@ -18,13 +18,19 @@ const defaultSafetySettings = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
+// Prioritize Google Gemini's cheapest, fastest, and highest-quota Flash-Lite models
+// - gemini-3.5-flash-lite: Cheapest model ($0.075/1M), 30 RPM free tier, ~1.8s latency
+// - gemini-flash-lite-latest: Latest auto-updating cheapest lightweight tier
+// - gemini-3.1-flash-lite: Reliable lightweight fallback
+// - gemini-3.7-flash: High-capability flash fallback
 const GEMINI_SOLVER_MODELS = [
-  "gemini-3.7-flash",
-  "gemini-3.5-flash",
-  "gemini-flash-latest",
-  "gemini-3.6-flash",
   "gemini-3.5-flash-lite",
   "gemini-flash-lite-latest",
+  "gemini-3.1-flash-lite",
+  "gemini-3.7-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-flash-latest",
 ];
 
 let keyIndex = 0;
