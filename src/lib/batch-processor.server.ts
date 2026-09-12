@@ -65,8 +65,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // 4 dedicated worker streams matching the 4 high-capacity flash-lite models
-    const CONCURRENCY = Math.min(4, pending.length);
+    // 3 dedicated worker streams matching the 3 independent flash-lite quota pools
+    const CONCURRENCY = Math.min(3, pending.length);
     const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
@@ -173,50 +173,65 @@ export async function processBatchInternal(batchId: string): Promise<void> {
         const q = queue.shift();
         if (!q) return;
 
-        try {
-          const key = `${subjectType}:${solutionLength}:${q.raw_text.trim().replace(/\s+/g, " ")}`;
-          let output: string;
+        const key = `${subjectType}:${solutionLength}:${q.raw_text.trim().replace(/\s+/g, " ")}`;
+        let output: string | null = null;
 
-          // 1. Check cross-batch session persistent cache (0 tokens / $0.00 cost)
-          if (persistentQuestionCache.has(key)) {
-            output = persistentQuestionCache.get(key)!;
-          } else {
-            // 2. Check in-flight batch deduplication
-            let job = dedupe.get(key);
-            const wasNew = !job;
-            if (!job) {
-              job = solveBatchQuestion({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength, workerIdx: workerId });
-              dedupe.set(key, job);
-            }
-            
+        // 1. Check cross-batch session persistent cache (0 tokens / $0.00 cost)
+        if (persistentQuestionCache.has(key)) {
+          output = persistentQuestionCache.get(key)!;
+        } else {
+          const MAX_QUESTION_RETRIES = 4;
+          let lastErr: any = null;
+
+          for (let retry = 0; retry < MAX_QUESTION_RETRIES; retry++) {
             try {
-              output = await job;
-            } catch (err) {
-              // Retry once with an alternate worker model stream
-              dedupe.delete(key);
-              await new Promise((r) => setTimeout(r, 600));
-              job = solveBatchQuestion({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength, workerIdx: (workerId + 1) % 4 });
-              dedupe.set(key, job);
-              output = await job;
-            }
+              output = await solveBatchQuestion({
+                raw: q.raw_text,
+                idx: q.idx,
+                subjectType,
+                solutionLength,
+                workerIdx: (workerId + retry) % 3,
+              });
+              if (output && output.trim().length > 0) {
+                break;
+              }
+            } catch (err: any) {
+              lastErr = err;
+              const msg = (err?.message || "").toLowerCase();
+              const isTransient =
+                msg.includes("429") ||
+                msg.includes("503") ||
+                msg.includes("quota") ||
+                msg.includes("resource") ||
+                msg.includes("demand") ||
+                msg.includes("fetch failed") ||
+                msg.includes("network");
 
-            if (wasNew) {
-              apiCallsSinceFlush++;
-              persistentQuestionCache.set(key, output);
+              if (isTransient && retry < MAX_QUESTION_RETRIES - 1) {
+                // Short backoff before worker retries with the next model stream
+                await new Promise((r) => setTimeout(r, 1000 * (retry + 1)));
+                continue;
+              }
+              break;
             }
           }
 
-          // Re-run the idx replacement so the question number matches this specific row.
-          output = output.replace(/^\s*(?:Q\.?\s*)?\d{1,4}[.:)\-–—]?\s+/i, `${q.idx}. `);
-          updateRow(q, { status: "done", formatted_output: output, error: null });
-          completedCount++;
-        } catch (e) {
-          const msg = e instanceof Error ? e.message : String(e);
-          // Count failed API attempts too
-          apiCallsSinceFlush++;
-          updateRow(q, { status: "failed", error: msg.slice(0, 500) });
-          failedCount++;
+          if (output && output.trim().length > 0) {
+            apiCallsSinceFlush++;
+            persistentQuestionCache.set(key, output);
+          } else {
+            const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr || "Failed to solve question");
+            apiCallsSinceFlush++;
+            updateRow(q, { status: "failed", error: errMsg.slice(0, 500) });
+            failedCount++;
+            continue;
+          }
         }
+
+        // Re-run the idx replacement so the question number matches this specific row.
+        output = output.replace(/^\s*(?:Q\.?\s*)?\d{1,4}[.:)\-–—]?\s+/i, `${q.idx}. `);
+        updateRow(q, { status: "done", formatted_output: output, error: null });
+        completedCount++;
       }
     };
 

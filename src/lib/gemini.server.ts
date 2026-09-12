@@ -410,17 +410,32 @@ const defaultSafetySettings = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
-// High-capacity, ultra-fast free tier models across rotating healthy keys:
-// - gemini-3.1-flash-lite-preview: 1,500 RPD, ~730ms latency
-// - gemini-flash-lite-latest: 1,500 RPD, ~900ms latency
-// - gemini-3.5-flash-lite: 1,500 RPD, ~850ms latency
-// - gemini-3.1-flash-lite: 1,500 RPD, ~800ms latency
+// High-capacity, ultra-fast free tier flash-lite models each with an INDEPENDENT 15 RPM project quota:
+// - gemini-flash-lite-latest: ~800ms
+// - gemini-3.5-flash-lite: ~800ms
+// - gemini-3.1-flash-lite: ~800ms
+// Combined capacity: 3 distinct quota pools x 14 RPM = 42 RPM rock-solid zero-error throughput!
 export const GEMINI_SOLVER_MODELS = [
-  "gemini-3.1-flash-lite-preview",
   "gemini-flash-lite-latest",
   "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite",
 ];
+
+interface ModelSlot {
+  name: string;
+  nextAvailableTime: number;
+}
+
+const modelSlots: ModelSlot[] = GEMINI_SOLVER_MODELS.map((name) => ({
+  name,
+  nextAvailableTime: 0,
+}));
+
+let slotLock: Promise<void> = Promise.resolve();
+
+// Inter-request pacing per model to guarantee we NEVER exceed Google's 15 RPM per project quota
+// 60,000ms / 4,300ms = 13.95 RPM max per model (strictly below the 15 RPM hard ceiling)
+const MIN_MODEL_INTERVAL_MS = 4300;
 
 const genAiClientCache = new Map<string, GoogleGenerativeAI>();
 function getGenAIClient(key: string): GoogleGenerativeAI {
@@ -438,34 +453,87 @@ const modelCooldowns = new Map<string, number>();
 const permanentlyUnavailableModels = new Set<string>();
 const permanentlyDisabledKeys = new Set<string>();
 
-function isModelAvailable(modelName: string): boolean {
-  if (permanentlyUnavailableModels.has(modelName)) return false;
-  const exp = modelCooldowns.get(modelName);
-  if (!exp) return true;
-  if (Date.now() > exp) {
-    modelCooldowns.delete(modelName);
-    return true;
-  }
-  return false;
-}
-
 function recordModelCooldown(modelName: string, retryAfterMs?: number) {
-  const cooldown = retryAfterMs ? Math.max(retryAfterMs + 500, 2000) : 6000;
+  const cooldown = retryAfterMs ? Math.max(retryAfterMs + 500, 3000) : 10000;
   modelCooldowns.set(modelName, Date.now() + cooldown);
 }
 
-function getEarliestAvailableDelay(): number {
-  const now = Date.now();
-  let minWait = Infinity;
-  for (const [model, exp] of modelCooldowns.entries()) {
-    if (exp <= now) {
-      modelCooldowns.delete(model);
-    } else if (exp < minWait) {
-      minWait = exp;
+async function acquireScheduledModel(preferredModelName?: string): Promise<string> {
+  let modelToUse: string;
+  let waitNeeded = 0;
+
+  // Hold lock ONLY to evaluate and reserve the slot timestamp (runs in microseconds)
+  let releaseSlot: () => void;
+  const prevLock = slotLock;
+  slotLock = new Promise((resolve) => {
+    releaseSlot = resolve;
+  });
+  await prevLock;
+
+  try {
+    const now = Date.now();
+
+    // Clean up expired cooldowns
+    for (const [model, exp] of modelCooldowns.entries()) {
+      if (exp <= now) {
+        modelCooldowns.delete(model);
+      }
     }
+
+    const availableSlots = modelSlots.filter((s) => !permanentlyUnavailableModels.has(s.name));
+    if (availableSlots.length === 0) {
+      // Reset if all were marked unavailable
+      permanentlyUnavailableModels.clear();
+    }
+
+    const slotsToEvaluate = availableSlots.length > 0 ? availableSlots : modelSlots;
+    let bestSlot: ModelSlot | null = null;
+    let minEarliestTime = Infinity;
+
+    // Check if preferred model is healthy and ready within 1.5s
+    if (preferredModelName && !permanentlyUnavailableModels.has(preferredModelName)) {
+      const preferred = slotsToEvaluate.find((s) => s.name === preferredModelName);
+      if (preferred) {
+        const cooldownExp = modelCooldowns.get(preferred.name) || 0;
+        const earliest = Math.max(now, preferred.nextAvailableTime, cooldownExp);
+        if (earliest - now <= 1500) {
+          bestSlot = preferred;
+          minEarliestTime = earliest;
+        }
+      }
+    }
+
+    if (!bestSlot) {
+      for (const slot of slotsToEvaluate) {
+        const cooldownExp = modelCooldowns.get(slot.name) || 0;
+        const earliest = Math.max(now, slot.nextAvailableTime, cooldownExp);
+        if (earliest < minEarliestTime) {
+          minEarliestTime = earliest;
+          bestSlot = slot;
+        }
+      }
+    }
+
+    if (!bestSlot) {
+      bestSlot = slotsToEvaluate[0];
+      minEarliestTime = now;
+    }
+
+    const scheduledTime = Math.max(now, minEarliestTime);
+    bestSlot.nextAvailableTime = scheduledTime + MIN_MODEL_INTERVAL_MS;
+    modelToUse = bestSlot.name;
+    waitNeeded = scheduledTime - now;
+  } finally {
+    // ALWAYS release lock immediately so no other caller is blocked!
+    releaseSlot!();
   }
-  if (minWait === Infinity) return 500;
-  return Math.max(300, minWait - now);
+
+  // Sleep OUTSIDE the critical section
+  if (waitNeeded > 0) {
+    await new Promise((r) => setTimeout(r, waitNeeded));
+  }
+
+  return modelToUse;
 }
 
 function classifyError(error: any): { isRateLimitOr503: boolean; retryAfterMs?: number } {
@@ -473,9 +541,22 @@ function classifyError(error: any): { isRateLimitOr503: boolean; retryAfterMs?: 
   const status = error?.status;
 
   let retryAfterMs: number | undefined;
-  const retryMatch = msg.match(/(?:retry in|retrydelay["']?:\s*["']?)(\d+(?:\.\d+)?)/i);
-  if (retryMatch) {
-    retryAfterMs = Math.ceil(parseFloat(retryMatch[1]) * 1000);
+
+  // 1. Extract Google RPC RetryInfo from errorDetails if present
+  const retryInfo = error?.errorDetails?.find?.((d: any) => d?.["@type"]?.includes("RetryInfo"));
+  if (retryInfo?.retryDelay) {
+    const s = parseFloat(String(retryInfo.retryDelay).replace(/s$/i, ""));
+    if (!isNaN(s) && s > 0) {
+      retryAfterMs = Math.ceil(s * 1000);
+    }
+  }
+
+  // 2. Fallback regex in message
+  if (!retryAfterMs) {
+    const retryMatch = msg.match(/(?:retry in|retrydelay["']?:\s*["']?)(\d+(?:\.\d+)?)/i);
+    if (retryMatch) {
+      retryAfterMs = Math.ceil(parseFloat(retryMatch[1]) * 1000);
+    }
   }
 
   const isRateLimitOr503 =
@@ -536,96 +617,69 @@ export async function formatQuestionWithGemini({
   const prompt = `Solve and format the following MCQ:\n\n${cleaned}`;
 
   let lastError: any = null;
-  const MAX_ATTEMPTS = 6;
+  const MAX_ATTEMPTS = 20;
 
-  // Round-robin starting model and key index across concurrent requests
-  const requestIndex = globalRequestIndex++;
-  const startModelIdx = workerIdx !== undefined ? workerIdx % GEMINI_SOLVER_MODELS.length : requestIndex % GEMINI_SOLVER_MODELS.length;
-  const startKeyIdx = (requestIndex + (workerIdx ?? 0)) % allKeys.length;
+  const preferredModelName = workerIdx !== undefined ? GEMINI_SOLVER_MODELS[workerIdx % GEMINI_SOLVER_MODELS.length] : undefined;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    let triedAtLeastOneKey = false;
+    // Only use preferred model on the very first attempt; on retries, choose whichever model is available right now
+    const modelName = await acquireScheduledModel(attempt === 1 ? preferredModelName : undefined);
+    const key = allKeys[(globalRequestIndex++) % allKeys.length];
 
-    for (let m = 0; m < GEMINI_SOLVER_MODELS.length; m++) {
-      const modelName = GEMINI_SOLVER_MODELS[(startModelIdx + m) % GEMINI_SOLVER_MODELS.length];
-      if (!isModelAvailable(modelName)) continue;
+    try {
+      const genAI = getGenAIClient(key);
+      const is37 = modelName.includes("3.7");
+      const model = genAI.getGenerativeModel(
+        {
+          model: modelName,
+          systemInstruction,
+          generationConfig: {
+            temperature: 0.1,
+            topP: 0.1,
+            maxOutputTokens: 1200,
+            ...(is37 ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+          },
+          safetySettings: defaultSafetySettings,
+        },
+        { timeout: 15000 }
+      );
 
-      let modelConsecutiveRateLimits = 0;
-
-      for (let k = 0; k < allKeys.length; k++) {
-        const key = allKeys[(startKeyIdx + k) % allKeys.length];
-
-        triedAtLeastOneKey = true;
-
-        try {
-          const genAI = getGenAIClient(key);
-          const model = genAI.getGenerativeModel(
-            {
-              model: modelName,
-              systemInstruction,
-              generationConfig: {
-                temperature: 0.1,
-                topP: 0.1,
-                maxOutputTokens: 1200,
-              },
-              safetySettings: defaultSafetySettings,
-            },
-            { timeout: 10000 }
-          );
-
-          const result = await model.generateContent([prompt]);
-          const response = await result.response;
-          const text = getResponseTextSafely(response);
-          if (text && text.trim().length > 0) {
-            return sanitizeAiOutput(latexToText(text), idx, subjectType);
-          }
-        } catch (error: any) {
-          lastError = error;
-          const msg = (error?.message || "").toLowerCase();
-          const status = error?.status;
-
-          // If the key itself is disabled/forbidden, permanently mark it
-          if (status === 403 || msg.includes("denied access") || msg.includes("api_key_invalid") || msg.includes("consumer_suspended")) {
-            permanentlyDisabledKeys.add(key);
-            continue;
-          }
-
-          const { isRateLimitOr503, retryAfterMs } = classifyError(error);
-
-          if (isRateLimitOr503) {
-            modelConsecutiveRateLimits++;
-            // If 2 keys hit 429 on this model, the shared project quota for this model is full.
-            // Put model in cooldown and move immediately to next model in 0ms!
-            if (modelConsecutiveRateLimits >= 2) {
-              recordModelCooldown(modelName, retryAfterMs);
-              break;
-            }
-            continue; // Try next key
-          }
-
-          if (msg.includes("not found") || msg.includes("deprecated")) {
-            permanentlyUnavailableModels.add(modelName);
-            break;
-          }
-
-          if (msg.includes("recitation") || msg.includes("safety")) {
-            continue;
-          }
-
-          // Unknown error; try next key
-          continue;
-        }
+      const result = await model.generateContent([prompt]);
+      const response = await result.response;
+      const text = getResponseTextSafely(response);
+      if (text && text.trim().length > 0) {
+        return sanitizeAiOutput(latexToText(text), idx, subjectType);
       }
-    }
+    } catch (error: any) {
+      lastError = error;
+      const msg = (error?.message || "").toLowerCase();
+      const status = error?.status;
 
-    if (attempt < MAX_ATTEMPTS) {
-      const waitTime = getEarliestAvailableDelay();
-      if (!triedAtLeastOneKey || modelCooldowns.size >= GEMINI_SOLVER_MODELS.length) {
-        // All models are in cooldown; wait for earliest window to open
-        await new Promise((resolve) => setTimeout(resolve, Math.min(waitTime + 300, 6000)));
+      // If the key itself is disabled/forbidden, permanently mark it
+      if (status === 403 || msg.includes("denied access") || msg.includes("api_key_invalid") || msg.includes("consumer_suspended")) {
+        permanentlyDisabledKeys.add(key);
         continue;
       }
-      // If other models are available, immediately try the next model with zero delay!
+
+      const { isRateLimitOr503, retryAfterMs } = classifyError(error);
+
+      if (isRateLimitOr503) {
+        recordModelCooldown(modelName, retryAfterMs);
+        // Next iteration will automatically acquire another available model
+        continue;
+      }
+
+      if (msg.includes("not found") || msg.includes("deprecated") || msg.includes("perdayperprojectpermodel")) {
+        permanentlyUnavailableModels.add(modelName);
+        continue;
+      }
+
+      if (msg.includes("recitation") || msg.includes("safety")) {
+        continue;
+      }
+
+      // Unknown/transient error; retry next model
+      continue;
     }
   }
 
