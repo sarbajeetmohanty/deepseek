@@ -3,11 +3,10 @@
 // Active batches lock to prevent multiple workers from running simultaneously on the same batch
 const activeBatches = new Set<string>();
 
-// Cross-batch in-memory solution cache to prevent duplicate DeepSeek API billing for identical questions
+// Cross-batch in-memory solution cache for identical questions
 const persistentQuestionCache = new Map<string, string>();
 
-// Solve MCQ primarily using the ultra-fast Google Gemini multi-key pool (100% free, ~2s per question).
-// If all Gemini keys exhaust their Google Cloud daily project quota, seamlessly falls back to DeepSeek.
+// Solve MCQ 100% via the ultra-fast Google Gemini multi-key/multi-model pool (100% free)
 async function solveBatchQuestion(opts: {
   raw: string;
   idx: number;
@@ -15,8 +14,8 @@ async function solveBatchQuestion(opts: {
   solutionLength: "normal" | "long";
   signal?: AbortSignal;
 }): Promise<string> {
-  const { formatQuestionWithDeepSeek } = await import("./deepseek.server");
-  return await formatQuestionWithDeepSeek(opts);
+  const { formatQuestionWithGemini } = await import("./gemini.server");
+  return await formatQuestionWithGemini(opts);
 }
 
 export async function processBatchInternal(batchId: string): Promise<void> {
@@ -65,8 +64,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // Set concurrency to 5 parallel workers for smooth quota distribution across healthy keys without bursting RPM limits
-    const CONCURRENCY = Math.min(5, pending.length);
+    // Set concurrency to 4 parallel workers across the 5 models for high-throughput solving
+    const CONCURRENCY = Math.min(4, pending.length);
     const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
@@ -182,7 +181,18 @@ export async function processBatchInternal(batchId: string): Promise<void> {
               job = solveBatchQuestion({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength });
               dedupe.set(key, job);
             }
-            output = await job;
+            
+            try {
+              output = await job;
+            } catch (err) {
+              // Retry once with a fresh call
+              dedupe.delete(key);
+              await new Promise((r) => setTimeout(r, 1500));
+              job = solveBatchQuestion({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength });
+              dedupe.set(key, job);
+              output = await job;
+            }
+
             if (wasNew) {
               apiCallsSinceFlush++;
               persistentQuestionCache.set(key, output);
@@ -200,7 +210,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
           updateRow(q, { status: "failed", error: msg.slice(0, 500) });
           failedCount++;
         }
-        // Workers never pause on DB calls — they immediately process the next question!
+        // Small pacing delay to ensure workers smoothly interleave
+        await new Promise((r) => setTimeout(r, 80));
       }
     };
 

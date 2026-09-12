@@ -197,7 +197,7 @@ export const translateBatchToOpposite = createServerFn({ method: "POST" })
     if (!rows || rows.length === 0) throw new Error("Nothing to translate — no completed questions.");
 
     // Extract the question/options portion (before Solution:) to detect whether the source question is English or Hindi.
-    // DeepSeek solution is in Hindi by default, so we only evaluate the question body to detect the original language.
+    // Gemini solution is in Hindi by default, so we only evaluate the question body to detect the original language.
     let devanagariCount = 0;
     let latinCount = 0;
     for (const r of rows) {
