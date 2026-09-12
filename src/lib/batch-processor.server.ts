@@ -12,6 +12,7 @@ async function solveBatchQuestion(opts: {
   idx: number;
   subjectType: "math" | "gk_english";
   solutionLength: "normal" | "long";
+  workerIdx?: number;
   signal?: AbortSignal;
 }): Promise<string> {
   const { formatQuestionWithGemini } = await import("./gemini.server");
@@ -64,7 +65,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // Set concurrency to 4 parallel workers across the 5 models for high-throughput solving
+    // 4 dedicated worker streams matching the 4 high-capacity flash-lite models
     const CONCURRENCY = Math.min(4, pending.length);
     const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
 
@@ -74,20 +75,24 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       const { error: mErr } = await supabaseAdmin
         .from("questions")
         .update({ status: "processing", error: null })
-        .in("id", ids);
-      if (mErr) console.error("mark processing failed", mErr.message);
+        .in("id", ids)
+        .neq("status", "done");
+      if (mErr) console.error("mark processing chunk failed", mErr.message);
     }
-    // Update batch status and preserve already-completed count
+
     await supabaseAdmin
       .from("batches")
-      .update({ status: "processing", completed: initialDone, failed: 0 })
+      .update({ status: "processing" })
       .eq("id", batchId);
 
     const queue = [...pending];
     const workers: Promise<void>[] = [];
-    const providerBlock: { message?: string } = {};
     // In-batch dedupe: identical raw_text reuses the in-flight promise instead of re-calling the API.
     const dedupe = new Map<string, Promise<string>>();
+    let completedCount = initialDone;
+    let failedCount = await countStatus(batchId, "failed");
+    let apiCallsSinceFlush = 0;
+    const providerBlock = { message: null as string | null };
     
     type QuestionPatch = {
       status?: string;
@@ -95,38 +100,40 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       error?: string | null;
     };
     const pendingUpdates: any[] = [];
-    
-    let completedCount = initialDone;
-    let failedCount = 0;
-    let apiCallsSinceFlush = 0;
     let isFlushing = false;
 
     const flushCounters = async () => {
       if (isFlushing) return;
-      if (pendingUpdates.length === 0 && apiCallsSinceFlush === 0) return;
       isFlushing = true;
       const updatesToFlush = pendingUpdates.splice(0, pendingUpdates.length);
       const callsToFlush = apiCallsSinceFlush;
       apiCallsSinceFlush = 0;
-      const currentCompleted = completedCount;
-      const currentFailed = failedCount;
 
       try {
         if (updatesToFlush.length > 0) {
-          const { error: uErr } = await supabaseAdmin.from("questions").upsert(updatesToFlush);
-          if (uErr) console.error("bulk upsert failed", uErr.message);
+          for (let i = 0; i < updatesToFlush.length; i += 200) {
+            const chunk = updatesToFlush.slice(i, i + 200);
+            const { error: upErr } = await supabaseAdmin
+              .from("questions")
+              .upsert(chunk, { onConflict: "id" });
+            if (upErr) console.error("question upsert chunk failed", upErr.message);
+          }
         }
 
-        await supabaseAdmin
+        const { error: bErr } = await supabaseAdmin
           .from("batches")
-          .update({ completed: currentCompleted, failed: currentFailed })
+          .update({
+            completed: completedCount,
+            failed: failedCount,
+            status: "processing",
+          })
           .eq("id", batchId);
+        if (bErr) console.error("batch counter flush failed", bErr.message);
 
         if (ownerId && callsToFlush > 0) {
-          const { error: rpcErr } = await supabaseAdmin.rpc("increment_user_usage", {
-            _user_id: ownerId,
-            _add_questions: 0,
-            _add_calls: callsToFlush,
+          const { error: rpcErr } = await supabaseAdmin.rpc("increment_user_quota_calls", {
+            p_user_id: ownerId,
+            p_count: callsToFlush,
           });
           if (rpcErr) console.error("api_calls flush failed", rpcErr.message);
         }
@@ -154,7 +161,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       });
     };
 
-    const worker = async () => {
+    const worker = async (workerId: number) => {
       while (queue.length > 0) {
         if (providerBlock.message) return;
         // Enforce API-call limit mid-batch (coarse: may overrun by up to CONCURRENCY).
@@ -178,17 +185,17 @@ export async function processBatchInternal(batchId: string): Promise<void> {
             let job = dedupe.get(key);
             const wasNew = !job;
             if (!job) {
-              job = solveBatchQuestion({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength });
+              job = solveBatchQuestion({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength, workerIdx: workerId });
               dedupe.set(key, job);
             }
             
             try {
               output = await job;
             } catch (err) {
-              // Retry once with a fresh call
+              // Retry once with an alternate worker model stream
               dedupe.delete(key);
-              await new Promise((r) => setTimeout(r, 1500));
-              job = solveBatchQuestion({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength });
+              await new Promise((r) => setTimeout(r, 600));
+              job = solveBatchQuestion({ raw: q.raw_text, idx: q.idx, subjectType, solutionLength, workerIdx: (workerId + 1) % 4 });
               dedupe.set(key, job);
               output = await job;
             }
@@ -210,13 +217,11 @@ export async function processBatchInternal(batchId: string): Promise<void> {
           updateRow(q, { status: "failed", error: msg.slice(0, 500) });
           failedCount++;
         }
-        // Small pacing delay to ensure workers smoothly interleave
-        await new Promise((r) => setTimeout(r, 80));
       }
     };
 
-    // Launch all workers immediately in parallel across the multi-key pool
-    for (let i = 0; i < ACTUAL_CONCURRENCY; i++) workers.push(worker());
+    // Launch all workers immediately in parallel across dedicated model streams
+    for (let i = 0; i < ACTUAL_CONCURRENCY; i++) workers.push(worker(i));
     await Promise.allSettled(workers);
     clearInterval(flushTimer);
     await flushCounters();

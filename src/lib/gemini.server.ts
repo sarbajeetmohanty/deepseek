@@ -415,14 +415,22 @@ const defaultSafetySettings = [
 // - gemini-flash-lite-latest: 1,500 RPD, ~900ms latency
 // - gemini-3.5-flash-lite: 1,500 RPD, ~850ms latency
 // - gemini-3.1-flash-lite: 1,500 RPD, ~800ms latency
-// - gemini-3.8-flash: 1,500 RPD, ~1500ms latency
 export const GEMINI_SOLVER_MODELS = [
   "gemini-3.1-flash-lite-preview",
   "gemini-flash-lite-latest",
   "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite",
-  "gemini-3.8-flash",
 ];
+
+const genAiClientCache = new Map<string, GoogleGenerativeAI>();
+function getGenAIClient(key: string): GoogleGenerativeAI {
+  let client = genAiClientCache.get(key);
+  if (!client) {
+    client = new GoogleGenerativeAI(key);
+    genAiClientCache.set(key, client);
+  }
+  return client;
+}
 
 let globalRequestIndex = 0;
 // Track model-level cooldowns (since Google quotas are PerProjectPerModel)
@@ -442,7 +450,7 @@ function isModelAvailable(modelName: string): boolean {
 }
 
 function recordModelCooldown(modelName: string, retryAfterMs?: number) {
-  const cooldown = retryAfterMs ? Math.max(retryAfterMs + 500, 3000) : 10_000;
+  const cooldown = retryAfterMs ? Math.max(retryAfterMs + 500, 2000) : 6000;
   modelCooldowns.set(modelName, Date.now() + cooldown);
 }
 
@@ -456,8 +464,8 @@ function getEarliestAvailableDelay(): number {
       minWait = exp;
     }
   }
-  if (minWait === Infinity) return 1000;
-  return Math.max(500, minWait - now);
+  if (minWait === Infinity) return 500;
+  return Math.max(300, minWait - now);
 }
 
 function classifyError(error: any): { isRateLimitOr503: boolean; retryAfterMs?: number } {
@@ -505,6 +513,7 @@ export async function formatQuestionWithGemini({
   idx,
   subjectType,
   solutionLength,
+  workerIdx,
 }: QuestionSolverOptions): Promise<string> {
   const allKeys = (await getGeminiApiKeys()).filter((k) => !permanentlyDisabledKeys.has(k));
   if (allKeys.length === 0) {
@@ -527,12 +536,12 @@ export async function formatQuestionWithGemini({
   const prompt = `Solve and format the following MCQ:\n\n${cleaned}`;
 
   let lastError: any = null;
-  const MAX_ATTEMPTS = 8;
+  const MAX_ATTEMPTS = 6;
 
   // Round-robin starting model and key index across concurrent requests
   const requestIndex = globalRequestIndex++;
-  const startModelIdx = requestIndex % GEMINI_SOLVER_MODELS.length;
-  const startKeyIdx = requestIndex % allKeys.length;
+  const startModelIdx = workerIdx !== undefined ? workerIdx % GEMINI_SOLVER_MODELS.length : requestIndex % GEMINI_SOLVER_MODELS.length;
+  const startKeyIdx = (requestIndex + (workerIdx ?? 0)) % allKeys.length;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     let triedAtLeastOneKey = false;
@@ -549,7 +558,7 @@ export async function formatQuestionWithGemini({
         triedAtLeastOneKey = true;
 
         try {
-          const genAI = new GoogleGenerativeAI(key);
+          const genAI = getGenAIClient(key);
           const model = genAI.getGenerativeModel(
             {
               model: modelName,
@@ -557,11 +566,11 @@ export async function formatQuestionWithGemini({
               generationConfig: {
                 temperature: 0.1,
                 topP: 0.1,
-                maxOutputTokens: 2048,
+                maxOutputTokens: 1200,
               },
               safetySettings: defaultSafetySettings,
             },
-            { timeout: 12000 }
+            { timeout: 10000 }
           );
 
           const result = await model.generateContent([prompt]);
@@ -613,11 +622,10 @@ export async function formatQuestionWithGemini({
       const waitTime = getEarliestAvailableDelay();
       if (!triedAtLeastOneKey || modelCooldowns.size >= GEMINI_SOLVER_MODELS.length) {
         // All models are in cooldown; wait for earliest window to open
-        await new Promise((resolve) => setTimeout(resolve, Math.min(waitTime + 500, 12000)));
+        await new Promise((resolve) => setTimeout(resolve, Math.min(waitTime + 300, 6000)));
         continue;
       }
-      const delay = modelCooldowns.size > 0 ? Math.min(waitTime + 300, 6000) : 1000;
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      // If other models are available, immediately try the next model with zero delay!
     }
   }
 
