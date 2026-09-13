@@ -518,7 +518,7 @@ function getGenAIClient(key: string): GoogleGenerativeAI {
 // ===========================================================================
 
 // 60000 / 4200 = ~14.3 RPM per bucket, a deliberate margin under the 15 RPM cap.
-const SLOT_MIN_INTERVAL_MS = 4200;
+const SLOT_MIN_INTERVAL_MS = 6500;
 
 // Additional pacing across ALL models sharing one key. The quota is per model, so
 // a key's real ceiling is models x 15 = 45 requests/minute; 60000/45 = 1333ms.
@@ -539,8 +539,9 @@ const HARD_EXHAUSTION_BACKOFF_MS = 60_000;
 const HARD_FAILS_BEFORE_DAILY = 3;
 const DAILY_EXHAUSTION_BACKOFF_MS = 3 * 60 * 60 * 1000;
 
-// `${key} ${model}` -> consecutive bare-429s. Cleared by any success.
-const hardFailStreak = new Map<string, number>();
+// `${key} ${model}` -> how many times this bucket came back exhausted AFTER a
+// full recovery park, plus when the last one happened. Cleared by any success.
+const hardFailStreak = new Map<string, { count: number; at: number }>();
 
 // Longest a single request will sit waiting for a free bucket.
 //
@@ -684,8 +685,22 @@ function penalizeSlot(key: string, modelName: string, retryAfterMs?: number) {
 
   let backoff: number;
   if (isHardExhaustion) {
-    const streak = (hardFailStreak.get(id) ?? 0) + 1;
-    hardFailStreak.set(id, streak);
+    // A strike only counts if this bucket had already been parked a full recovery
+    // period and STILL came back exhausted. Without that guard the counter is
+    // useless and actively harmful: several workers can be queued on one bucket
+    // within a couple of seconds (a reservation only moves it 4.2s, far less than
+    // the 60s park), so three failures land almost instantly and a perfectly
+    // healthy key gets parked for three hours. That turns every busy moment into
+    // permanent damage and the pool destroys itself as the batch runs - measured
+    // as a batch crawling at 13 questions/minute while 56 keys were sitting there
+    // able to serve 16 real requests each.
+    const prev = hardFailStreak.get(id);
+    const now = Date.now();
+    const recoveredAndFailedAgain =
+      prev !== undefined && now - prev.at >= HARD_EXHAUSTION_BACKOFF_MS;
+    const streak = prev === undefined ? 1 : recoveredAndFailedAgain ? prev.count + 1 : prev.count;
+    hardFailStreak.set(id, { count: streak, at: now });
+
     backoff =
       streak >= HARD_FAILS_BEFORE_DAILY
         ? DAILY_EXHAUSTION_BACKOFF_MS + Math.floor(Math.random() * 600_000)
