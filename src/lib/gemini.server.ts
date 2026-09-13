@@ -484,10 +484,18 @@ const defaultSafetySettings = [
 // 2. gemini-3.1-flash-lite-preview: ~1.7s latency, independent 15 RPM free tier
 // 3. gemini-3.1-flash-lite: ~2.0s latency, independent 15 RPM free tier
 // Specific, ultra-fast, lowest-cost Google Gemini Flash-Lite models verified on live benchmarks:
+// Gemini 3 Flash first, then Gemini 3.1 Flash-Lite, with the Flash-Lite preview
+// kept purely as a third failover target.
+//
+// Note what these models are NOT doing: they are not multiplying quota. Measured
+// today, gemini-3.5-flash had not been called once and still answered 0/5 on keys
+// that were exhausted on the models we had been using, so the daily allowance is
+// per key/project and shared across every model. The list buys failover when one
+// model is briefly unavailable, not three times the capacity.
 export const GEMINI_SOLVER_MODELS = [
-  "gemini-3.5-flash-lite",
-  "gemini-3.1-flash-lite-preview",
   "gemini-3.1-flash-lite",
+  "gemini-3.5-flash-lite",
+  "gemini-3-flash-preview",
 ];
 
 const genAiClientCache = new Map<string, GoogleGenerativeAI>();
@@ -518,7 +526,7 @@ function getGenAIClient(key: string): GoogleGenerativeAI {
 // ===========================================================================
 
 // 60000 / 4200 = ~14.3 RPM per bucket, a deliberate margin under the 15 RPM cap.
-const SLOT_MIN_INTERVAL_MS = 6500;
+const SLOT_MIN_INTERVAL_MS = 4300;
 
 // Additional pacing across ALL models sharing one key. The quota is per model, so
 // a key's real ceiling is models x 15 = 45 requests/minute; 60000/45 = 1333ms.
