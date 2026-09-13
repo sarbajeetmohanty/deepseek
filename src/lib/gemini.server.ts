@@ -526,8 +526,27 @@ function getGenAIClient(key: string): GoogleGenerativeAI {
 // RetryInfo) without affecting the other 50.
 // ===========================================================================
 
-// 60000 / 4200 = ~14.3 RPM per bucket, a deliberate margin under the 15 RPM cap.
-const SLOT_MIN_INTERVAL_MS = 4300;
+// Per-model pacing. Google publishes a different RPM ceiling per model, so one
+// shared interval either throttles the fast models or overdrives the slow ones:
+// gemini-3.5-flash-lite allows 30 RPM while the 3.1 Flash-Lite models allow 15,
+// and pacing everything at a single value wasted half the workhorse's allowance.
+//
+// Each figure is a little under the published ceiling. Riding the exact limit was
+// measured to trip 429s constantly on ordinary jitter.
+const MODEL_MIN_INTERVAL_MS: Record<string, number> = {
+  "gemini-3.5-flash-lite": 2200, // 30 RPM
+  "gemini-3.1-flash-lite": 4300, // 15 RPM
+  "gemini-3.1-flash-lite-preview": 4300, // 15 RPM
+  "gemini-3-flash-preview": 5400, // ~12 RPM, the Flash family is tighter
+};
+
+// Anything not listed above is assumed to be on the tightest Flash ceiling rather
+// than the most generous Flash-Lite one.
+const SLOT_MIN_INTERVAL_MS = 5400;
+
+function slotIntervalFor(modelName: string): number {
+  return MODEL_MIN_INTERVAL_MS[modelName] ?? SLOT_MIN_INTERVAL_MS;
+}
 
 // Additional pacing across ALL models sharing one key. The quota is per model, so
 // a key's real ceiling is models x 15 = 45 requests/minute; 60000/45 = 1333ms.
@@ -708,7 +727,7 @@ async function acquireSlot(
   }
 
   // Reserve synchronously, before any await, so the slot is claimed atomically.
-  slotNextAvailable.set(slotId(bestKey, bestModel), scheduledAt + SLOT_MIN_INTERVAL_MS);
+  slotNextAvailable.set(slotId(bestKey, bestModel), scheduledAt + slotIntervalFor(bestModel));
   keyNextAvailable.set(bestKey, scheduledAt + KEY_MIN_INTERVAL_MS);
 
   if (waitMs > 0) await sleep(waitMs, signal);
@@ -770,7 +789,8 @@ function penalizeSlot(key: string, modelName: string, retryAfterMs?: number) {
     // Nudge the whole key too; its other models are usually close behind.
     keyNextAvailable.set(key, Math.max(keyNextAvailable.get(key) ?? 0, Date.now() + 5000));
   } else {
-    backoff = Math.max(retryAfterMs, SLOT_MIN_INTERVAL_MS) + 500 + Math.floor(Math.random() * 1000);
+    backoff =
+      Math.max(retryAfterMs, slotIntervalFor(modelName)) + 500 + Math.floor(Math.random() * 1000);
   }
 
   slotNextAvailable.set(id, Math.max(slotNextAvailable.get(id) ?? 0, Date.now() + backoff));
