@@ -151,21 +151,26 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     const configuredKeys = await getGeminiApiKeys().catch(() => []);
     const keyCount = Math.max(1, configuredKeys.length);
 
-    // Worker fan-out is limited by how fast the key pool refills, not by how many
-    // questions are waiting, so it scales on keyCount rather than being pinned -
-    // otherwise adding keys buys daily headroom but no extra speed.
+    // Worker fan-out is sized against what the key pool can actually absorb.
     //
-    // Only ONE configuration has ever been measured on an undamaged pool: 8
-    // workers over 17 keys solved 100/100 in 27s with zero retries. An attempt to
-    // calibrate 6/10/16/24/40/60 workers over 81 keys produced nothing usable,
-    // because by then the pool had been degraded by a day of testing and every
-    // level failed for that reason rather than because of its worker count.
+    // The binding free-tier limit is INPUT tokens per minute per key, not request
+    // count. Proven directly: on one key, a 2-token request and a small-input /
+    // large-output request both return 200, while a large-input request returns
+    // 429 regardless of how small its output allowance is. Each question carries
+    // the ~1,141-token system prompt plus a ~57-token question, so input is what
+    // runs out.
     //
-    // So the ceiling here is deliberately just above the verified figure instead
-    // of the ~38 that the 1-worker-per-2-keys ratio would suggest. Raise it only
-    // after a clean run on a rested pool says it is safe: shipping an untested
-    // jump is exactly what caused the earlier stampede.
-    const CONCURRENCY = Math.min(12, Math.max(8, Math.floor(keyCount / 3)), pending.length);
+    // Measured on a rested key: 30 real requests before 429, i.e. roughly 36,000
+    // input tokens/minute. Across 81 keys that is a ceiling near 2,400
+    // questions/minute. A worker spends ~2s per question, so N workers draw about
+    // N*30 questions/minute - 24 workers is ~720/min, comfortably under a third of
+    // the pool's capacity, and the saturation guard in gemini.server.ts absorbs
+    // the rest.
+    //
+    // An earlier ceiling of 12 came from calibration runs whose pool had already
+    // been drained by a day of testing; every fan-out level failed for that reason
+    // rather than because of its worker count, so those runs said nothing useful.
+    const CONCURRENCY = Math.min(24, Math.max(8, Math.floor(keyCount / 3)), pending.length);
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
     for (let i = 0; i < pending.length; i += 400) {
