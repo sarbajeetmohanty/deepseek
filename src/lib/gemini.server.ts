@@ -520,10 +520,10 @@ function getGenAIClient(key: string): GoogleGenerativeAI {
 // 60000 / 4200 = ~14.3 RPM per bucket, a deliberate margin under the 15 RPM cap.
 const SLOT_MIN_INTERVAL_MS = 4200;
 
-// Additional pacing across ALL models sharing one key. Measured behaviour: a key
-// tolerates a burst of real (~1500-token) requests and then throttles, so spacing
-// per key matters even when each individual bucket looks idle.
-const KEY_MIN_INTERVAL_MS = 1200;
+// Additional pacing across ALL models sharing one key. The quota is per model, so
+// a key's real ceiling is models x 15 = 45 requests/minute; 60000/45 = 1333ms.
+// This is a backstop - the per-bucket pacing above is what normally binds.
+const KEY_MIN_INTERVAL_MS = 1333;
 
 // Backoff for a 429 that arrives with NO RetryInfo - the bare "Resource has been
 // exhausted" replies, which are the ones this workload actually hits. Retrying

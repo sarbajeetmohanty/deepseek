@@ -153,23 +153,22 @@ export async function processBatchInternal(batchId: string): Promise<void> {
 
     // Worker fan-out is sized against what the key pool can actually absorb.
     //
-    // The binding free-tier limit is INPUT tokens per minute per key, not request
-    // count. Proven directly: on one key, a 2-token request and a small-input /
-    // large-output request both return 200, while a large-input request returns
-    // 429 regardless of how small its output allowance is. Each question carries
-    // the ~1,141-token system prompt plus a ~57-token question, so input is what
-    // runs out.
+    // The binding free-tier limit is REQUESTS per minute, per key, per model - not
+    // tokens. Measured by driving two rested keys to 429: one with ~1,200-token
+    // inputs and one with ~10-token inputs both stopped at exactly 15 requests.
+    // Request size is irrelevant. (An earlier comment here claimed input tokens
+    // were the constraint; that was wrong - those keys had simply spent their
+    // request budget, and a small request fitting where a large one did not was a
+    // coincidence of timing, not a token limit.)
     //
-    // Measured on a rested key: 30 real requests before 429, i.e. roughly 36,000
-    // input tokens/minute. Across 81 keys that is a ceiling near 2,400
-    // questions/minute. A worker spends ~2s per question, so N workers draw about
-    // N*30 questions/minute - 24 workers is ~720/min, comfortably under a third of
-    // the pool's capacity, and the saturation guard in gemini.server.ts absorbs
-    // the rest.
+    // So: 15 RPM x 3 models x N keys. At 81 keys that is ~3,600 requests/minute,
+    // and the daily cap (~1,500 per model per project) is ~364,000/day. A worker
+    // spends ~2s per question, so N workers draw about N*30 per minute: 24 workers
+    // is ~720/min, roughly a fifth of the pool, with the saturation guard in
+    // gemini.server.ts absorbing bursts.
     //
-    // An earlier ceiling of 12 came from calibration runs whose pool had already
-    // been drained by a day of testing; every fan-out level failed for that reason
-    // rather than because of its worker count, so those runs said nothing useful.
+    // The window refills every 60 seconds, so a drained pool recovers in about a
+    // minute - it does not need hours.
     const CONCURRENCY = Math.min(24, Math.max(8, Math.floor(keyCount / 3)), pending.length);
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
