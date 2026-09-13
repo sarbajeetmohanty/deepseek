@@ -1,19 +1,27 @@
-
+// Server-only batch processor for solving MCQs concurrently across the Gemini multi-key pool
 
 // Active batches lock to prevent multiple workers from running simultaneously on the same batch
 const activeBatches = new Set<string>();
 
-// Cross-batch in-memory solution cache for identical questions
+// Cross-batch in-memory solution cache for identical questions (capped to prevent memory growth)
 const persistentQuestionCache = new Map<string, string>();
+const MAX_CACHE_SIZE = 2000;
 
-// Solve MCQ 100% via the ultra-fast Google Gemini multi-key/multi-model pool (100% free)
+function setInCache(key: string, value: string) {
+  if (persistentQuestionCache.size >= MAX_CACHE_SIZE) {
+    const firstKey = persistentQuestionCache.keys().next().value;
+    if (firstKey) persistentQuestionCache.delete(firstKey);
+  }
+  persistentQuestionCache.set(key, value);
+}
+
+// Solve MCQ via the ultra-fast Google Gemini multi-key/multi-model pool
 async function solveBatchQuestion(opts: {
   raw: string;
   idx: number;
   subjectType: "math" | "gk_english";
   solutionLength: "normal" | "long";
   workerIdx?: number;
-  signal?: AbortSignal;
 }): Promise<string> {
   const { formatQuestionWithGemini } = await import("./gemini.server");
   return await formatQuestionWithGemini(opts);
@@ -51,8 +59,6 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       apiCallsUsed = Number(q?.api_calls_used ?? 0);
     }
 
-    const initialDone = await countStatus(batchId, "done");
-
     const { data: pending, error } = await supabaseAdmin
       .from("questions")
       .select("id, idx, raw_text")
@@ -65,9 +71,11 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // 3 dedicated worker streams matching the 3 independent flash-lite quota pools
-    const CONCURRENCY = Math.min(3, pending.length);
-    const ACTUAL_CONCURRENCY = Math.min(CONCURRENCY, pending.length);
+    // Dynamic concurrency: scale worker fan-out with the number of active API keys (e.g. 17 keys -> 12-16 workers)
+    const { getGeminiApiKeys } = await import("./settings.functions");
+    const configuredKeys = await getGeminiApiKeys().catch(() => []);
+    const keyCount = Math.max(1, configuredKeys.length);
+    const CONCURRENCY = Math.min(16, Math.max(4, keyCount * 2), pending.length);
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
     for (let i = 0; i < pending.length; i += 400) {
@@ -87,10 +95,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
 
     const queue = [...pending];
     const workers: Promise<void>[] = [];
-    // In-batch dedupe: identical raw_text reuses the in-flight promise instead of re-calling the API.
-    const dedupe = new Map<string, Promise<string>>();
-    let completedCount = initialDone;
-    let failedCount = await countStatus(batchId, "failed");
+    // In-batch dedupe: identical raw_text reuses the in-flight promise
+    const inFlightDedupe = new Map<string, Promise<string>>();
     let apiCallsSinceFlush = 0;
     const providerBlock = { message: null as string | null };
     
@@ -100,16 +106,20 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       error?: string | null;
     };
     const pendingUpdates: any[] = [];
-    let isFlushing = false;
+    let inFlightFlush: Promise<void> | null = null;
 
     const flushCounters = async () => {
-      if (isFlushing) return;
-      isFlushing = true;
+      while (inFlightFlush) {
+        await inFlightFlush;
+      }
+
       const updatesToFlush = pendingUpdates.splice(0, pendingUpdates.length);
       const callsToFlush = apiCallsSinceFlush;
       apiCallsSinceFlush = 0;
 
-      try {
+      if (updatesToFlush.length === 0 && callsToFlush === 0) return;
+
+      const doFlush = async () => {
         if (updatesToFlush.length > 0) {
           for (let i = 0; i < updatesToFlush.length; i += 200) {
             const chunk = updatesToFlush.slice(i, i + 200);
@@ -134,6 +144,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
         if (bErr) console.error("batch counter flush failed", bErr.message);
 
         if (ownerId && callsToFlush > 0) {
+          apiCallsUsed += callsToFlush;
           const { error: rpcErr } = await supabaseAdmin.rpc("increment_user_usage", {
             _user_id: ownerId,
             _add_questions: 0,
@@ -141,16 +152,22 @@ export async function processBatchInternal(batchId: string): Promise<void> {
           });
           if (rpcErr) console.error("api_calls flush failed", rpcErr.message);
         }
-      } catch (e) {
-        console.error("counter flush failed", e);
-        pendingUpdates.unshift(...updatesToFlush);
-        apiCallsSinceFlush += callsToFlush;
-      } finally {
-        isFlushing = false;
-      }
+      };
+
+      inFlightFlush = doFlush()
+        .catch((e) => {
+          console.error("counter flush failed", e);
+          pendingUpdates.unshift(...updatesToFlush);
+          apiCallsSinceFlush += callsToFlush;
+        })
+        .finally(() => {
+          inFlightFlush = null;
+        });
+
+      await inFlightFlush;
     };
 
-    // Non-blocking background periodic flush timer so workers NEVER pause on DB round-trips!
+    // Periodic flush timer so questions stream to DB smoothly every 1200ms
     const flushTimer = setInterval(() => {
       flushCounters().catch(() => {});
     }, 1200);
@@ -168,7 +185,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     const worker = async (workerId: number) => {
       while (queue.length > 0) {
         if (providerBlock.message) return;
-        // Enforce API-call limit mid-batch (coarse: may overrun by up to CONCURRENCY).
+        // Enforce API-call limit mid-batch
         if (apiCallLimit !== null && apiCallsUsed + apiCallsSinceFlush >= apiCallLimit) {
           providerBlock.message = `API-call limit reached (${apiCallLimit.toLocaleString()}). Ask the admin to raise your limit and retry.`;
           queue.length = 0;
@@ -180,67 +197,83 @@ export async function processBatchInternal(batchId: string): Promise<void> {
         const key = `${subjectType}:${solutionLength}:${q.raw_text.trim().replace(/\s+/g, " ")}`;
         let output: string | null = null;
 
-        // 1. Check cross-batch session persistent cache (0 tokens / $0.00 cost)
+        // 1. Check cross-batch in-memory cache (0 tokens / $0.00 cost)
         if (persistentQuestionCache.has(key)) {
           output = persistentQuestionCache.get(key)!;
-        } else {
-          const MAX_QUESTION_RETRIES = 4;
-          let lastErr: any = null;
+        } else if (inFlightDedupe.has(key)) {
+          // 2. In-batch identical question in-flight dedupe
+          try {
+            output = await inFlightDedupe.get(key)!;
+          } catch {
+            output = null;
+          }
+        }
 
-          for (let retry = 0; retry < MAX_QUESTION_RETRIES; retry++) {
-            try {
-              output = await solveBatchQuestion({
-                raw: q.raw_text,
-                idx: q.idx,
-                subjectType,
-                solutionLength,
-                workerIdx: (workerId + retry) % 3,
-              });
-              if (output && output.trim().length > 0) {
+        if (!output) {
+          const solvePromise = (async () => {
+            const MAX_QUESTION_RETRIES = 3;
+            let lastErr: any = null;
+
+            for (let retry = 0; retry < MAX_QUESTION_RETRIES; retry++) {
+              try {
+                const res = await solveBatchQuestion({
+                  raw: q.raw_text,
+                  idx: q.idx,
+                  subjectType,
+                  solutionLength,
+                  workerIdx: (workerId + retry) % 3,
+                });
+                if (res && res.trim().length > 0) {
+                  return res;
+                }
+              } catch (err: any) {
+                lastErr = err;
+                const msg = (err?.message || "").toLowerCase();
+                const isTransient =
+                  msg.includes("429") ||
+                  msg.includes("503") ||
+                  msg.includes("quota") ||
+                  msg.includes("resource") ||
+                  msg.includes("demand") ||
+                  msg.includes("fetch failed") ||
+                  msg.includes("network");
+
+                if (isTransient && retry < MAX_QUESTION_RETRIES - 1) {
+                  await new Promise((r) => setTimeout(r, 600 * (retry + 1)));
+                  continue;
+                }
                 break;
               }
-            } catch (err: any) {
-              lastErr = err;
-              const msg = (err?.message || "").toLowerCase();
-              const isTransient =
-                msg.includes("429") ||
-                msg.includes("503") ||
-                msg.includes("quota") ||
-                msg.includes("resource") ||
-                msg.includes("demand") ||
-                msg.includes("fetch failed") ||
-                msg.includes("network");
-
-              if (isTransient && retry < MAX_QUESTION_RETRIES - 1) {
-                // Short backoff before worker retries with the next model stream
-                await new Promise((r) => setTimeout(r, 1000 * (retry + 1)));
-                continue;
-              }
-              break;
             }
-          }
 
-          if (output && output.trim().length > 0) {
+            throw lastErr || new Error("Failed to solve question");
+          })();
+
+          inFlightDedupe.set(key, solvePromise);
+
+          try {
+            output = await solvePromise;
             apiCallsSinceFlush++;
-            persistentQuestionCache.set(key, output);
-          } else {
-            const errMsg = lastErr instanceof Error ? lastErr.message : String(lastErr || "Failed to solve question");
+            setInCache(key, output);
+          } catch (solveErr: any) {
+            const errMsg = solveErr instanceof Error ? solveErr.message : String(solveErr || "Failed to solve question");
             apiCallsSinceFlush++;
             updateRow(q, { status: "failed", error: errMsg.slice(0, 500) });
-            failedCount++;
+            inFlightDedupe.delete(key);
             continue;
+          } finally {
+            inFlightDedupe.delete(key);
           }
         }
 
         // Re-run the idx replacement so the question number matches this specific row.
         output = output.replace(/^\s*(?:Q\.?\s*)?\d{1,4}[.:)\-–—]?\s+/i, `${q.idx}. `);
         updateRow(q, { status: "done", formatted_output: output, error: null });
-        completedCount++;
       }
     };
 
-    // Launch all workers immediately in parallel across dedicated model streams
-    for (let i = 0; i < ACTUAL_CONCURRENCY; i++) workers.push(worker(i));
+    // Launch all workers in parallel across key streams
+    for (let i = 0; i < CONCURRENCY; i++) workers.push(worker(i));
     await Promise.allSettled(workers);
     clearInterval(flushTimer);
     await flushCounters();

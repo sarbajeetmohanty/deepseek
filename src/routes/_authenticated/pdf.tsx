@@ -54,7 +54,7 @@ function Dashboard() {
 
   const { data: prompts = [] } = useQuery({
     queryKey: ["prompts", userId],
-    queryFn: () => getUserPrompts({ data: { userId } }),
+    queryFn: () => getUserPrompts({ data: {} } as any),
   });
   
   const [selectedPromptId, setSelectedPromptId] = useState<string>("default");
@@ -80,7 +80,7 @@ function Dashboard() {
   }, []);
 
   const savePromptMut = useMutation({
-    mutationFn: () => saveUserPrompt({ data: { userId, name: newPromptName.trim(), text: newPromptText.trim() } }),
+    mutationFn: () => saveUserPrompt({ data: { name: newPromptName.trim(), text: newPromptText.trim() } }),
     onSuccess: (newPrompt) => {
       qc.invalidateQueries({ queryKey: ["prompts", userId] });
       setSelectedPromptId(newPrompt.id);
@@ -93,7 +93,7 @@ function Dashboard() {
   });
 
   const deletePromptMut = useMutation({
-    mutationFn: (id: string) => deleteUserPrompt({ data: { id, userId } }),
+    mutationFn: (id: string) => deleteUserPrompt({ data: { id } }),
     onSuccess: (_, id) => {
       qc.invalidateQueries({ queryKey: ["prompts", userId] });
       if (selectedPromptId === id) setSelectedPromptId("default");
@@ -103,7 +103,7 @@ function Dashboard() {
   });
 
   const editPromptMut = useMutation({
-    mutationFn: (data: { id: string, name: string, text: string }) => updateUserPrompt({ data: { ...data, userId } }),
+    mutationFn: (data: { id: string, name: string, text: string }) => updateUserPrompt({ data }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["prompts", userId] });
       setIsEditingPrompt(false);
@@ -156,7 +156,7 @@ function Dashboard() {
         page.cleanup();
       }
 
-      const MAX_CONCURRENCY = 12; 
+      const MAX_CONCURRENCY = 8; 
       let queueIndex = 0;
       let phase1Pages: { pageNumber: number, text: string }[] = [];
 
@@ -165,19 +165,26 @@ function Dashboard() {
           const currentIndex = queueIndex++;
           const { pageNum, url } = images[currentIndex]!;
           
-          const responseText = await extractTextFromImage({ 
-            data: { data: url, customPrompt: undefined }
-          });
-          
-          const text = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
-          phase1Pages.push({ pageNumber: pageNum, text: text.trim() });
-
-          setPdfProgress(prev => ({ ...prev, done: prev.done + 1 }));
+          try {
+            const responseText = await extractTextFromImage({ 
+              data: { data: url, customPrompt: undefined }
+            });
+            
+            const text = typeof responseText === 'string' ? responseText : JSON.stringify(responseText);
+            if (text && text.trim().length > 0) {
+              phase1Pages.push({ pageNumber: pageNum, text: text.trim() });
+            }
+          } catch (pageErr) {
+            console.error(`Page ${pageNum} OCR failed:`, pageErr);
+            phase1Pages.push({ pageNumber: pageNum, text: `[Page ${pageNum}: OCR text could not be extracted]` });
+          } finally {
+            setPdfProgress(prev => ({ ...prev, done: prev.done + 1 }));
+          }
         }
       };
 
       const workers = Array.from({ length: Math.min(MAX_CONCURRENCY, images.length) }, () => worker());
-      await Promise.all(workers);
+      await Promise.allSettled(workers);
 
       let finalOutput = "";
 

@@ -435,7 +435,7 @@ function getGenAIClient(key: string): GoogleGenerativeAI {
 let globalRequestIndex = 0;
 // Track per-key per-model cooldowns: keyHash:modelName -> expiration timestamp
 const keyModelCooldowns = new Map<string, number>();
-const permanentlyDisabledKeys = new Set<string>();
+const disabledKeysUntil = new Map<string, number>();
 
 function getKeyHash(key: string): string {
   return key.slice(-8);
@@ -516,7 +516,7 @@ export async function formatQuestionWithGemini({
   solutionLength,
   workerIdx,
 }: QuestionSolverOptions): Promise<string> {
-  const allKeys = (await getGeminiApiKeys()).filter((k) => !permanentlyDisabledKeys.has(k));
+  const allKeys = await getGeminiApiKeys();
   if (allKeys.length === 0) {
     throw new Error("No available Gemini API keys configured");
   }
@@ -540,9 +540,10 @@ export async function formatQuestionWithGemini({
   const MAX_ATTEMPTS = 25;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-    const activeKeys = allKeys.filter((k) => !permanentlyDisabledKeys.has(k));
+    const now = Date.now();
+    const activeKeys = allKeys.filter((k) => (disabledKeysUntil.get(k) || 0) <= now);
     if (activeKeys.length === 0) {
-      throw new Error("All configured Gemini API keys are invalid or disabled. Please check your keys in Team settings.");
+      throw new Error("All configured Gemini API keys are temporarily disabled or in cooldown. Please check your keys in Team settings.");
     }
 
     // Rotate keys across every request and retry attempt
@@ -589,9 +590,9 @@ export async function formatQuestionWithGemini({
       const msg = (error?.message || "").toLowerCase();
       const status = error?.status;
 
-      // If the key itself is disabled/forbidden, permanently mark it
+      // If the key has 403 or is suspended, temporarily disable it with a 10-minute TTL
       if (status === 403 || msg.includes("denied access") || msg.includes("api_key_invalid") || msg.includes("consumer_suspended")) {
-        permanentlyDisabledKeys.add(key);
+        disabledKeysUntil.set(key, Date.now() + 10 * 60 * 1000);
         continue;
       }
 

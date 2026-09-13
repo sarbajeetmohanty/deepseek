@@ -1,6 +1,6 @@
 import { createFileRoute, Link, useRouter, useNavigate, notFound } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState, memo } from "react";
+import { useEffect, useState, useRef, memo } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { resumeBatch, deleteBatch } from "@/lib/batches.functions";
 import { translateBatchToOpposite } from "@/lib/translate.functions";
@@ -110,19 +110,38 @@ function BatchView() {
       qc.invalidateQueries({ queryKey: ["batch", id] });
       qc.invalidateQueries({ queryKey: ["questions", id] });
     },
-    onError: (e: unknown) => {
-      console.warn("Auto-resume notice:", e instanceof Error ? e.message : String(e));
-    },
   });
 
-  // Auto-resume watchdog: if the batch is processing but worker stopped/restarted, automatically resume immediately
+  const lastProgressRef = useRef<{ count: number; time: number }>({ count: -1, time: Date.now() });
+
+  // Initial resume check on page mount
   useEffect(() => {
-    if (!batch) return;
-    const isPendingOrProcessing = batch.status === "processing" && (batch.completed + batch.failed < batch.total);
-    if (isPendingOrProcessing && !resume.isPending) {
+    if (batch && batch.status === "processing" && (batch.completed + batch.failed < batch.total)) {
       resume.mutate();
     }
-  }, [batch?.id, batch?.status, batch?.completed, batch?.total]);
+  }, [id]);
+
+  // Stalled-watchdog: only fires if progress has made zero change for >= 15s while processing
+  useEffect(() => {
+    if (!batch) return;
+    const isProcessing = batch.status === "processing" && (batch.completed + batch.failed < batch.total);
+    if (!isProcessing) return;
+
+    const currentDone = batch.completed + batch.failed;
+    if (lastProgressRef.current.count !== currentDone) {
+      lastProgressRef.current = { count: currentDone, time: Date.now() };
+    }
+
+    const stallCheck = setInterval(() => {
+      const now = Date.now();
+      if (now - lastProgressRef.current.time >= 15000) {
+        lastProgressRef.current.time = now;
+        resume.mutate();
+      }
+    }, 5000);
+
+    return () => clearInterval(stallCheck);
+  }, [batch?.status, batch?.completed, batch?.failed, batch?.total]);
 
   const nav = useNavigate();
   const remove = useMutation({

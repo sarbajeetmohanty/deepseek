@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
+import { requireSupabaseAuth } from "../integrations/supabase/auth-middleware";
 import { getGeminiApiKeys } from "./settings.functions";
 
 type ExtractPayload = {
@@ -7,13 +8,27 @@ type ExtractPayload = {
   customPrompt?: string | undefined;
 };
 
-// Global state for intelligent key load balancing across concurrent requests
-let currentKeyIndex = 0;
+type GenerationPayload = {
+  contextText: string;
+  customPrompt: string;
+};
+
+// Client cache to avoid instantiating new GoogleGenerativeAI objects on every request
+const ocrGenAiClientCache = new Map<string, GoogleGenerativeAI>();
+function getOcrGenAIClient(key: string): GoogleGenerativeAI {
+  let client = ocrGenAiClientCache.get(key);
+  if (!client) {
+    client = new GoogleGenerativeAI(key);
+    ocrGenAiClientCache.set(key, client);
+  }
+  return client;
+}
+
+let ocrKeyIndex = 0;
 const rateLimitedKeys = new Map<string, number>();
 
 function getAvailableKeys(allKeys: string[]): string[] {
   const now = Date.now();
-  // Filter out keys that are currently in their timeout period (e.g., 5 seconds)
   const available = allKeys.filter((key) => {
     const timeout = rateLimitedKeys.get(key);
     if (!timeout) return true;
@@ -33,15 +48,10 @@ const defaultSafetySettings = [
   { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
 ];
 
-// Prioritizing cheapest, fastest, and most reliable Flash/Flash-Lite models
-const GEMINI_MODELS = [
+const OCR_MODELS = [
   "gemini-3.5-flash-lite",
-  "gemini-flash-lite-latest",
+  "gemini-3.1-flash-lite-preview",
   "gemini-3.1-flash-lite",
-  "gemini-3.7-flash",
-  "gemini-3.6-flash",
-  "gemini-3.5-flash",
-  "gemini-flash-latest",
 ];
 
 function getResponseTextSafely(response: any): string {
@@ -54,7 +64,6 @@ function getResponseTextSafely(response: any): string {
       .filter(Boolean)
       .join("");
     if (partsText && partsText.trim().length > 0) {
-      console.warn("Recovered text from candidate with finishReason:", candidate?.finishReason);
       return partsText;
     }
     throw e;
@@ -62,11 +71,23 @@ function getResponseTextSafely(response: any): string {
 }
 
 export const extractTextFromImage = createServerFn({ method: "POST" })
-  .validator((d: ExtractPayload) => d)
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: ExtractPayload) => {
+    if (!d?.data || typeof d.data !== "string") {
+      throw new Error("Image data is required");
+    }
+    if (d.data.length > 15_000_000) {
+      throw new Error("Image payload too large (max 15MB)");
+    }
+    return {
+      data: d.data,
+      customPrompt: d.customPrompt ? String(d.customPrompt).slice(0, 4000) : undefined,
+    };
+  })
   .handler(async ({ data: payload }) => {
     const base64Image = payload.data;
     const allKeys = await getGeminiApiKeys();
-    const base64Data = base64Image.replace(/^data:image\/(png|jpeg);base64,/, "");
+    const base64Data = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
 
     const prompt = payload.customPrompt
       ? `${payload.customPrompt}\n\nIMPORTANT: Return ONLY the requested content based on the instructions above. Do not include any conversational filler, markdown code blocks, or greetings. Output exactly what is requested.`
@@ -86,143 +107,121 @@ export const extractTextFromImage = createServerFn({ method: "POST" })
     ];
 
     let lastError: any = null;
-    const MAX_RETRIES = 12;
+    const MAX_ATTEMPTS = 6;
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       const activeKeys = getAvailableKeys(allKeys);
+      const key = activeKeys[(ocrKeyIndex++) % activeKeys.length];
+      const modelName = OCR_MODELS[(attempt - 1) % OCR_MODELS.length];
 
-      for (let i = 0; i < activeKeys.length; i++) {
-        const index = currentKeyIndex++ % activeKeys.length;
-        const key = activeKeys[index];
+      try {
+        const genAI = getOcrGenAIClient(key);
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction:
+            "You are an OCR and document digitization engine. Accurately transcribe and digitize the document image into text.",
+          generationConfig: {
+            temperature: 0.1,
+            topP: 0.95,
+          },
+          safetySettings: defaultSafetySettings,
+        });
 
-        for (const modelName of GEMINI_MODELS) {
-          try {
-            const genAI = new GoogleGenerativeAI(key);
-            const model = genAI.getGenerativeModel({
-              model: modelName,
-              systemInstruction:
-                "You are an OCR and document digitization engine. Accurately transcribe and digitize the document image into text.",
-              generationConfig: {
-                temperature: 0.1,
-                topP: 0.95,
-              },
-              safetySettings: defaultSafetySettings,
-            });
-
-            const result = await model.generateContent([prompt, ...imageParts]);
-            const response = await result.response;
-            const text = getResponseTextSafely(response);
-            if (text && text.trim().length > 0) {
-              return text;
-            }
-          } catch (error: any) {
-            lastError = error;
-            const msg = error.message?.toLowerCase() || "";
-
-            if (
-              error.status === 429 ||
-              error.status === 503 ||
-              msg.includes("429") ||
-              msg.includes("503") ||
-              msg.includes("resourceexhausted") ||
-              msg.includes("quota")
-            ) {
-              rateLimitedKeys.set(key, Date.now() + 5000);
-              break; // Try next key
-            }
-
-            if (msg.includes("recitation") || msg.includes("safety") || msg.includes("not found")) {
-              console.warn(`Model ${modelName} hit safety/recitation filter. Trying next Gemini model in pool...`);
-              continue;
-            }
-
-            break;
-          }
+        const result = await model.generateContent([prompt, ...imageParts]);
+        const response = await result.response;
+        const text = getResponseTextSafely(response);
+        if (text && text.trim().length > 0) {
+          return text;
         }
-      }
+      } catch (error: any) {
+        lastError = error;
+        const msg = error.message?.toLowerCase() || "";
 
-      if (attempt < MAX_RETRIES) {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+        if (
+          error.status === 429 ||
+          error.status === 503 ||
+          msg.includes("429") ||
+          msg.includes("503") ||
+          msg.includes("resourceexhausted") ||
+          msg.includes("quota")
+        ) {
+          rateLimitedKeys.set(key, Date.now() + 5000);
+          continue;
+        }
+
+        if (msg.includes("recitation") || msg.includes("safety") || msg.includes("not found")) {
+          continue;
+        }
       }
     }
 
-    console.error("All OCR attempts exhausted:", lastError);
     throw new Error(lastError?.message || "Failed to extract text from image using Gemini.");
   });
 
-type GenerationPayload = {
-  contextText: string;
-  customPrompt: string;
-};
-
 export const generateFromContext = createServerFn({ method: "POST" })
-  .validator((d: GenerationPayload) => d)
+  .middleware([requireSupabaseAuth])
+  .inputValidator((d: GenerationPayload) => {
+    if (!d?.contextText || typeof d.contextText !== "string") {
+      throw new Error("Context text is required");
+    }
+    return {
+      contextText: d.contextText.slice(0, 100_000),
+      customPrompt: String(d.customPrompt || "").slice(0, 5000),
+    };
+  })
   .handler(async ({ data: payload }) => {
     const allKeys = await getGeminiApiKeys();
 
     const prompt = `${payload.customPrompt}\n\nIMPORTANT: Return ONLY the requested content based on the instructions above. Do not include any conversational filler, markdown code blocks, or greetings. Output exactly what is requested.\n\n--- DOCUMENT CONTEXT START ---\n${payload.contextText}\n--- DOCUMENT CONTEXT END ---`;
 
     let lastError: any = null;
-    const MAX_RETRIES = 10;
+    const MAX_ATTEMPTS = 6;
 
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       const activeKeys = getAvailableKeys(allKeys);
+      const key = activeKeys[(ocrKeyIndex++) % activeKeys.length];
+      const modelName = OCR_MODELS[(attempt - 1) % OCR_MODELS.length];
 
-      for (let i = 0; i < activeKeys.length; i++) {
-        const index = currentKeyIndex++ % activeKeys.length;
-        const key = activeKeys[index];
+      try {
+        const genAI = getOcrGenAIClient(key);
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          systemInstruction:
+            "You are an expert document structuring and question extraction assistant. Digitize, format, and organize the user's provided document questions according to their instructions.",
+          generationConfig: {
+            temperature: 0.1,
+            topP: 0.95,
+          },
+          safetySettings: defaultSafetySettings,
+        });
 
-        for (const modelName of GEMINI_MODELS) {
-          try {
-            const genAI = new GoogleGenerativeAI(key);
-            const model = genAI.getGenerativeModel({
-              model: modelName,
-              systemInstruction:
-                "You are an expert document structuring and question extraction assistant. Digitize, format, and organize the user's provided document questions according to their instructions.",
-              generationConfig: {
-                temperature: 0.1,
-                topP: 0.95,
-              },
-              safetySettings: defaultSafetySettings,
-            });
-
-            const result = await model.generateContent([prompt]);
-            const response = await result.response;
-            const text = getResponseTextSafely(response);
-            if (text && text.trim().length > 0) {
-              return text;
-            }
-          } catch (error: any) {
-            lastError = error;
-            const msg = error.message?.toLowerCase() || "";
-
-            if (
-              error.status === 429 ||
-              error.status === 503 ||
-              msg.includes("429") ||
-              msg.includes("503") ||
-              msg.includes("resourceexhausted") ||
-              msg.includes("quota")
-            ) {
-              rateLimitedKeys.set(key, Date.now() + 5000);
-              break;
-            }
-
-            if (msg.includes("recitation") || msg.includes("safety") || msg.includes("not found")) {
-              console.warn(`Model ${modelName} triggered ${msg.includes("recitation") ? "RECITATION" : "safety"} filter. Retrying with next Gemini model...`);
-              continue;
-            }
-
-            break;
-          }
+        const result = await model.generateContent([prompt]);
+        const response = await result.response;
+        const text = getResponseTextSafely(response);
+        if (text && text.trim().length > 0) {
+          return text;
         }
-      }
+      } catch (error: any) {
+        lastError = error;
+        const msg = error.message?.toLowerCase() || "";
 
-      if (attempt < MAX_RETRIES) {
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+        if (
+          error.status === 429 ||
+          error.status === 503 ||
+          msg.includes("429") ||
+          msg.includes("503") ||
+          msg.includes("resourceexhausted") ||
+          msg.includes("quota")
+        ) {
+          rateLimitedKeys.set(key, Date.now() + 5000);
+          continue;
+        }
+
+        if (msg.includes("recitation") || msg.includes("safety") || msg.includes("not found")) {
+          continue;
+        }
       }
     }
 
-    console.error("All Gemini models/keys exhausted in Phase 2 generation:", lastError);
     throw new Error(lastError?.message || "Failed to generate formatted questions using Gemini.");
   });
