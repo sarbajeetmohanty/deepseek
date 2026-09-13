@@ -26,6 +26,17 @@ export const inviteUser = createServerFn({ method: "POST" })
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     await ensureAdmin(supabase, userId);
+    // invitations has no unique constraint on email, so the database will never
+    // raise a duplicate error here — inviting the same address twice would simply
+    // add a second row and the Team page would list it twice. Check explicitly.
+    const { data: existing, error: lookupErr } = await supabase
+      .from("invitations")
+      .select("id")
+      .ilike("email", data.email)
+      .limit(1);
+    if (lookupErr) throw new Error(`Could not check existing invitations: ${lookupErr.message}`);
+    if (existing && existing.length > 0) return { ok: true, duplicate: true };
+
     const { error } = await supabase
       .from("invitations")
       .insert({ email: data.email, invited_by: userId, status: "pending" });
@@ -297,32 +308,49 @@ export const createTeamUser = createServerFn({ method: "POST" })
 
     const newUserId = authUser.user.id;
 
-    // 2. Ensure profile row exists
-    await supabaseAdmin.from("profiles").upsert({
+    // 2. Ensure profile row exists. The handle_new_user trigger also inserts one,
+    // so this is a belt-and-braces upsert rather than the only writer.
+    const { error: profileErr } = await supabaseAdmin.from("profiles").upsert({
       id: newUserId,
       email: data.email,
       full_name: data.fullName || data.email.split("@")[0],
     });
+    if (profileErr) console.error("createTeamUser: profile upsert failed", profileErr.message);
 
-    // 3. Assign role
-    await supabaseAdmin
+    // 3. Assign role. This one is load-bearing: without a row here the account can
+    // sign in but has no role, so surface the failure instead of swallowing it.
+    const { error: roleErr } = await supabaseAdmin
       .from("user_roles")
       .upsert({ user_id: newUserId, role: data.role }, { onConflict: "user_id,role" });
+    if (roleErr) {
+      throw new Error(
+        `Account was created but the ${data.role} role could not be assigned (${roleErr.message}). Remove the user from the team list and add them again.`,
+      );
+    }
 
-    // 4. Mark or insert invitation as accepted so status is clear
-    await supabaseAdmin.from("invitations").upsert({
+    // 4. Record the invitation as accepted. invitations has no unique constraint on
+    // email, so an upsert here would insert a duplicate row on every re-add and the
+    // Team page would list the same address several times. Clear then insert.
+    const { error: invDelErr } = await supabaseAdmin
+      .from("invitations")
+      .delete()
+      .ilike("email", data.email);
+    if (invDelErr) console.error("createTeamUser: invitation cleanup failed", invDelErr.message);
+    const { error: invErr } = await supabaseAdmin.from("invitations").insert({
       email: data.email,
       invited_by: userId,
       status: "accepted",
     });
+    if (invErr) console.error("createTeamUser: invitation insert failed", invErr.message);
 
     // 5. Initialize quota profile
-    await supabaseAdmin
+    const { error: quotaErr } = await supabaseAdmin
       .from("user_quotas")
       .upsert(
         { user_id: newUserId, questions_used: 0, api_calls_used: 0 },
         { onConflict: "user_id" },
       );
+    if (quotaErr) console.error("createTeamUser: quota init failed", quotaErr.message);
 
     return { ok: true, userId: newUserId, email: data.email };
   });
