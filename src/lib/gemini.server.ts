@@ -415,26 +415,12 @@ const defaultSafetySettings = [
 // 1. gemini-3.5-flash-lite: ~1.7s latency, 100% accuracy, independent 15 RPM free tier
 // 2. gemini-3.1-flash-lite-preview: ~1.7s latency, independent 15 RPM free tier
 // 3. gemini-3.1-flash-lite: ~2.0s latency, independent 15 RPM free tier
-// Combined capacity: 3 distinct quota pools x 14 RPM = 42 RPM rock-solid throughput across models!
+// Specific, ultra-fast, lowest-cost Google Gemini Flash-Lite models verified on live benchmarks:
 export const GEMINI_SOLVER_MODELS = [
   "gemini-3.5-flash-lite",
   "gemini-3.1-flash-lite-preview",
   "gemini-3.1-flash-lite",
 ];
-
-interface ModelSlot {
-  name: string;
-  nextAvailableTime: number;
-}
-
-const modelSlots: ModelSlot[] = GEMINI_SOLVER_MODELS.map((name) => ({
-  name,
-  nextAvailableTime: 0,
-}));
-
-// Inter-request pacing per model to guarantee we NEVER exceed Google's 15 RPM per project quota
-// 60,000ms / 4,100ms = 14.63 RPM max per model (strictly below the 15 RPM hard ceiling)
-const MIN_MODEL_INTERVAL_MS = 4100;
 
 const genAiClientCache = new Map<string, GoogleGenerativeAI>();
 function getGenAIClient(key: string): GoogleGenerativeAI {
@@ -447,76 +433,27 @@ function getGenAIClient(key: string): GoogleGenerativeAI {
 }
 
 let globalRequestIndex = 0;
-// Track model-level cooldowns (since Google quotas are PerProjectPerModel)
-const modelCooldowns = new Map<string, number>();
-const permanentlyUnavailableModels = new Set<string>();
+// Track per-key per-model cooldowns: keyHash:modelName -> expiration timestamp
+const keyModelCooldowns = new Map<string, number>();
 const permanentlyDisabledKeys = new Set<string>();
 
-function recordModelCooldown(modelName: string, retryAfterMs?: number) {
-  const cooldown = retryAfterMs ? Math.max(retryAfterMs + 500, 3000) : 10000;
-  modelCooldowns.set(modelName, Date.now() + cooldown);
+function getKeyHash(key: string): string {
+  return key.slice(-8);
 }
 
-async function acquireScheduledModel(preferredModelName?: string): Promise<string> {
-  const now = Date.now();
+function recordKeyModelCooldown(key: string, modelName: string, retryAfterMs?: number) {
+  const cooldown = retryAfterMs ? Math.max(retryAfterMs + 500, 3000) : 10000;
+  keyModelCooldowns.set(`${getKeyHash(key)}:${modelName}`, Date.now() + cooldown);
+}
 
-  // Clean up expired cooldowns
-  for (const [model, exp] of modelCooldowns.entries()) {
-    if (exp <= now) {
-      modelCooldowns.delete(model);
-    }
+function isKeyModelInCooldown(key: string, modelName: string): boolean {
+  const exp = keyModelCooldowns.get(`${getKeyHash(key)}:${modelName}`);
+  if (!exp) return false;
+  if (exp <= Date.now()) {
+    keyModelCooldowns.delete(`${getKeyHash(key)}:${modelName}`);
+    return false;
   }
-
-  const availableSlots = modelSlots.filter((s) => !permanentlyUnavailableModels.has(s.name));
-  if (availableSlots.length === 0) {
-    // Reset if all were marked unavailable
-    permanentlyUnavailableModels.clear();
-  }
-
-  const slotsToEvaluate = availableSlots.length > 0 ? availableSlots : modelSlots;
-  let bestSlot: ModelSlot | null = null;
-  let minEarliestTime = Infinity;
-
-  // Check if preferred model is healthy and ready within 1.5s
-  if (preferredModelName && !permanentlyUnavailableModels.has(preferredModelName)) {
-    const preferred = slotsToEvaluate.find((s) => s.name === preferredModelName);
-    if (preferred) {
-      const cooldownExp = modelCooldowns.get(preferred.name) || 0;
-      const earliest = Math.max(now, preferred.nextAvailableTime, cooldownExp);
-      if (earliest - now <= 1500) {
-        bestSlot = preferred;
-        minEarliestTime = earliest;
-      }
-    }
-  }
-
-  if (!bestSlot) {
-    for (const slot of slotsToEvaluate) {
-      const cooldownExp = modelCooldowns.get(slot.name) || 0;
-      const earliest = Math.max(now, slot.nextAvailableTime, cooldownExp);
-      if (earliest < minEarliestTime) {
-        minEarliestTime = earliest;
-        bestSlot = slot;
-      }
-    }
-  }
-
-  if (!bestSlot) {
-    bestSlot = slotsToEvaluate[0];
-    minEarliestTime = now;
-  }
-
-  const scheduledTime = Math.max(now, minEarliestTime);
-  bestSlot.nextAvailableTime = scheduledTime + MIN_MODEL_INTERVAL_MS;
-  const modelToUse = bestSlot.name;
-  const waitNeeded = scheduledTime - now;
-
-  // Sleep for scheduled interval
-  if (waitNeeded > 0) {
-    await new Promise((r) => setTimeout(r, waitNeeded));
-  }
-
-  return modelToUse;
+  return true;
 }
 
 function classifyError(error: any): { isRateLimitOr503: boolean; retryAfterMs?: number } {
@@ -600,18 +537,28 @@ export async function formatQuestionWithGemini({
   const prompt = `Solve and format the following MCQ:\n\n${cleaned}`;
 
   let lastError: any = null;
-  const MAX_ATTEMPTS = 20;
-
-  const preferredModelName = workerIdx !== undefined ? GEMINI_SOLVER_MODELS[workerIdx % GEMINI_SOLVER_MODELS.length] : undefined;
+  const MAX_ATTEMPTS = 25;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const activeKeys = allKeys.filter((k) => !permanentlyDisabledKeys.has(k));
     if (activeKeys.length === 0) {
       throw new Error("All configured Gemini API keys are invalid or disabled. Please check your keys in Team settings.");
     }
-    // Only use preferred model on the very first attempt; on retries, choose whichever model is available right now
-    const modelName = await acquireScheduledModel(attempt === 1 ? preferredModelName : undefined);
-    const key = activeKeys[(globalRequestIndex++) % activeKeys.length];
+
+    // Rotate keys across every request and retry attempt
+    const keyIndex = (globalRequestIndex++) % activeKeys.length;
+    const key = activeKeys[keyIndex];
+
+    // Pick model stream for this worker/attempt, skipping models in cooldown for this specific key
+    const preferredModelIdx = (workerIdx !== undefined ? workerIdx + attempt - 1 : attempt - 1) % GEMINI_SOLVER_MODELS.length;
+    let modelName = GEMINI_SOLVER_MODELS[preferredModelIdx];
+
+    if (isKeyModelInCooldown(key, modelName)) {
+      const alternate = GEMINI_SOLVER_MODELS.find((m) => !isKeyModelInCooldown(key, m));
+      if (alternate) {
+        modelName = alternate;
+      }
+    }
 
     try {
       const genAI = getGenAIClient(key);
@@ -651,13 +598,8 @@ export async function formatQuestionWithGemini({
       const { isRateLimitOr503, retryAfterMs } = classifyError(error);
 
       if (isRateLimitOr503) {
-        recordModelCooldown(modelName, retryAfterMs);
-        // Next iteration will automatically acquire another available model
-        continue;
-      }
-
-      if (msg.includes("not found") || msg.includes("deprecated") || msg.includes("perdayperprojectpermodel")) {
-        permanentlyUnavailableModels.add(modelName);
+        recordKeyModelCooldown(key, modelName, retryAfterMs);
+        // Immediate next attempt will rotate to another key or model
         continue;
       }
 
@@ -665,7 +607,7 @@ export async function formatQuestionWithGemini({
         continue;
       }
 
-      // Unknown/transient error; retry next model
+      // Transient error; retry next key/model
       continue;
     }
   }
