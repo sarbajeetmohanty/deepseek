@@ -120,10 +120,13 @@ export async function processBatchInternal(batchId: string): Promise<void> {
           }
         }
 
+        const doneCount = await countStatus(batchId, "done");
+        const failedCount = await countStatus(batchId, "failed");
+
         const { error: bErr } = await supabaseAdmin
           .from("batches")
           .update({
-            completed: completedCount,
+            completed: doneCount,
             failed: failedCount,
             status: "processing",
           })
@@ -131,9 +134,10 @@ export async function processBatchInternal(batchId: string): Promise<void> {
         if (bErr) console.error("batch counter flush failed", bErr.message);
 
         if (ownerId && callsToFlush > 0) {
-          const { error: rpcErr } = await supabaseAdmin.rpc("increment_user_quota_calls", {
-            p_user_id: ownerId,
-            p_count: callsToFlush,
+          const { error: rpcErr } = await supabaseAdmin.rpc("increment_user_usage", {
+            _user_id: ownerId,
+            _add_questions: 0,
+            _add_calls: callsToFlush,
           });
           if (rpcErr) console.error("api_calls flush failed", rpcErr.message);
         }

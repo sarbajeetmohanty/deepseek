@@ -56,13 +56,12 @@ function BatchView() {
       if (!data) throw notFound();
       return data;
     },
-    // Realtime handles live updates; use a slow safety-net poll only while
-    // processing (in case the realtime socket dropped). Terminal → stop.
+    // Live safety-net poll every 2.5s while processing so UI never lags behind.
     refetchInterval: (query) => {
       const b = query.state.data as { status?: string } | undefined;
-      return b && b.status !== "processing" ? false : 15000;
+      return b && b.status !== "processing" ? false : 2500;
     },
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
     retry: 1,
   });
 
@@ -78,12 +77,12 @@ function BatchView() {
       if (error) throw new Error(error.message);
       return data ?? [];
     },
-    // Realtime pushes UPDATEs → invalidates this query. Slow safety poll only.
+    // Realtime pushes UPDATEs + 2.5s polling fallback while processing
     refetchInterval: () => {
       const b = qc.getQueryData<{ status?: string }>(["batch", id]);
-      return b && b.status !== "processing" ? false : 15000;
+      return b && b.status !== "processing" ? false : 2500;
     },
-    refetchOnWindowFocus: false,
+    refetchOnWindowFocus: true,
     retry: 1,
   });
 
@@ -108,12 +107,22 @@ function BatchView() {
   const resume = useMutation({
     mutationFn: () => resumeBatch({ data: { batchId: id } }),
     onSuccess: () => {
-      toast.success("Resuming batch processing...");
       qc.invalidateQueries({ queryKey: ["batch", id] });
       qc.invalidateQueries({ queryKey: ["questions", id] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not resume"),
+    onError: (e: unknown) => {
+      console.warn("Auto-resume notice:", e instanceof Error ? e.message : String(e));
+    },
   });
+
+  // Auto-resume watchdog: if the batch is processing but worker stopped/restarted, automatically resume immediately
+  useEffect(() => {
+    if (!batch) return;
+    const isPendingOrProcessing = batch.status === "processing" && (batch.completed + batch.failed < batch.total);
+    if (isPendingOrProcessing && !resume.isPending) {
+      resume.mutate();
+    }
+  }, [batch?.id, batch?.status, batch?.completed, batch?.total]);
 
   const nav = useNavigate();
   const remove = useMutation({

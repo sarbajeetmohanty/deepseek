@@ -149,29 +149,6 @@ export const clearDeepseekApiKey = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-// Admin-only: temporarily reveal the raw key so an admin can copy it.
-// The value is transmitted over the authenticated server-fn channel
-// (same origin, TLS, bearer token) and NEVER cached in React Query.
-export const revealDeepseekApiKey = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    await ensureAdmin(context.supabase, context.userId);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data, error } = await supabaseAdmin
-      .from("app_settings")
-      .select("value")
-      .eq("key", DEEPSEEK_KEY)
-      .maybeSingle();
-    if (error) throw new Error(`Could not read key: ${error.message}`);
-    const stored = data?.value?.trim();
-    if (!stored) {
-      const envKey = process.env.DEEPSEEK_API_KEY?.trim();
-      if (envKey) return { source: "env" as const, value: envKey };
-      throw new Error("No key is configured");
-    }
-    return { source: "database" as const, value: stored };
-  });
-
 // ============================================================================
 // GEMINI API KEYS (Multi-key Support)
 // ============================================================================
@@ -299,24 +276,4 @@ export const clearGeminiApiKeys = createServerFn({ method: "POST" })
     if (error) throw new Error(`Could not clear keys: ${error.message}`);
     invalidateGeminiCache();
     return { ok: true };
-  });
-
-export const revealGeminiApiKeys = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
-    await ensureAdmin(context.supabase, context.userId);
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data, error } = await supabaseAdmin
-      .from("app_settings")
-      .select("value")
-      .eq("key", GEMINI_KEYS_SETTING)
-      .maybeSingle();
-    if (error) throw new Error(`Could not read Gemini keys: ${error.message}`);
-    const stored = data?.value?.trim();
-    if (!stored) {
-      const envKey = process.env.GEMINI_API_KEYS?.trim();
-      if (envKey) return { source: "env" as const, value: envKey };
-      throw new Error("No Gemini keys are configured");
-    }
-    return { source: "database" as const, value: stored };
   });

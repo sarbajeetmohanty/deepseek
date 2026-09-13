@@ -13,7 +13,7 @@ import {
   createTeamUser,
   updateUserPassword,
 } from "@/lib/invitations.functions";
-import { getGeminiKeyStatus, setGeminiApiKeys, clearGeminiApiKeys, revealGeminiApiKeys } from "@/lib/settings.functions";
+import { getGeminiKeyStatus, setGeminiApiKeys, clearGeminiApiKeys } from "@/lib/settings.functions";
 import { listQuotas, setUserQuota } from "@/lib/quotas.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -308,26 +308,10 @@ function AdminPage() {
     mutationFn: () => clearGeminiApiKeys({ data: {} } as any),
     onSuccess: () => {
       toast.success("Gemini API keys cleared");
-      setGeminiRevealed(null);
       qc.invalidateQueries({ queryKey: ["gemini-key-status"] });
     },
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not clear Gemini keys"),
   });
-
-  const [geminiRevealed, setGeminiRevealed] = useState<string | null>(null);
-  const revealGeminiKeys = useMutation({
-    mutationFn: () => revealGeminiApiKeys({ data: {} } as any),
-    onSuccess: (res) => {
-      setGeminiRevealed(res.value);
-      navigator.clipboard.writeText(res.value).then(
-        () => toast.success(`Keys from ${res.source} copied to clipboard`),
-        () => toast.success(`Keys revealed but could not copy to clipboard`),
-      );
-      setTimeout(() => setGeminiRevealed(null), 20000);
-    },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not reveal Gemini keys"),
-  });
-
 
   const adminCount = (team ?? []).filter((p: any) => (p.roles ?? []).includes("admin")).length;
 
@@ -373,7 +357,7 @@ function AdminPage() {
             <div className="flex gap-2">
               <Input
                 type="password"
-                placeholder="AIzaSy..., AIzaSy..., AIzaSy..."
+                placeholder="Paste keys here (AIzaSy...)"
                 value={geminiApiKeys}
                 onChange={(e) => setGeminiApiKeysState(e.target.value)}
                 autoComplete="off"
@@ -387,7 +371,7 @@ function AdminPage() {
                   variant="ghost"
                   disabled={clearGeminiKeys.isPending}
                   onClick={() => {
-                    if (!window.confirm("Remove the saved Gemini keys? PDF extraction will stop until new keys are saved.")) return;
+                    if (!window.confirm("Remove the saved Gemini keys? Question solving will stop until new keys are saved.")) return;
                     clearGeminiKeys.mutate();
                   }}
                   className="text-destructive hover:text-destructive hover:bg-destructive/10"
@@ -395,23 +379,6 @@ function AdminPage() {
               )}
             </div>
           </form>
-          {geminiKeyStatus?.configured && (
-            <div className="flex flex-wrap items-center gap-2 pt-1">
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                disabled={revealGeminiKeys.isPending}
-                onClick={() => {
-                  if (!window.confirm("Reveal the current Gemini keys? They will be shown here and copied to your clipboard for 20 seconds.")) return;
-                  revealGeminiKeys.mutate();
-                }}
-              >{revealGeminiKeys.isPending ? "…" : geminiRevealed ? "Re-copy" : "Reveal & copy keys"}</Button>
-              {geminiRevealed && (
-                <code className="font-mono text-xs bg-muted px-2 py-1 rounded break-all max-w-full overflow-hidden text-ellipsis">{geminiRevealed}</code>
-              )}
-            </div>
-          )}
           <p className="text-xs text-muted-foreground mt-2">
             Get free keys at aistudio.google.com. Paste as many as you want, separated by commas.
           </p>
