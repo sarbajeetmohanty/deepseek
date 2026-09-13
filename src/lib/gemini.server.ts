@@ -612,9 +612,22 @@ async function acquireSlot(
     );
   }
 
-  const offset = workerIdx ?? 0;
-  let bestKey = usableKeys[offset % usableKeys.length];
-  let bestModel = GEMINI_SOLVER_MODELS[offset % GEMINI_SOLVER_MODELS.length];
+  // Start each scan at a RANDOM key, not at the worker's index.
+  //
+  // Buckets this process has not touched yet all sit at 0, and the comparison
+  // below is a strict "<", so among equally-free buckets the first one scanned
+  // always wins and no later one can displace it. With a fixed starting point
+  // that made every worker walk the pool serially from its own index - key 0
+  // model 0, model 1, model 2, key 1, ... - so a worker had to fail through every
+  // dead bucket one at a time before reaching a live key. With the first 18 keys
+  // out of daily quota that is 54 failures at ~2s each, and the measured result
+  // was a batch sitting at 0/100 for roughly 190 seconds while ~60 healthy keys
+  // stayed idle. Randomising the start spreads workers over the whole pool
+  // immediately, so dead keys are discovered in parallel instead of in sequence.
+  const offset = Math.floor(Math.random() * usableKeys.length);
+  const modelOffset = Math.floor(Math.random() * GEMINI_SOLVER_MODELS.length);
+  let bestKey = usableKeys[offset];
+  let bestModel = GEMINI_SOLVER_MODELS[modelOffset];
   let bestAt = Infinity;
 
   // Full scan, no early exit. An earlier version stopped at the first idle bucket
@@ -629,7 +642,7 @@ async function acquireSlot(
     const k = usableKeys[(offset + i) % usableKeys.length];
     const keyAt = keyNextAvailable.get(k) ?? 0;
     for (let j = 0; j < GEMINI_SOLVER_MODELS.length; j++) {
-      const m = GEMINI_SOLVER_MODELS[(offset + j) % GEMINI_SOLVER_MODELS.length];
+      const m = GEMINI_SOLVER_MODELS[(modelOffset + j) % GEMINI_SOLVER_MODELS.length];
       const at = Math.max(slotNextAvailable.get(slotId(k, m)) ?? 0, keyAt);
       if (at < bestAt) {
         bestAt = at;
