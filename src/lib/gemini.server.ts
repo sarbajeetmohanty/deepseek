@@ -532,6 +532,16 @@ const KEY_MIN_INTERVAL_MS = 1333;
 // so park the bucket instead of hammering it.
 const HARD_EXHAUSTION_BACKOFF_MS = 60_000;
 
+// A bucket that keeps coming back exhausted after serving out full parking
+// periods has run out of DAILY quota, not per-minute quota, and will not recover
+// until Google's daily reset. Park those for hours so the scheduler stops
+// spending attempts on them and routes to keys that still have budget.
+const HARD_FAILS_BEFORE_DAILY = 3;
+const DAILY_EXHAUSTION_BACKOFF_MS = 3 * 60 * 60 * 1000;
+
+// `${key} ${model}` -> consecutive bare-429s. Cleared by any success.
+const hardFailStreak = new Map<string, number>();
+
 // Longest a single request will sit waiting for a free bucket. Past this the
 // pool is saturated and waiting only freezes the batch, so the question fails
 // fast and "Retry failed" can pick it up once the pool refills.
@@ -649,19 +659,42 @@ async function acquireSlot(
  * Jitter stops workers released at the same instant from colliding again.
  */
 function penalizeSlot(key: string, modelName: string, retryAfterMs?: number) {
-  // No RetryInfo means a bare RESOURCE_EXHAUSTED: the bucket is spent, not merely
-  // early. Park it for a minute. A server-supplied retryDelay is honoured as-is.
+  // No RetryInfo means a bare RESOURCE_EXHAUSTED. That covers two very different
+  // situations, and telling them apart matters:
+  //
+  //   - the per-minute allowance (15/model/key) ran out, which clears in ~60s
+  //   - the DAILY allowance (~1500/model/key) ran out, which does not clear until
+  //     Google's daily reset
+  //
+  // Both look identical in a single response, so distinguish them by behaviour: a
+  // bucket that keeps returning a bare 429 even after serving out a full parking
+  // period is not minute-limited, it is done for the day. Verified directly -
+  // keys left completely idle for a full 60s window still returned 429, and stayed
+  // that way. Parking those for only a minute means retrying dead keys all day and
+  // burning attempts that a live key could have used.
   const isHardExhaustion = retryAfterMs === undefined;
-  const backoff = isHardExhaustion
-    ? HARD_EXHAUSTION_BACKOFF_MS + Math.floor(Math.random() * 5000)
-    : Math.max(retryAfterMs, SLOT_MIN_INTERVAL_MS) + 500 + Math.floor(Math.random() * 1000);
   const id = slotId(key, modelName);
-  const until = Date.now() + backoff;
-  slotNextAvailable.set(id, Math.max(slotNextAvailable.get(id) ?? 0, until));
+
+  let backoff: number;
   if (isHardExhaustion) {
-    // Give the whole key a moment too; its other models are usually close behind.
+    const streak = (hardFailStreak.get(id) ?? 0) + 1;
+    hardFailStreak.set(id, streak);
+    backoff =
+      streak >= HARD_FAILS_BEFORE_DAILY
+        ? DAILY_EXHAUSTION_BACKOFF_MS + Math.floor(Math.random() * 600_000)
+        : HARD_EXHAUSTION_BACKOFF_MS + Math.floor(Math.random() * 5000);
+    // Nudge the whole key too; its other models are usually close behind.
     keyNextAvailable.set(key, Math.max(keyNextAvailable.get(key) ?? 0, Date.now() + 5000));
+  } else {
+    backoff = Math.max(retryAfterMs, SLOT_MIN_INTERVAL_MS) + 500 + Math.floor(Math.random() * 1000);
   }
+
+  slotNextAvailable.set(id, Math.max(slotNextAvailable.get(id) ?? 0, Date.now() + backoff));
+}
+
+/** A bucket that answers successfully is clearly not out of daily quota. */
+function noteSlotSuccess(key: string, modelName: string) {
+  hardFailStreak.delete(slotId(key, modelName));
 }
 
 function classifyError(error: any): { isRateLimitOr503: boolean; retryAfterMs?: number } {
@@ -814,6 +847,8 @@ export async function formatQuestionWithGemini({
       const response = await result.response;
       const text = getResponseTextSafely(response);
       if (text && text.trim().length > 0) {
+        // This bucket clearly still has quota, so clear any daily-exhaustion suspicion.
+        noteSlotSuccess(key, modelName);
         return sanitizeAiOutput(latexToText(text), idx, subjectType);
       }
     } catch (error: any) {
