@@ -542,15 +542,22 @@ const DAILY_EXHAUSTION_BACKOFF_MS = 3 * 60 * 60 * 1000;
 // `${key} ${model}` -> consecutive bare-429s. Cleared by any success.
 const hardFailStreak = new Map<string, number>();
 
-// Longest a single request will sit waiting for a free bucket. Past this the
-// pool is saturated and waiting only freezes the batch, so the question fails
-// fast and "Retry failed" can pick it up once the pool refills.
-const MAX_SLOT_WAIT_MS = 20_000;
+// Longest a single request will sit waiting for a free bucket.
+//
+// This MUST exceed HARD_EXHAUSTION_BACKOFF_MS, or a rate-limited bucket can never
+// be waited out. At 20s against a 60s park it could not: one wave of 429s parked
+// most buckets for 60s, every question behind it then saw a wait longer than 20s
+// and was abandoned on the spot despite having most of its budget left. Measured
+// effect - a 100-question batch gave up 74 questions in 45 seconds, which is far
+// too fast to be genuine rate limiting. Waiting ~65s and succeeding beats failing
+// instantly every time, because the bucket really does come back.
+const MAX_SLOT_WAIT_MS = 70_000;
 
-// Whole-question budget across all attempts. Without it, 12 attempts each
-// parking a bucket for 60s could hold one question for twelve minutes while the
-// rest of the batch waits behind it.
-const QUESTION_BUDGET_MS = 90_000;
+// Whole-question budget across all attempts. Sized to allow roughly three full
+// bucket recoveries before giving up, so a question is only abandoned when the
+// pool is genuinely dead rather than merely busy. A batch runs in the background,
+// so a slow question costs far less than a failed one.
+const QUESTION_BUDGET_MS = 240_000;
 
 // `${key}::${model}` -> epoch ms at which this bucket may next be used.
 const slotNextAvailable = new Map<string, number>();
