@@ -940,7 +940,11 @@ export async function formatQuestionWithGemini({
           generationConfig: {
             temperature: 0.1,
             topP: 0.1,
-            maxOutputTokens: 1200,
+            // A full 8-10 point Hindi solution runs to roughly 1,000-1,700
+            // characters, and 1200 tokens was not always enough: measured answers
+            // came back cut off mid-word ("...Solution") or stopping after option
+            // C, with no Answer line at all. Those were then stored as "done".
+            maxOutputTokens: 2048,
           },
           safetySettings: defaultSafetySettings,
         },
@@ -953,6 +957,20 @@ export async function formatQuestionWithGemini({
 
       const result = await model.generateContent([prompt]);
       const response = await result.response;
+
+      // Reject a truncated answer instead of saving it. finishReason MAX_TOKENS
+      // means the model was still writing, so the text is missing whatever comes
+      // last - usually the Answer line and the Solution. Falling through to the
+      // retry loop lets another attempt produce a complete answer; keeping it
+      // would silently store a half-written question.
+      const finishReason = (response as any)?.candidates?.[0]?.finishReason;
+      if (finishReason === "MAX_TOKENS") {
+        lastError = new Error(
+          `Model ${modelName} hit the output limit and returned a truncated answer`,
+        );
+        continue;
+      }
+
       const text = getResponseTextSafely(response);
       if (text && text.trim().length > 0) {
         // This bucket clearly still has quota, so clear any daily-exhaustion suspicion.
