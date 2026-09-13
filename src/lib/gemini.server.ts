@@ -493,8 +493,9 @@ const defaultSafetySettings = [
 // per key/project and shared across every model. The list buys failover when one
 // model is briefly unavailable, not three times the capacity.
 export const GEMINI_SOLVER_MODELS = [
-  "gemini-3.1-flash-lite",
   "gemini-3.5-flash-lite",
+  "gemini-3.1-flash-lite",
+  "gemini-3.1-flash-lite-preview",
   "gemini-3-flash-preview",
 ];
 

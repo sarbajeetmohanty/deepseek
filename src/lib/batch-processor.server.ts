@@ -180,7 +180,8 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     // old keyCount/3 rule gave 8 workers against a supply of 6.9 calls/sec - the
     // pool was 93% idle and 100 questions took minutes. Conversely 80 workers on
     // a pool that only had ~15 live keys just piled onto the survivors.
-    const MODELS_PER_KEY = 3;
+    const { GEMINI_SOLVER_MODELS } = await import("./gemini.server");
+    const MODELS_PER_KEY = GEMINI_SOLVER_MODELS.length;
     const SLOT_SECONDS = 6.5;
     const AVG_QUESTION_SECONDS = 15;
     const supplyPerSecond = (keyCount * MODELS_PER_KEY) / SLOT_SECONDS;
