@@ -432,3 +432,102 @@ async function finalize(batchId: string): Promise<void> {
     console.error("finalize threw", e);
   }
 }
+
+// ===========================================================================
+// STUCK-BATCH SWEEPER
+//
+// A batch can be abandoned mid-flight when the server process is restarted or
+// redeployed: its questions stay at status "processing" with no output and no
+// error, and batches.status stays "processing" forever. The UI has a stall
+// watchdog, but it only fires while somebody has that batch page open, so a
+// batch abandoned overnight simply sits there (observed: several stuck since
+// 2026-09-09, most of them one question short of finishing).
+//
+// The DB lease already tells us whether a live worker owns a batch. Anything
+// still "processing" with no unexpired lease has no owner, so it is safe to
+// pick back up. processBatchInternal already selects every row that is not
+// "done", so re-running it finishes exactly the missing questions.
+// ===========================================================================
+
+const SWEEP_INTERVAL_MS = 120_000;
+// Recover strictly one batch at a time. CONCURRENCY is enforced per batch, so
+// two recovered batches running together mean 2x the workers against the same
+// key pool. Measured: resuming four at once put all 17 keys into rate-limiting
+// and every batch then made zero progress. The API pool - not worker count - is
+// the bottleneck, so serialising recovery is strictly faster than parallelising.
+const MAX_RESUMES_PER_SWEEP = 1;
+let sweeperStarted = false;
+
+async function isBatchOwnedByLiveWorker(supabaseAdmin: any, batchId: string): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from("app_settings")
+    .select("value")
+    .eq("key", `batch_lease_${batchId}`)
+    .maybeSingle();
+  if (!data?.value) return false;
+  try {
+    const parsed = JSON.parse(data.value);
+    return Boolean(parsed.expiresAt && parsed.expiresAt > Date.now());
+  } catch {
+    return false;
+  }
+}
+
+export async function sweepStuckBatches(): Promise<number> {
+  const { supabaseAdmin } = await import("../integrations/supabase/client.server");
+  let resumed = 0;
+  try {
+    const { data: candidates, error } = await supabaseAdmin
+      .from("batches")
+      .select("id, total, completed, failed")
+      .eq("status", "processing")
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (error) {
+      console.error("[Sweeper] could not list processing batches", error.message);
+      return 0;
+    }
+
+    for (const b of candidates ?? []) {
+      // Already finished but never finalised: correcting the status costs no API
+      // calls, so do it regardless of what else is running.
+      if ((b.completed ?? 0) + (b.failed ?? 0) >= (b.total ?? 0)) {
+        await finalize(b.id).catch((e) => console.error("[Sweeper] finalize failed", e));
+        continue;
+      }
+      if (resumed >= MAX_RESUMES_PER_SWEEP) break;
+      // Never start recovery work alongside a batch that is already running -
+      // whether a user started it or an earlier sweep did. Workers are capped per
+      // batch, so overlapping batches multiply the load on one shared key pool.
+      if (activeBatches.size > 0) break;
+      if (await isBatchOwnedByLiveWorker(supabaseAdmin, b.id)) continue;
+
+      console.log(
+        `[Sweeper] Resuming abandoned batch ${b.id} (${b.completed}/${b.total} done, ${b.failed} failed)`,
+      );
+      resumed++;
+      void processBatchInternal(b.id).catch((e) =>
+        console.error(`[Sweeper] resume of ${b.id} failed`, e),
+      );
+    }
+  } catch (e) {
+    console.error("[Sweeper] sweep threw", e);
+  }
+  return resumed;
+}
+
+// Called once from the server entry so recovery does not depend on a browser
+// being open, or on anyone starting a new batch first.
+export function startStuckBatchSweeper(): void {
+  if (sweeperStarted) return;
+  sweeperStarted = true;
+  const timer = setInterval(() => {
+    void sweepStuckBatches().catch(() => {});
+  }, SWEEP_INTERVAL_MS);
+  // Never hold the process open just for the sweeper.
+  (timer as unknown as { unref?: () => void }).unref?.();
+  // First pass shortly after boot, once the server has settled.
+  setTimeout(() => {
+    void sweepStuckBatches().catch(() => {});
+  }, 15_000).unref?.();
+}

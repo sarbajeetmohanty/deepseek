@@ -18,6 +18,21 @@ async function getServerEntry(): Promise<ServerEntry> {
   return serverEntryPromise;
 }
 
+// A restart or redeploy abandons any batch that was mid-flight: its rows stay at
+// status "processing" with no output and no error, and nothing picks them back
+// up, because the UI's stall watchdog only runs while that batch page is open.
+// Start the server-side sweeper once per boot so recovery does not depend on a
+// browser being open. It is fire-and-forget: a failure here must never stop the
+// server from serving requests.
+let sweeperKickedOff = false;
+function ensureStuckBatchSweeper(): void {
+  if (sweeperKickedOff) return;
+  sweeperKickedOff = true;
+  void import("./lib/batch-processor.server")
+    .then((m) => m.startStuckBatchSweeper())
+    .catch((e) => console.error("could not start stuck-batch sweeper", e));
+}
+
 // h3 swallows in-handler throws into a normal 500 Response with body
 // {"unhandled":true,"message":"HTTPError"} — try/catch alone never fires for those.
 async function normalizeCatastrophicSsrResponse(response: Response): Promise<Response> {
@@ -46,6 +61,7 @@ function isH3SwallowedErrorBody(body: string): boolean {
 
 export default {
   async fetch(request: Request, env: unknown, ctx: unknown) {
+    ensureStuckBatchSweeper();
     try {
       const handler = await getServerEntry();
       const response = await handler.fetch(request, env, ctx);

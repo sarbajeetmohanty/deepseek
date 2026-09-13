@@ -532,6 +532,16 @@ const KEY_MIN_INTERVAL_MS = 1200;
 // so park the bucket instead of hammering it.
 const HARD_EXHAUSTION_BACKOFF_MS = 60_000;
 
+// Longest a single request will sit waiting for a free bucket. Past this the
+// pool is saturated and waiting only freezes the batch, so the question fails
+// fast and "Retry failed" can pick it up once the pool refills.
+const MAX_SLOT_WAIT_MS = 20_000;
+
+// Whole-question budget across all attempts. Without it, 12 attempts each
+// parking a bucket for 60s could hold one question for twelve minutes while the
+// rest of the batch waits behind it.
+const QUESTION_BUDGET_MS = 90_000;
+
 // `${key}::${model}` -> epoch ms at which this bucket may next be used.
 const slotNextAvailable = new Map<string, number>();
 // key -> epoch ms at which that key (any model) may next be used.
@@ -574,6 +584,7 @@ async function acquireSlot(
   keys: string[],
   workerIdx: number | undefined,
   signal?: AbortSignal,
+  maxWaitMs: number = MAX_SLOT_WAIT_MS,
 ): Promise<{ key: string; modelName: string }> {
   const now = Date.now();
   const usableKeys = keys.filter((k) => (disabledKeysUntil.get(k) || 0) <= now);
@@ -605,11 +616,24 @@ async function acquireSlot(
   }
 
   const scheduledAt = Math.max(now, bestAt);
+  const waitMs = scheduledAt - now;
+
+  // Every bucket is parked further out than we are willing to wait, which means
+  // the whole pool is saturated. Firing early would only earn another 429, and
+  // sleeping it out would freeze the batch (12 attempts x a 60s park is 12
+  // minutes on a single question). Give up instead: the caller fails this
+  // question, the batch keeps moving, and "Retry failed" picks it up once the
+  // pool has refilled. Do NOT reserve the slot on this path.
+  if (waitMs > maxWaitMs) {
+    throw new Error(
+      `Gemini key pool is saturated - every key/model is rate-limited for at least ${Math.round(waitMs / 1000)}s. Wait a minute, then use "Retry failed".`,
+    );
+  }
+
   // Reserve synchronously, before any await, so the slot is claimed atomically.
   slotNextAvailable.set(slotId(bestKey, bestModel), scheduledAt + SLOT_MIN_INTERVAL_MS);
   keyNextAvailable.set(bestKey, scheduledAt + KEY_MIN_INTERVAL_MS);
 
-  const waitMs = scheduledAt - now;
   if (waitMs > 0) await sleep(waitMs, signal);
   return { key: bestKey, modelName: bestModel };
 }
@@ -730,15 +754,35 @@ export async function formatQuestionWithGemini({
   // the old tight spin of instant retries against already-throttled models.
   const MAX_ATTEMPTS = 12;
 
+  const startedAt = Date.now();
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) {
       throw new Error("Question solving aborted");
     }
 
+    // Stop once this question has had its share of time. A worker stuck behind a
+    // saturated pool blocks every question queued behind it, so it is better to
+    // fail here and let the batch continue than to hold the slot indefinitely.
+    const elapsed = Date.now() - startedAt;
+    if (elapsed > QUESTION_BUDGET_MS) {
+      throw new Error(
+        lastError?.message ||
+          `Gave up after ${Math.round(elapsed / 1000)}s: the Gemini key pool is rate-limited. Use "Retry failed" once it recovers.`,
+      );
+    }
+
     // Wait for the (key, model) bucket that frees up soonest. This is the only
     // pacing in the pipeline — it is what keeps us under the per-minute cap.
-    // A throw here (no usable keys, or aborted) is terminal: retrying cannot help.
-    const { key, modelName } = await acquireSlot(allKeys, workerIdx, signal);
+    // A throw here (no usable keys, saturated pool, or aborted) is terminal for
+    // this question: retrying immediately cannot help.
+    const remainingBudget = QUESTION_BUDGET_MS - elapsed;
+    const { key, modelName } = await acquireSlot(
+      allKeys,
+      workerIdx,
+      signal,
+      Math.min(MAX_SLOT_WAIT_MS, remainingBudget),
+    );
 
     try {
       const genAI = getGenAIClient(key);
