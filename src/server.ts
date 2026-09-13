@@ -24,6 +24,11 @@ async function getServerEntry(): Promise<ServerEntry> {
 // Start the server-side sweeper once per boot so recovery does not depend on a
 // browser being open. It is fire-and-forget: a failure here must never stop the
 // server from serving requests.
+// Started at module load, NOT from the request handler. Hanging it off `fetch`
+// meant it only began after somebody visited the site - so a server that restarted
+// overnight recovered nothing until the first visitor arrived, which is precisely
+// the situation the sweeper exists for. Verified: a freshly booted server that
+// served no requests logged no sweeps at all.
 let sweeperKickedOff = false;
 function ensureStuckBatchSweeper(): void {
   if (sweeperKickedOff) return;
@@ -32,6 +37,11 @@ function ensureStuckBatchSweeper(): void {
     .then((m) => m.startStuckBatchSweeper())
     .catch((e) => console.error("could not start stuck-batch sweeper", e));
 }
+
+// Fire-and-forget at import time: a failure here must never stop the server from
+// serving requests. It is still called from `fetch` as a belt-and-braces retry in
+// case module evaluation order ever changes.
+ensureStuckBatchSweeper();
 
 // h3 swallows in-handler throws into a normal 500 Response with body
 // {"unhandled":true,"message":"HTTPError"} — try/catch alone never fires for those.

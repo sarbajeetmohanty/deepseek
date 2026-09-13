@@ -442,6 +442,17 @@ async function finalize(batchId: string): Promise<void> {
       .update({ completed: done, failed, status })
       .eq("id", batchId);
     if (error) console.error("finalize update failed", error.message);
+
+    // Came out clean, so drop the auto-retry counter. Without this a batch that
+    // needed a retry once would keep its used-up allowance forever and could not
+    // be auto-retried again if it were ever re-run.
+    if (status === "completed") {
+      const { error: clearErr } = await supabaseAdmin
+        .from("app_settings")
+        .delete()
+        .eq("key", `batch_autoretry_${batchId}`);
+      if (clearErr) console.error("auto-retry counter cleanup failed", clearErr.message);
+    }
   } catch (e) {
     console.error("finalize threw", e);
   }
@@ -487,6 +498,94 @@ async function isBatchOwnedByLiveWorker(supabaseAdmin: any, batchId: string): Pr
   }
 }
 
+// How many times a finished batch may be automatically re-run to clear failures
+// that were only ever rate-limiting, and how long to leave the pool alone first.
+const MAX_AUTO_RETRIES = 3;
+const AUTO_RETRY_DELAY_MS = 6 * 60 * 1000;
+
+/**
+ * Re-queue questions that failed purely because the key pool was rate-limited.
+ *
+ * Those failures are transient by definition: the same question succeeds once the
+ * per-minute window rolls over. Leaving them sitting in "failed" means a batch
+ * finishes at, say, 90/100 and waits for somebody to notice and press "Retry
+ * failed". Retrying automatically - a few times, spaced out - turns that into
+ * 100/100 without anyone watching.
+ *
+ * Deliberately narrow: only rate-limit errors qualify. A question that failed for
+ * any other reason (safety filter, malformed input) would fail again, so retrying
+ * it would just burn quota. The attempt count is kept in app_settings so a batch
+ * cannot loop forever, and is cleared once the batch comes out clean.
+ */
+async function retryRateLimitedFailures(supabaseAdmin: any): Promise<boolean> {
+  const { data: batches } = await supabaseAdmin
+    .from("batches")
+    .select("id, total, completed, failed")
+    .eq("status", "completed_with_errors")
+    .gt("failed", 0)
+    .order("created_at", { ascending: false })
+    .limit(20);
+
+  for (const b of batches ?? []) {
+    if (activeBatches.size > 0) return false;
+    const counterKey = `batch_autoretry_${b.id}`;
+    const { data: row } = await supabaseAdmin
+      .from("app_settings")
+      .select("value")
+      .eq("key", counterKey)
+      .maybeSingle();
+
+    let tries = 0;
+    let lastAt = 0;
+    if (row?.value) {
+      try {
+        const p = JSON.parse(row.value);
+        tries = Number(p.tries ?? 0);
+        lastAt = Number(p.lastAt ?? 0);
+      } catch {}
+    }
+    if (tries >= MAX_AUTO_RETRIES) continue;
+    if (Date.now() - lastAt < AUTO_RETRY_DELAY_MS) continue;
+
+    // Only re-queue the ones that hit rate limiting.
+    const { data: failedRows } = await supabaseAdmin
+      .from("questions")
+      .select("id, error")
+      .eq("batch_id", b.id)
+      .eq("status", "failed")
+      .limit(2000);
+    const transient = (failedRows ?? [])
+      .filter((q: any) =>
+        /429|quota|resource has been exhausted|rate|saturated|gave up after/i.test(
+          String(q.error ?? ""),
+        ),
+      )
+      .map((q: any) => q.id);
+    if (transient.length === 0) continue;
+
+    for (let i = 0; i < transient.length; i += 200) {
+      await supabaseAdmin
+        .from("questions")
+        .update({ status: "pending", error: null })
+        .in("id", transient.slice(i, i + 200));
+    }
+    await supabaseAdmin.from("batches").update({ status: "processing" }).eq("id", b.id);
+    await supabaseAdmin.from("app_settings").upsert(
+      {
+        key: counterKey,
+        value: JSON.stringify({ tries: tries + 1, lastAt: Date.now() }),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" },
+    );
+    console.log(
+      `[Sweeper] Auto-retry ${tries + 1}/${MAX_AUTO_RETRIES} for batch ${b.id}: re-queued ${transient.length} rate-limited question(s)`,
+    );
+    return true;
+  }
+  return false;
+}
+
 export async function sweepStuckBatches(): Promise<number> {
   const { supabaseAdmin } = await import("../integrations/supabase/client.server");
   let resumed = 0;
@@ -522,6 +621,14 @@ export async function sweepStuckBatches(): Promise<number> {
       resumed++;
       void processBatchInternal(b.id).catch((e) =>
         console.error(`[Sweeper] resume of ${b.id} failed`, e),
+      );
+    }
+
+    // Nothing abandoned to pick up, so use the idle pass to clear failures that
+    // were only ever rate-limiting. Kept behind the same one-batch-at-a-time rule.
+    if (resumed === 0 && activeBatches.size === 0) {
+      await retryRateLimitedFailures(supabaseAdmin).catch((e) =>
+        console.error("[Sweeper] auto-retry failed", e),
       );
     }
   } catch (e) {
