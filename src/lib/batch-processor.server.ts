@@ -147,15 +147,21 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       return;
     }
 
-    // Dynamic concurrency: scale worker fan-out with the number of active API keys (e.g. 17 keys -> 12-16 workers)
     const { getGeminiApiKeys } = await import("./settings.functions");
     const configuredKeys = await getGeminiApiKeys().catch(() => []);
     const keyCount = Math.max(1, configuredKeys.length);
-    // Measured against the live free tier with real (~1500-token) requests:
-    // 16 workers over-drove the pool and solved only 30/100 questions; 8 workers
-    // solved 96/100. Throughput is limited by how fast the key pool refills, not
-    // by worker count, so more workers buy nothing and cost accuracy.
-    const CONCURRENCY = Math.min(8, Math.max(4, keyCount), pending.length);
+
+    // Worker fan-out is limited by how fast the key pool refills, not by how many
+    // questions are waiting. Measured on 17 keys with real (~1500-token) requests:
+    // 16 workers over-drove the pool and solved 30/100; 8 workers solved 96/100.
+    // That is roughly one worker per two keys, so scale on keyCount rather than
+    // pinning a constant - otherwise adding keys buys daily headroom but no speed.
+    //
+    // The /3 slope is deliberately gentler than the measured 1-per-2 ratio, and
+    // the floor keeps the 8 workers that were actually verified at 17 keys. The
+    // 24 ceiling is a guard, not a measurement: nothing above 8 has been tested
+    // against a live pool, so raise it only with numbers in hand.
+    const CONCURRENCY = Math.min(24, Math.max(8, Math.floor(keyCount / 3)), pending.length);
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
     for (let i = 0; i < pending.length; i += 400) {
