@@ -34,8 +34,12 @@ export const getUserPrompts = createServerFn({ method: "GET" })
 export const saveUserPrompt = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: { name: string; text: string; userId?: string }) => {
-    const name = String(data?.name ?? "").trim().slice(0, 100);
-    const text = String(data?.text ?? "").trim().slice(0, 5000);
+    const name = String(data?.name ?? "")
+      .trim()
+      .slice(0, 100);
+    const text = String(data?.text ?? "")
+      .trim()
+      .slice(0, 5000);
     if (!name) throw new Error("Prompt name is required");
     if (!text) throw new Error("Prompt instruction text is required");
     return { name, text };
@@ -118,8 +122,12 @@ export const updateUserPrompt = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: { id: string; name: string; text: string; userId?: string }) => {
     if (!data?.id || typeof data.id !== "string") throw new Error("Prompt ID required");
-    const name = String(data?.name ?? "").trim().slice(0, 100);
-    const text = String(data?.text ?? "").trim().slice(0, 5000);
+    const name = String(data?.name ?? "")
+      .trim()
+      .slice(0, 100);
+    const text = String(data?.text ?? "")
+      .trim()
+      .slice(0, 5000);
     if (!name) throw new Error("Prompt name is required");
     if (!text) throw new Error("Prompt text is required");
     return { id: data.id, name, text };

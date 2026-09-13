@@ -39,17 +39,23 @@ function LimitInput({
   onSave: (v: number | null) => void;
 }) {
   const [val, setVal] = useState<string>(limit === null ? "" : String(limit));
-  useEffect(() => { setVal(limit === null ? "" : String(limit)); }, [limit]);
+  useEffect(() => {
+    setVal(limit === null ? "" : String(limit));
+  }, [limit]);
 
   const parsed = val.trim() === "" ? null : Number(val);
-  const invalid = parsed !== null && (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0);
+  const invalid =
+    parsed !== null && (!Number.isFinite(parsed) || !Number.isInteger(parsed) || parsed < 0);
   const dirty = (limit ?? null) !== (invalid ? limit : parsed);
   const over = limit !== null && used >= limit;
-  const labelText = limit === null ? "unlimited" : `${used.toLocaleString()} / ${limit.toLocaleString()}`;
+  const labelText =
+    limit === null ? "unlimited" : `${used.toLocaleString()} / ${limit.toLocaleString()}`;
 
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-      <span className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 min-w-0 ${over ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}>
+      <span
+        className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 min-w-0 ${over ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}
+      >
         {label}: <span className="font-medium text-foreground">{labelText}</span>
       </span>
       <Input
@@ -70,7 +76,9 @@ function LimitInput({
         className="h-6 px-2 text-[11px]"
         disabled={pending || invalid || !dirty}
         onClick={() => onSave(invalid ? null : parsed)}
-      >{pending ? "…" : "Save"}</Button>
+      >
+        {pending ? "…" : "Save"}
+      </Button>
       {limit !== null && (
         <Button
           type="button"
@@ -78,9 +86,14 @@ function LimitInput({
           variant="ghost"
           className="h-6 px-2 text-[11px]"
           disabled={pending}
-          onClick={() => { setVal(""); onSave(null); }}
+          onClick={() => {
+            setVal("");
+            onSave(null);
+          }}
           title="Remove the limit (unlimited)"
-        >Unlimited</Button>
+        >
+          Unlimited
+        </Button>
       )}
     </div>
   );
@@ -91,7 +104,12 @@ function QuotaEditor({
   pending,
   onSave,
 }: {
-  current: { question_limit: number | null; api_call_limit: number | null; used: number; api_used: number };
+  current: {
+    question_limit: number | null;
+    api_call_limit: number | null;
+    used: number;
+    api_used: number;
+  };
   pending: boolean;
   onSave: (kind: LimitKind, value: number | null) => void;
 }) {
@@ -121,7 +139,9 @@ export const Route = createFileRoute("/_authenticated/admin")({
   notFoundComponent: () => (
     <div className="max-w-md mx-auto text-center py-16 space-y-4">
       <h2 className="text-lg font-semibold">Not found</h2>
-      <Link to="/"><Button>Back to dashboard</Button></Link>
+      <Link to="/">
+        <Button>Back to dashboard</Button>
+      </Link>
     </div>
   ),
 });
@@ -132,7 +152,14 @@ function AdminError({ error, reset }: { error: Error; reset: () => void }) {
     <div className="max-w-md mx-auto text-center py-16 space-y-4">
       <h2 className="text-lg font-semibold">Team page failed to load</h2>
       <p className="text-sm text-muted-foreground">{error.message}</p>
-      <Button onClick={() => { router.invalidate(); reset(); }}>Try again</Button>
+      <Button
+        onClick={() => {
+          router.invalidate();
+          reset();
+        }}
+      >
+        Try again
+      </Button>
     </div>
   );
 }
@@ -188,30 +215,43 @@ function AdminPage() {
     staleTime: 30_000,
     retry: 1,
   });
-  type QuotaRow = { question_limit: number | null; api_call_limit: number | null; used: number; api_used: number };
+  type QuotaRow = {
+    question_limit: number | null;
+    api_call_limit: number | null;
+    used: number;
+    api_used: number;
+  };
   const quotaByUser = new Map<string, QuotaRow>();
-  for (const q of quotas ?? []) quotaByUser.set(q.user_id, {
-    question_limit: q.question_limit,
-    api_call_limit: (q as any).api_call_limit ?? null,
-    used: q.used,
-    api_used: (q as any).api_used ?? 0,
-  });
+  for (const q of quotas ?? [])
+    quotaByUser.set(q.user_id, {
+      question_limit: q.question_limit,
+      api_call_limit: (q as any).api_call_limit ?? null,
+      used: q.used,
+      api_used: (q as any).api_used ?? 0,
+    });
 
   const saveQuota = useMutation({
-    mutationFn: (v: { userId: string; questionLimit?: number | null; apiCallLimit?: number | null }) => setUserQuota({ data: v }),
+    mutationFn: (v: {
+      userId: string;
+      questionLimit?: number | null;
+      apiCallLimit?: number | null;
+    }) => setUserQuota({ data: v }),
     onSuccess: () => {
       toast.success("Limit updated");
       qc.invalidateQueries({ queryKey: ["team-quotas"] });
     },
     onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not save limit"),
   });
-  const statsByUser = new Map<string, {
-    questions_done: number;
-    unique_questions: number;
-    batches_total: number;
-    documents_downloaded: number;
-    last_active: string | null;
-  }>();
+  const statsByUser = new Map<
+    string,
+    {
+      questions_done: number;
+      unique_questions: number;
+      batches_total: number;
+      documents_downloaded: number;
+      last_active: string | null;
+    }
+  >();
   for (const s of stats ?? []) statsByUser.set(s.user_id, s);
 
   const invite = useMutation({
@@ -240,24 +280,34 @@ function AdminPage() {
       toast.success(res?.promoted ? "Promoted to admin" : "Admin access removed");
       qc.invalidateQueries({ queryKey: ["team"] });
     },
-    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Could not update role"),
+    onError: (err: unknown) =>
+      toast.error(err instanceof Error ? err.message : "Could not update role"),
   });
 
   const removeMember = useMutation({
     mutationFn: (v: { targetUserId: string }) => removeTeamMember({ data: v }),
     onSuccess: (res) => {
-      toast.success(res?.email ? `Removed ${res.email}. They can be re-invited any time.` : "Team member removed.");
+      toast.success(
+        res?.email
+          ? `Removed ${res.email}. They can be re-invited any time.`
+          : "Team member removed.",
+      );
       qc.invalidateQueries({ queryKey: ["team"] });
       qc.invalidateQueries({ queryKey: ["team-stats"] });
       qc.invalidateQueries({ queryKey: ["team-quotas"] });
       qc.invalidateQueries({ queryKey: ["invitations"] });
     },
-    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Could not remove member"),
+    onError: (err: unknown) =>
+      toast.error(err instanceof Error ? err.message : "Could not remove member"),
   });
 
   const createUserMutation = useMutation({
-    mutationFn: (data: { email: string; password: string; fullName?: string; role?: "member" | "admin" }) =>
-      createTeamUser({ data }),
+    mutationFn: (data: {
+      email: string;
+      password: string;
+      fullName?: string;
+      role?: "member" | "admin";
+    }) => createTeamUser({ data }),
     onSuccess: (res) => {
       toast.success(`Account created for ${res.email}! They can now log in directly.`);
       setNewEmail("");
@@ -269,7 +319,8 @@ function AdminPage() {
       qc.invalidateQueries({ queryKey: ["team-quotas"] });
       qc.invalidateQueries({ queryKey: ["invitations"] });
     },
-    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Could not create user account"),
+    onError: (err: unknown) =>
+      toast.error(err instanceof Error ? err.message : "Could not create user account"),
   });
 
   const updatePasswordMutation = useMutation({
@@ -280,9 +331,9 @@ function AdminPage() {
       setResettingUserId(null);
       setResetPasswordVal("");
     },
-    onError: (err: unknown) => toast.error(err instanceof Error ? err.message : "Could not update password"),
+    onError: (err: unknown) =>
+      toast.error(err instanceof Error ? err.message : "Could not update password"),
   });
-
 
   // GEMINI API KEYS
   const { data: geminiKeyStatus, error: geminiKeyErr } = useQuery({
@@ -293,7 +344,7 @@ function AdminPage() {
   });
 
   const [geminiApiKeys, setGeminiApiKeysState] = useState("");
-  
+
   const saveGeminiKeys = useMutation({
     mutationFn: (v: string) => setGeminiApiKeys({ data: { apiKeys: v } }),
     onSuccess: (res) => {
@@ -301,7 +352,8 @@ function AdminPage() {
       setGeminiApiKeysState("");
       qc.invalidateQueries({ queryKey: ["gemini-key-status"] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not save Gemini keys"),
+    onError: (e: unknown) =>
+      toast.error(e instanceof Error ? e.message : "Could not save Gemini keys"),
   });
 
   const clearGeminiKeys = useMutation({
@@ -310,7 +362,8 @@ function AdminPage() {
       toast.success("Gemini API keys cleared");
       qc.invalidateQueries({ queryKey: ["gemini-key-status"] });
     },
-    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : "Could not clear Gemini keys"),
+    onError: (e: unknown) =>
+      toast.error(e instanceof Error ? e.message : "Could not clear Gemini keys"),
   });
 
   const adminCount = (team ?? []).filter((p: any) => (p.roles ?? []).includes("admin")).length;
@@ -319,18 +372,27 @@ function AdminPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Team management</h1>
-        <p className="text-muted-foreground mt-1">Invite team members by email. They can then sign up on the sign-in page with that email.</p>
+        <p className="text-muted-foreground mt-1">
+          Invite team members by email. They can then sign up on the sign-in page with that email.
+        </p>
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Google Gemini API Keys</CardTitle>
           <CardDescription>
-            Provide one or more Google Gemini API keys separated by commas. These power both ultra-fast PDF OCR extraction and 100% free MCQ batch solving (~2s per question). The system automatically rotates across keys and models to prevent rate limits.
+            Provide one or more Google Gemini API keys separated by commas. These power both
+            ultra-fast PDF OCR extraction and 100% free MCQ batch solving (~2s per question). The
+            system automatically rotates across keys and models to prevent rate limits.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {geminiKeyErr && <p className="text-sm text-destructive mb-2">Could not load Gemini key status: {geminiKeyErr instanceof Error ? geminiKeyErr.message : String(geminiKeyErr)}</p>}
+          {geminiKeyErr && (
+            <p className="text-sm text-destructive mb-2">
+              Could not load Gemini key status:{" "}
+              {geminiKeyErr instanceof Error ? geminiKeyErr.message : String(geminiKeyErr)}
+            </p>
+          )}
           <div className="mb-4 text-sm">
             Status:{" "}
             {geminiKeyStatus?.configured ? (
@@ -371,11 +433,18 @@ function AdminPage() {
                   variant="ghost"
                   disabled={clearGeminiKeys.isPending}
                   onClick={() => {
-                    if (!window.confirm("Remove the saved Gemini keys? Question solving will stop until new keys are saved.")) return;
+                    if (
+                      !window.confirm(
+                        "Remove the saved Gemini keys? Question solving will stop until new keys are saved.",
+                      )
+                    )
+                      return;
                     clearGeminiKeys.mutate();
                   }}
                   className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                >{clearGeminiKeys.isPending ? "…" : "Clear"}</Button>
+                >
+                  {clearGeminiKeys.isPending ? "…" : "Clear"}
+                </Button>
               )}
             </div>
           </form>
@@ -389,10 +458,13 @@ function AdminPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <span>Add team member (instant login)</span>
-            <span className="text-[10px] bg-primary/15 text-primary font-medium px-2 py-0.5 rounded-full">Direct Account</span>
+            <span className="text-[10px] bg-primary/15 text-primary font-medium px-2 py-0.5 rounded-full">
+              Direct Account
+            </span>
           </CardTitle>
           <CardDescription>
-            Directly create an account with email and password so your teammate can sign in immediately without needing an invite link or separate signup.
+            Directly create an account with email and password so your teammate can sign in
+            immediately without needing an invite link or separate signup.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -411,7 +483,9 @@ function AdminPage() {
           >
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <Label className="text-xs font-medium">User Email / Gmail <span className="text-destructive">*</span></Label>
+                <Label className="text-xs font-medium">
+                  User Email / Gmail <span className="text-destructive">*</span>
+                </Label>
                 <Input
                   type="email"
                   required
@@ -422,14 +496,17 @@ function AdminPage() {
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <Label className="text-xs font-medium">Password <span className="text-destructive">*</span></Label>
+                  <Label className="text-xs font-medium">
+                    Password <span className="text-destructive">*</span>
+                  </Label>
                   <button
                     type="button"
                     className="text-[11px] text-primary hover:underline font-medium"
                     onClick={() => {
                       const chars = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%";
                       let gen = "";
-                      for (let i = 0; i < 10; i++) gen += chars[Math.floor(Math.random() * chars.length)];
+                      for (let i = 0; i < 10; i++)
+                        gen += chars[Math.floor(Math.random() * chars.length)];
                       setNewPassword(gen);
                       setShowNewPassword(true);
                     }}
@@ -510,19 +587,36 @@ function AdminPage() {
         </CardHeader>
         <CardContent>
           <form
-            onSubmit={(e) => { e.preventDefault(); if (email) invite.mutate(email); }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (email) invite.mutate(email);
+            }}
             className="flex gap-2"
           >
-            <Input type="email" placeholder="teammate@example.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-            <Button type="submit" disabled={invite.isPending}>Invite</Button>
+            <Input
+              type="email"
+              placeholder="teammate@example.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <Button type="submit" disabled={invite.isPending}>
+              Invite
+            </Button>
           </form>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Invitations</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Invitations</CardTitle>
+        </CardHeader>
         <CardContent>
-          {invErr && <p className="text-sm text-destructive mb-2">Could not load invitations: {invErr instanceof Error ? invErr.message : String(invErr)}</p>}
+          {invErr && (
+            <p className="text-sm text-destructive mb-2">
+              Could not load invitations:{" "}
+              {invErr instanceof Error ? invErr.message : String(invErr)}
+            </p>
+          )}
           {invites && invites.length > 0 ? (
             <ul className="divide-y">
               {invites.map((i: any) => (
@@ -531,93 +625,137 @@ function AdminPage() {
                     <div className="font-medium text-sm">{i.email}</div>
                     <div className="text-xs text-muted-foreground">{i.status}</div>
                   </div>
-                  <Button size="sm" variant="ghost" onClick={() => revoke.mutate(i.id)}>Remove</Button>
+                  <Button size="sm" variant="ghost" onClick={() => revoke.mutate(i.id)}>
+                    Remove
+                  </Button>
                 </li>
               ))}
             </ul>
-          ) : <p className="text-sm text-muted-foreground">No invitations yet.</p>}
+          ) : (
+            <p className="text-sm text-muted-foreground">No invitations yet.</p>
+          )}
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader><CardTitle>Team members</CardTitle></CardHeader>
+        <CardHeader>
+          <CardTitle>Team members</CardTitle>
+        </CardHeader>
         <CardContent>
-          {teamErr && <p className="text-sm text-destructive mb-2">Could not load team: {teamErr instanceof Error ? teamErr.message : String(teamErr)}</p>}
+          {teamErr && (
+            <p className="text-sm text-destructive mb-2">
+              Could not load team: {teamErr instanceof Error ? teamErr.message : String(teamErr)}
+            </p>
+          )}
           {team && team.length > 0 ? (
             <ul className="divide-y">
               {team.map((p: any) => {
                 const isAdmin = (p.roles ?? []).includes("admin");
                 const isSelf = p.id === myUserId;
                 const isLastAdmin = isAdmin && adminCount <= 1;
-                const busy = roleMutation.isPending && roleMutation.variables?.targetUserId === p.id;
+                const busy =
+                  roleMutation.isPending && roleMutation.variables?.targetUserId === p.id;
                 return (
                   <li key={p.id} className="py-2 flex items-center justify-between gap-3">
                     <div className="min-w-0 flex items-start gap-3">
-                      <UserAvatar path={p.avatar_url} name={p.full_name} email={p.email} size={40} />
+                      <UserAvatar
+                        path={p.avatar_url}
+                        name={p.full_name}
+                        email={p.email}
+                        size={40}
+                      />
                       <div className="min-w-0">
                         <div className="font-medium text-sm truncate">
-                          {p.full_name || p.email}{isSelf && <span className="text-muted-foreground"> (you)</span>}
+                          {p.full_name || p.email}
+                          {isSelf && <span className="text-muted-foreground"> (you)</span>}
                         </div>
                         <div className="text-xs text-muted-foreground truncate">{p.email}</div>
-                      {(() => {
-                        const s = statsByUser.get(p.id);
-                        if (!s) return null;
-                        const last = s.last_active ? new Date(s.last_active) : null;
-                        return (
-                          <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                            <span title="Unique questions solved (duplicates removed)">
-                              <span className="font-medium text-foreground">{s.unique_questions.toLocaleString()}</span> unique Qs
-                            </span>
-                            <span title="Total questions processed including duplicates">
-                              · {s.questions_done.toLocaleString()} total
-                            </span>
-                            <span>· {s.batches_total.toLocaleString()} batches</span>
-                            <span title="Downloaded documents (each doc counted once per format)">
-                              · {s.documents_downloaded.toLocaleString()} downloads
-                            </span>
-                            {last && <span>· active {last.toLocaleDateString()}</span>}
+                        {(() => {
+                          const s = statsByUser.get(p.id);
+                          if (!s) return null;
+                          const last = s.last_active ? new Date(s.last_active) : null;
+                          return (
+                            <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                              <span title="Unique questions solved (duplicates removed)">
+                                <span className="font-medium text-foreground">
+                                  {s.unique_questions.toLocaleString()}
+                                </span>{" "}
+                                unique Qs
+                              </span>
+                              <span title="Total questions processed including duplicates">
+                                · {s.questions_done.toLocaleString()} total
+                              </span>
+                              <span>· {s.batches_total.toLocaleString()} batches</span>
+                              <span title="Downloaded documents (each doc counted once per format)">
+                                · {s.documents_downloaded.toLocaleString()} downloads
+                              </span>
+                              {last && <span>· active {last.toLocaleDateString()}</span>}
+                            </div>
+                          );
+                        })()}
+                        <QuotaEditor
+                          current={
+                            quotaByUser.get(p.id) ?? {
+                              question_limit: null,
+                              api_call_limit: null,
+                              used: 0,
+                              api_used: 0,
+                            }
+                          }
+                          pending={saveQuota.isPending && saveQuota.variables?.userId === p.id}
+                          onSave={(kind, value) =>
+                            saveQuota.mutate({ userId: p.id, [kind]: value })
+                          }
+                        />
+                        {resettingUserId === p.id && (
+                          <div className="flex flex-wrap items-center gap-2 mt-2 p-2 bg-muted/80 rounded-md border text-xs">
+                            <span className="font-medium text-foreground">Set new password:</span>
+                            <Input
+                              type="text"
+                              placeholder="Min 6 characters"
+                              value={resetPasswordVal}
+                              onChange={(e) => setResetPasswordVal(e.target.value)}
+                              className="h-7 text-xs font-mono w-44 bg-background"
+                            />
+                            <Button
+                              size="sm"
+                              className="h-7 text-xs px-2.5"
+                              disabled={
+                                updatePasswordMutation.isPending || resetPasswordVal.length < 6
+                              }
+                              onClick={() =>
+                                updatePasswordMutation.mutate({
+                                  targetUserId: p.id,
+                                  newPassword: resetPasswordVal,
+                                })
+                              }
+                            >
+                              {updatePasswordMutation.isPending ? "Saving…" : "Save"}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 text-xs px-2"
+                              onClick={() => {
+                                setResettingUserId(null);
+                                setResetPasswordVal("");
+                              }}
+                            >
+                              Cancel
+                            </Button>
                           </div>
-                        );
-                      })()}
-                      <QuotaEditor
-                        current={quotaByUser.get(p.id) ?? { question_limit: null, api_call_limit: null, used: 0, api_used: 0 }}
-                        pending={saveQuota.isPending && saveQuota.variables?.userId === p.id}
-                        onSave={(kind, value) => saveQuota.mutate({ userId: p.id, [kind]: value })}
-                      />
-                      {resettingUserId === p.id && (
-                        <div className="flex flex-wrap items-center gap-2 mt-2 p-2 bg-muted/80 rounded-md border text-xs">
-                          <span className="font-medium text-foreground">Set new password:</span>
-                          <Input
-                            type="text"
-                            placeholder="Min 6 characters"
-                            value={resetPasswordVal}
-                            onChange={(e) => setResetPasswordVal(e.target.value)}
-                            className="h-7 text-xs font-mono w-44 bg-background"
-                          />
-                          <Button
-                            size="sm"
-                            className="h-7 text-xs px-2.5"
-                            disabled={updatePasswordMutation.isPending || resetPasswordVal.length < 6}
-                            onClick={() => updatePasswordMutation.mutate({ targetUserId: p.id, newPassword: resetPasswordVal })}
-                          >
-                            {updatePasswordMutation.isPending ? "Saving…" : "Save"}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 text-xs px-2"
-                            onClick={() => { setResettingUserId(null); setResetPasswordVal(""); }}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      )}
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <div className="flex gap-1">
                         {(p.roles ?? []).map((r: string) => (
-                          <span key={r} className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">{r}</span>
+                          <span
+                            key={r}
+                            className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded"
+                          >
+                            {r}
+                          </span>
                         ))}
                       </div>
                       <Button
@@ -640,18 +778,26 @@ function AdminPage() {
                           size="sm"
                           variant="outline"
                           disabled={busy || isLastAdmin}
-                          title={isLastAdmin ? "Cannot demote the last admin" : "Remove admin access"}
+                          title={
+                            isLastAdmin ? "Cannot demote the last admin" : "Remove admin access"
+                          }
                           onClick={() => {
                             if (!window.confirm(`Remove admin access from ${p.email}?`)) return;
                             roleMutation.mutate({ targetUserId: p.id, makeAdmin: false });
                           }}
-                        >{busy ? "…" : "Demote"}</Button>
+                        >
+                          {busy ? "…" : "Demote"}
+                        </Button>
                       ) : (
                         <Button
                           size="sm"
                           disabled={busy}
-                          onClick={() => roleMutation.mutate({ targetUserId: p.id, makeAdmin: true })}
-                        >{busy ? "…" : "Make admin"}</Button>
+                          onClick={() =>
+                            roleMutation.mutate({ targetUserId: p.id, makeAdmin: true })
+                          }
+                        >
+                          {busy ? "…" : "Make admin"}
+                        </Button>
                       )}
                       {!isSelf && (
                         <Button
@@ -659,24 +805,38 @@ function AdminPage() {
                           variant="ghost"
                           className="text-destructive hover:text-destructive hover:bg-destructive/10"
                           disabled={
-                            (removeMember.isPending && removeMember.variables?.targetUserId === p.id) ||
+                            (removeMember.isPending &&
+                              removeMember.variables?.targetUserId === p.id) ||
                             (isAdmin && isLastAdmin)
                           }
-                          title={isAdmin && isLastAdmin ? "Cannot remove the last admin" : "Remove from workspace"}
+                          title={
+                            isAdmin && isLastAdmin
+                              ? "Cannot remove the last admin"
+                              : "Remove from workspace"
+                          }
                           onClick={() => {
-                            if (!window.confirm(
-                              `Remove ${p.email} from the workspace?\n\nThis deletes their account, quotas and history. They can be re-invited any time.`,
-                            )) return;
+                            if (
+                              !window.confirm(
+                                `Remove ${p.email} from the workspace?\n\nThis deletes their account, quotas and history. They can be re-invited any time.`,
+                              )
+                            )
+                              return;
                             removeMember.mutate({ targetUserId: p.id });
                           }}
-                        >{removeMember.isPending && removeMember.variables?.targetUserId === p.id ? "…" : "Remove"}</Button>
+                        >
+                          {removeMember.isPending && removeMember.variables?.targetUserId === p.id
+                            ? "…"
+                            : "Remove"}
+                        </Button>
                       )}
                     </div>
                   </li>
                 );
               })}
             </ul>
-          ) : <p className="text-sm text-muted-foreground">No team members yet.</p>}
+          ) : (
+            <p className="text-sm text-muted-foreground">No team members yet.</p>
+          )}
         </CardContent>
       </Card>
     </div>

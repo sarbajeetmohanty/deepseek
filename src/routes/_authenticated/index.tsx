@@ -19,7 +19,9 @@ export const Route = createFileRoute("/_authenticated/")({
   notFoundComponent: () => (
     <div className="max-w-md mx-auto text-center py-16 space-y-4">
       <h2 className="text-lg font-semibold">Not found</h2>
-      <Link to="/"><Button>Back to dashboard</Button></Link>
+      <Link to="/">
+        <Button>Back to dashboard</Button>
+      </Link>
     </div>
   ),
 });
@@ -30,7 +32,14 @@ function DashboardError({ error, reset }: { error: Error; reset: () => void }) {
     <div className="max-w-md mx-auto text-center py-16 space-y-4">
       <h2 className="text-lg font-semibold">Dashboard failed to load</h2>
       <p className="text-sm text-muted-foreground">{error.message}</p>
-      <Button onClick={() => { router.invalidate(); reset(); }}>Try again</Button>
+      <Button
+        onClick={() => {
+          router.invalidate();
+          reset();
+        }}
+      >
+        Try again
+      </Button>
     </div>
   );
 }
@@ -65,12 +74,15 @@ function Dashboard() {
   });
 
   const create = useMutation({
-    mutationFn: () => createBatch({ data: {
-      title: title || `Batch ${new Date().toLocaleString()}`,
-      rawText,
-      subjectType,
-      solutionLength,
-    } }),
+    mutationFn: () =>
+      createBatch({
+        data: {
+          title: title || `Batch ${new Date().toLocaleString()}`,
+          rawText,
+          subjectType,
+          solutionLength,
+        },
+      }),
     onSuccess: (res) => {
       toast.success(`Started processing ${res.total} questions`);
       setRawText("");
@@ -99,12 +111,14 @@ function Dashboard() {
     retry: 1,
   });
   const detected = rawText.trim() ? parseQuestions(rawText).length : 0;
-  const remaining = quota?.limit === null || quota?.limit === undefined
-    ? null
-    : Math.max(0, quota.limit - quota.used);
-  const apiRemaining = quota?.apiLimit === null || quota?.apiLimit === undefined
-    ? null
-    : Math.max(0, quota.apiLimit - (quota.apiUsed ?? 0));
+  const remaining =
+    quota?.limit === null || quota?.limit === undefined
+      ? null
+      : Math.max(0, quota.limit - quota.used);
+  const apiRemaining =
+    quota?.apiLimit === null || quota?.apiLimit === undefined
+      ? null
+      : Math.max(0, quota.apiLimit - (quota.apiUsed ?? 0));
   const overLimit =
     (remaining !== null && detected > remaining) ||
     (apiRemaining !== null && detected > apiRemaining);
@@ -113,20 +127,36 @@ function Dashboard() {
     <div className="space-y-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
-        <p className="text-muted-foreground mt-1">Paste raw MCQs. Get perfectly formatted questions & step-by-step solutions.</p>
+        <p className="text-muted-foreground mt-1">
+          Paste raw MCQs. Get perfectly formatted questions & step-by-step solutions.
+        </p>
         {quota && (
           <div className={`mt-3 flex flex-wrap items-center gap-2 text-xs`}>
-            <div className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 ${remaining !== null && detected > remaining ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}>
+            <div
+              className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 ${remaining !== null && detected > remaining ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}
+            >
               <span className="font-medium text-foreground">Questions:</span>
-              {quota.limit === null
-                ? <span>{quota.used.toLocaleString()} · unlimited</span>
-                : <span>{quota.used.toLocaleString()} / {quota.limit.toLocaleString()} <span className="opacity-70">({(remaining ?? 0).toLocaleString()} left)</span></span>}
+              {quota.limit === null ? (
+                <span>{quota.used.toLocaleString()} · unlimited</span>
+              ) : (
+                <span>
+                  {quota.used.toLocaleString()} / {quota.limit.toLocaleString()}{" "}
+                  <span className="opacity-70">({(remaining ?? 0).toLocaleString()} left)</span>
+                </span>
+              )}
             </div>
-            <div className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 ${apiRemaining !== null && detected > apiRemaining ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}>
+            <div
+              className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 ${apiRemaining !== null && detected > apiRemaining ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground"}`}
+            >
               <span className="font-medium text-foreground">API calls:</span>
-              {quota.apiLimit === null || quota.apiLimit === undefined
-                ? <span>{(quota.apiUsed ?? 0).toLocaleString()} · unlimited</span>
-                : <span>{(quota.apiUsed ?? 0).toLocaleString()} / {quota.apiLimit.toLocaleString()} <span className="opacity-70">({(apiRemaining ?? 0).toLocaleString()} left)</span></span>}
+              {quota.apiLimit === null || quota.apiLimit === undefined ? (
+                <span>{(quota.apiUsed ?? 0).toLocaleString()} · unlimited</span>
+              ) : (
+                <span>
+                  {(quota.apiUsed ?? 0).toLocaleString()} / {quota.apiLimit.toLocaleString()}{" "}
+                  <span className="opacity-70">({(apiRemaining ?? 0).toLocaleString()} left)</span>
+                </span>
+              )}
             </div>
           </div>
         )}
@@ -135,10 +165,17 @@ function Dashboard() {
       <Card>
         <CardHeader>
           <CardTitle>New batch</CardTitle>
-          <CardDescription>Paste any number of questions (numbered like "374.", "375.", etc.) — we'll split, solve, and format them.</CardDescription>
+          <CardDescription>
+            Paste any number of questions (numbered like "374.", "375.", etc.) — we'll split, solve,
+            and format them.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
-          <Input placeholder="Batch title (optional)" value={title} onChange={(e) => setTitle(e.target.value)} />
+          <Input
+            placeholder="Batch title (optional)"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label className="text-xs font-medium">Subject type</Label>
@@ -149,14 +186,18 @@ function Dashboard() {
                   variant={subjectType === "gk_english" ? "default" : "outline"}
                   onClick={() => setSubjectType("gk_english")}
                   className="flex-1"
-                >General (any language)</Button>
+                >
+                  General (any language)
+                </Button>
                 <Button
                   type="button"
                   size="sm"
                   variant={subjectType === "math" ? "default" : "outline"}
                   onClick={() => setSubjectType("math")}
                   className="flex-1"
-                >Math</Button>
+                >
+                  Math
+                </Button>
               </div>
             </div>
             <div className="space-y-2">
@@ -168,14 +209,18 @@ function Dashboard() {
                   variant={solutionLength === "normal" ? "default" : "outline"}
                   onClick={() => setSolutionLength("normal")}
                   className="flex-1"
-                >Normal</Button>
+                >
+                  Normal
+                </Button>
                 <Button
                   type="button"
                   size="sm"
                   variant={solutionLength === "long" ? "default" : "outline"}
                   onClick={() => setSolutionLength("long")}
                   className="flex-1"
-                >Long (detailed)</Button>
+                >
+                  Long (detailed)
+                </Button>
               </div>
             </div>
           </div>
@@ -187,12 +232,18 @@ function Dashboard() {
           />
           <div className="flex justify-between items-center">
             <div className="text-xs text-muted-foreground">
-              {rawText.trim()
-                ? <>
-                    {detected} questions detected
-                    {overLimit && <span className="ml-1 text-destructive">· exceeds your remaining quota ({(remaining ?? 0).toLocaleString()} left)</span>}
-                  </>
-                : "Waiting for input…"}
+              {rawText.trim() ? (
+                <>
+                  {detected} questions detected
+                  {overLimit && (
+                    <span className="ml-1 text-destructive">
+                      · exceeds your remaining quota ({(remaining ?? 0).toLocaleString()} left)
+                    </span>
+                  )}
+                </>
+              ) : (
+                "Waiting for input…"
+              )}
             </div>
             <Button
               size="lg"
@@ -208,7 +259,10 @@ function Dashboard() {
       <div className="space-y-3">
         <h2 className="text-lg font-semibold">Recent batches</h2>
         {batchesErr && (
-          <p className="text-sm text-destructive">Could not load batches: {batchesErr instanceof Error ? batchesErr.message : String(batchesErr)}</p>
+          <p className="text-sm text-destructive">
+            Could not load batches:{" "}
+            {batchesErr instanceof Error ? batchesErr.message : String(batchesErr)}
+          </p>
         )}
         {batches && batches.length > 0 ? (
           <div className="grid gap-3">
@@ -217,14 +271,12 @@ function Dashboard() {
               return (
                 <Card key={b.id} className="hover:border-primary/50 transition-colors">
                   <CardContent className="py-4 flex items-center justify-between gap-4">
-                    <Link
-                      to="/batch/$id"
-                      params={{ id: b.id }}
-                      className="min-w-0 flex-1 block"
-                    >
+                    <Link to="/batch/$id" params={{ id: b.id }} className="min-w-0 flex-1 block">
                       <div className="font-medium truncate">{b.title}</div>
                       <div className="text-xs text-muted-foreground mt-0.5">
-                        {formatDistanceToNow(new Date(b.created_at), { addSuffix: true })} · {b.completed}/{b.total} done{b.failed > 0 ? ` · ${b.failed} failed` : ""} · {b.status}
+                        {formatDistanceToNow(new Date(b.created_at), { addSuffix: true })} ·{" "}
+                        {b.completed}/{b.total} done{b.failed > 0 ? ` · ${b.failed} failed` : ""} ·{" "}
+                        {b.status}
                       </div>
                     </Link>
                     <Button
@@ -234,11 +286,18 @@ function Dashboard() {
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
-                        if (!window.confirm(`Delete "${b.title}"? This removes all its questions and cannot be undone.`)) return;
+                        if (
+                          !window.confirm(
+                            `Delete "${b.title}"? This removes all its questions and cannot be undone.`,
+                          )
+                        )
+                          return;
                         remove.mutate(b.id);
                       }}
                       className="shrink-0 text-destructive hover:text-destructive hover:bg-destructive/10"
-                    >{busy ? "…" : "Delete"}</Button>
+                    >
+                      {busy ? "…" : "Delete"}
+                    </Button>
                   </CardContent>
                 </Card>
               );

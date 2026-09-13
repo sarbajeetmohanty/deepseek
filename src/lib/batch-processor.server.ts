@@ -1,7 +1,72 @@
 // Server-only batch processor for solving MCQs concurrently across the Gemini multi-key pool
 
-// Active batches lock to prevent multiple workers from running simultaneously on the same batch
+// Active batches lock to prevent multiple workers from running simultaneously on the same batch in this process
 const activeBatches = new Set<string>();
+
+// Distributed DB lease parameters (prevents concurrent execution across multiple server instances)
+const LEASE_DURATION_MS = 45_000;
+const workerInstanceId = `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+async function acquireDbBatchLease(supabaseAdmin: any, batchId: string): Promise<boolean> {
+  const leaseKey = `batch_lease_${batchId}`;
+  const now = Date.now();
+  try {
+    const { data } = await supabaseAdmin
+      .from("app_settings")
+      .select("value")
+      .eq("key", leaseKey)
+      .maybeSingle();
+
+    if (data?.value) {
+      try {
+        const parsed = JSON.parse(data.value);
+        if (parsed.expiresAt && parsed.expiresAt > now && parsed.workerId !== workerInstanceId) {
+          console.log(
+            `[BatchProcessor] Batch ${batchId} is locked by worker ${parsed.workerId} until ${new Date(parsed.expiresAt).toISOString()}`,
+          );
+          return false;
+        }
+      } catch {}
+    }
+
+    const { error } = await supabaseAdmin.from("app_settings").upsert(
+      {
+        key: leaseKey,
+        value: JSON.stringify({ workerId: workerInstanceId, expiresAt: now + LEASE_DURATION_MS }),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" },
+    );
+    return !error;
+  } catch (e) {
+    console.error("acquireDbBatchLease error", e);
+    return true; // Fallback to local memory lock if DB lease table is unavailable
+  }
+}
+
+async function renewDbBatchLease(supabaseAdmin: any, batchId: string): Promise<void> {
+  const leaseKey = `batch_lease_${batchId}`;
+  try {
+    await supabaseAdmin.from("app_settings").upsert(
+      {
+        key: leaseKey,
+        value: JSON.stringify({
+          workerId: workerInstanceId,
+          expiresAt: Date.now() + LEASE_DURATION_MS,
+        }),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "key" },
+    );
+  } catch {}
+}
+
+async function releaseDbBatchLease(supabaseAdmin: any, batchId: string): Promise<void> {
+  const leaseKey = `batch_lease_${batchId}`;
+  try {
+    await supabaseAdmin.from("app_settings").delete().eq("key", leaseKey);
+  } catch {}
+}
 
 // Cross-batch in-memory solution cache for identical questions (capped to prevent memory growth)
 const persistentQuestionCache = new Map<string, string>();
@@ -29,21 +94,32 @@ async function solveBatchQuestion(opts: {
 
 export async function processBatchInternal(batchId: string): Promise<void> {
   if (activeBatches.has(batchId)) {
-    console.log(`[BatchProcessor] Batch ${batchId} is already actively processing. Skipping duplicate worker.`);
+    console.log(
+      `[BatchProcessor] Batch ${batchId} is already actively processing. Skipping duplicate worker.`,
+    );
     return;
   }
   activeBatches.add(batchId);
 
+  let supabaseAdminClient: any = null;
   try {
     const { supabaseAdmin } = await import("../integrations/supabase/client.server");
+    supabaseAdminClient = supabaseAdmin;
+
+    const hasLease = await acquireDbBatchLease(supabaseAdmin, batchId);
+    if (!hasLease) {
+      return;
+    }
 
     const { data: batchRow } = await supabaseAdmin
       .from("batches")
       .select("subject_type, solution_length, user_id")
       .eq("id", batchId)
       .maybeSingle();
-    const subjectType = (batchRow?.subject_type === "math" ? "math" : "gk_english") as "math" | "gk_english";
-    const solutionLength = (batchRow?.solution_length === "long" ? "long" : "normal") as "long" | "normal";
+    const subjectType = (batchRow?.subject_type === "math" ? "math" : "gk_english") as
+      "math" | "gk_english";
+    const solutionLength = (batchRow?.solution_length === "long" ? "long" : "normal") as
+      "long" | "normal";
     const ownerId = batchRow?.user_id as string | undefined;
 
     // Preload the owner's API-call limit once. If null, no runtime cap.
@@ -88,10 +164,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       if (mErr) console.error("mark processing chunk failed", mErr.message);
     }
 
-    await supabaseAdmin
-      .from("batches")
-      .update({ status: "processing" })
-      .eq("id", batchId);
+    await supabaseAdmin.from("batches").update({ status: "processing" }).eq("id", batchId);
 
     const queue = [...pending];
     const workers: Promise<void>[] = [];
@@ -99,7 +172,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     const inFlightDedupe = new Map<string, Promise<string>>();
     let apiCallsSinceFlush = 0;
     const providerBlock = { message: null as string | null };
-    
+
     type QuestionPatch = {
       status?: string;
       formatted_output?: string | null;
@@ -152,6 +225,9 @@ export async function processBatchInternal(batchId: string): Promise<void> {
           });
           if (rpcErr) console.error("api_calls flush failed", rpcErr.message);
         }
+
+        // Keep distributed DB lease active
+        await renewDbBatchLease(supabaseAdmin, batchId);
       };
 
       inFlightFlush = doFlush()
@@ -256,7 +332,10 @@ export async function processBatchInternal(batchId: string): Promise<void> {
             apiCallsSinceFlush++;
             setInCache(key, output);
           } catch (solveErr: any) {
-            const errMsg = solveErr instanceof Error ? solveErr.message : String(solveErr || "Failed to solve question");
+            const errMsg =
+              solveErr instanceof Error
+                ? solveErr.message
+                : String(solveErr || "Failed to solve question");
             apiCallsSinceFlush++;
             updateRow(q, { status: "failed", error: errMsg.slice(0, 500) });
             inFlightDedupe.delete(key);
@@ -293,10 +372,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     try {
       const { supabaseAdmin } = await import("../integrations/supabase/client.server");
       const msg = e instanceof Error ? e.message : String(e);
-      await supabaseAdmin
-        .from("batches")
-        .update({ status: "failed" })
-        .eq("id", batchId);
+      await supabaseAdmin.from("batches").update({ status: "failed" }).eq("id", batchId);
       await supabaseAdmin
         .from("questions")
         .update({ status: "failed", error: msg.slice(0, 500) })
@@ -306,6 +382,9 @@ export async function processBatchInternal(batchId: string): Promise<void> {
       console.error("fatal recovery failed", inner);
     }
   } finally {
+    if (supabaseAdminClient) {
+      await releaseDbBatchLease(supabaseAdminClient, batchId).catch(() => {});
+    }
     activeBatches.delete(batchId);
   }
 }
@@ -325,10 +404,22 @@ async function finalize(batchId: string): Promise<void> {
   try {
     const done = await countStatus(batchId, "done");
     const failed = await countStatus(batchId, "failed");
-    const { data: batch } = await supabaseAdmin.from("batches").select("total").eq("id", batchId).maybeSingle();
+    const { data: batch } = await supabaseAdmin
+      .from("batches")
+      .select("total")
+      .eq("id", batchId)
+      .maybeSingle();
     const total = batch?.total ?? 0;
-    const status = done + failed >= total ? (failed === 0 ? "completed" : "completed_with_errors") : "processing";
-    const { error } = await supabaseAdmin.from("batches").update({ completed: done, failed, status }).eq("id", batchId);
+    const status =
+      done + failed >= total
+        ? failed === 0
+          ? "completed"
+          : "completed_with_errors"
+        : "processing";
+    const { error } = await supabaseAdmin
+      .from("batches")
+      .update({ completed: done, failed, status })
+      .eq("id", batchId);
     if (error) console.error("finalize update failed", error.message);
   } catch (e) {
     console.error("finalize threw", e);

@@ -8,19 +8,32 @@ type SolutionLength = "normal" | "long";
 
 export const createBatch = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: { title: string; rawText: string; subjectType?: SubjectType; solutionLength?: SolutionLength }) => {
-    if (!data?.rawText || typeof data.rawText !== "string") throw new Error("rawText required");
-    if (data.rawText.trim().length === 0) throw new Error("Paste at least one question before starting a batch.");
-    if (data.rawText.length > 2_000_000) throw new Error("Input too large");
-    const subjectType: SubjectType = data.subjectType === "math" ? "math" : "gk_english";
-    const solutionLength: SolutionLength = data.solutionLength === "long" ? "long" : "normal";
-    return { title: (data.title || "Untitled batch").slice(0, 200), rawText: data.rawText, subjectType, solutionLength };
-  })
+  .inputValidator(
+    (data: {
+      title: string;
+      rawText: string;
+      subjectType?: SubjectType;
+      solutionLength?: SolutionLength;
+    }) => {
+      if (!data?.rawText || typeof data.rawText !== "string") throw new Error("rawText required");
+      if (data.rawText.trim().length === 0)
+        throw new Error("Paste at least one question before starting a batch.");
+      if (data.rawText.length > 2_000_000) throw new Error("Input too large");
+      const subjectType: SubjectType = data.subjectType === "math" ? "math" : "gk_english";
+      const solutionLength: SolutionLength = data.solutionLength === "long" ? "long" : "normal";
+      return {
+        title: (data.title || "Untitled batch").slice(0, 200),
+        rawText: data.rawText,
+        subjectType,
+        solutionLength,
+      };
+    },
+  )
   .handler(async ({ data, context }) => {
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
       throw new Error(
         "Missing SUPABASE_SERVICE_ROLE_KEY in your local .env file. " +
-        "Please add the service_role key from your Supabase Dashboard (Settings -> API) to your .env file to enable processing."
+          "Please add the service_role key from your Supabase Dashboard (Settings -> API) to your .env file to enable processing.",
       );
     }
     const { supabase, userId } = context;
@@ -30,8 +43,14 @@ export const createBatch = createServerFn({ method: "POST" })
     } catch (e) {
       throw new Error(`Could not parse questions: ${e instanceof Error ? e.message : String(e)}`);
     }
-    if (parsed.length === 0) throw new Error("No questions found. Each question must start with a number followed by '. ' (e.g. '374. ').");
-    if (parsed.length > 2000) throw new Error(`Too many questions (${parsed.length}). Split into batches of 2000 or fewer.`);
+    if (parsed.length === 0)
+      throw new Error(
+        "No questions found. Each question must start with a number followed by '. ' (e.g. '374. ').",
+      );
+    if (parsed.length > 2000)
+      throw new Error(
+        `Too many questions (${parsed.length}). Split into batches of 2000 or fewer.`,
+      );
 
     // Enforce per-user question quota (if the admin has set one).
     await assertWithinQuota(supabase, userId, parsed.length);
@@ -104,7 +123,7 @@ export const resumeBatch = createServerFn({ method: "POST" })
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
       throw new Error(
         "Missing SUPABASE_SERVICE_ROLE_KEY in your local .env file. " +
-        "Please add the service_role key from your Supabase Dashboard to your .env file to enable processing."
+          "Please add the service_role key from your Supabase Dashboard to your .env file to enable processing.",
       );
     }
     const { supabase, userId } = context;
@@ -137,7 +156,7 @@ export const deleteBatch = createServerFn({ method: "POST" })
     const { supabase, userId } = context;
     const { data: batch, error } = await supabase
       .from("batches")
-      .select("id,user_id")
+      .select("id,user_id,total")
       .eq("id", data.batchId)
       .maybeSingle();
     if (error) throw new Error(`Could not load batch: ${error.message}`);
@@ -150,6 +169,22 @@ export const deleteBatch = createServerFn({ method: "POST" })
       if (rErr) throw new Error(`Could not verify permissions: ${rErr.message}`);
       if (!isAdmin) throw new Error("You don't have access to this batch.");
     }
+
+    // Refund the user's allocated question quota
+    const questionsToRefund = Math.max(0, Number(batch.total || 0));
+    if (batch.user_id && questionsToRefund > 0) {
+      try {
+        const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+        await supabaseAdmin.rpc("increment_user_usage", {
+          _user_id: batch.user_id,
+          _add_questions: -questionsToRefund,
+          _add_calls: 0,
+        });
+      } catch (e) {
+        console.error("Failed to refund question usage on deleteBatch", e);
+      }
+    }
+
     const { error: delErr } = await supabase.from("batches").delete().eq("id", data.batchId);
     if (delErr) throw new Error(`Could not delete batch: ${delErr.message}`);
     return { ok: true };

@@ -69,10 +69,10 @@ function AuthPage() {
     <div className="min-h-screen flex items-center justify-center bg-background px-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-3 flex flex-col items-center justify-center">
-          <img 
-            src="/favicon.svg" 
-            className="h-16 w-16 transition-transform hover:rotate-12 duration-300" 
-            alt="Earthpuls Logo" 
+          <img
+            src="/favicon.svg"
+            className="h-16 w-16 transition-transform hover:rotate-12 duration-300"
+            alt="Earthpuls Logo"
           />
           <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-r from-primary to-accent-foreground bg-clip-text text-transparent">
             Earthpuls
@@ -82,7 +82,9 @@ function AuthPage() {
         <Card>
           <CardHeader>
             <CardTitle>Welcome</CardTitle>
-            <CardDescription>Sign in or create an account. First user becomes admin; others need an admin invite.</CardDescription>
+            <CardDescription>
+              Sign in or create an account. First user becomes admin; others need an admin invite.
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="signin">
@@ -92,24 +94,66 @@ function AuthPage() {
               </TabsList>
               <TabsContent value="signin">
                 <form onSubmit={signIn} className="space-y-3 mt-4">
-                  <div><Label>Email</Label><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-                  <div><Label>Password</Label><Input type="password" required value={password} onChange={(e) => setPassword(e.target.value)} /></div>
-                  <Button type="submit" className="w-full" disabled={loading}>{loading ? "Signing in…" : "Sign in"}</Button>
+                  <div>
+                    <Label>Email</Label>
+                    <Input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label>Password</Label>
+                    <Input
+                      type="password"
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={loading}>
+                    {loading ? "Signing in…" : "Sign in"}
+                  </Button>
                 </form>
               </TabsContent>
               <TabsContent value="signup">
                 <form onSubmit={signUp} className="space-y-3 mt-4">
-                  <div><Label>Full name</Label><Input required value={name} onChange={(e) => setName(e.target.value)} /></div>
-                  <div><Label>Email</Label><Input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} /></div>
-                  <div><Label>Password</Label><Input type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} /></div>
-                  <Button type="submit" className="w-full" disabled={loading}>{loading ? "Creating…" : "Create account"}</Button>
+                  <div>
+                    <Label>Full name</Label>
+                    <Input required value={name} onChange={(e) => setName(e.target.value)} />
+                  </div>
+                  <div>
+                    <Label>Email</Label>
+                    <Input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <Label>Password</Label>
+                    <Input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
+                  </div>
+                  <Button type="submit" className="w-full" disabled={loading}>
+                    {loading ? "Creating…" : "Create account"}
+                  </Button>
                 </form>
               </TabsContent>
             </Tabs>
           </CardContent>
         </Card>
         <p className="text-center text-xs text-muted-foreground">
-          <Link to="/" className="underline">Back to app</Link>
+          <Link to="/" className="underline">
+            Back to app
+          </Link>
         </p>
       </div>
     </div>

@@ -44,8 +44,14 @@ function getAvailableKeys(allKeys: string[]): string[] {
 const defaultSafetySettings = [
   { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
   { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_NONE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_NONE,
+  },
 ];
 
 const OCR_MODELS = [
@@ -111,7 +117,7 @@ export const extractTextFromImage = createServerFn({ method: "POST" })
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       const activeKeys = getAvailableKeys(allKeys);
-      const key = activeKeys[(ocrKeyIndex++) % activeKeys.length];
+      const key = activeKeys[ocrKeyIndex++ % activeKeys.length];
       const modelName = OCR_MODELS[(attempt - 1) % OCR_MODELS.length];
 
       try {
@@ -179,7 +185,7 @@ export const generateFromContext = createServerFn({ method: "POST" })
 
     for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       const activeKeys = getAvailableKeys(allKeys);
-      const key = activeKeys[(ocrKeyIndex++) % activeKeys.length];
+      const key = activeKeys[ocrKeyIndex++ % activeKeys.length];
       const modelName = OCR_MODELS[(attempt - 1) % OCR_MODELS.length];
 
       try {

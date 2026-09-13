@@ -6,7 +6,12 @@
 
 /* Hindi-friendly typography */
 body {
-  font-family: "Inter", "Noto Sans Devanagari", system-ui, -apple-system, sans-serif;
+  font-family:
+    "Inter",
+    "Noto Sans Devanagari",
+    system-ui,
+    -apple-system,
+    sans-serif;
 }
 
 /*
@@ -79,16 +84,16 @@ body {
   --primary: oklch(0.56 0.11 195);
   --primary-foreground: oklch(0.99 0 0);
   --secondary: oklch(0.955 0.015 190);
-  --secondary-foreground: oklch(0.30 0.03 210);
-  --muted: oklch(0.955 0.010 190);
-  --muted-foreground: oklch(0.50 0.02 210);
+  --secondary-foreground: oklch(0.3 0.03 210);
+  --muted: oklch(0.955 0.01 190);
+  --muted-foreground: oklch(0.5 0.02 210);
   --accent: oklch(0.94 0.03 175);
-  --accent-foreground: oklch(0.30 0.05 200);
+  --accent-foreground: oklch(0.3 0.05 200);
   --destructive: oklch(0.58 0.18 27);
   --destructive-foreground: oklch(0.99 0 0);
   --border: oklch(0.915 0.012 200);
   --input: oklch(0.925 0.012 200);
-  --ring: oklch(0.70 0.06 195);
+  --ring: oklch(0.7 0.06 195);
   --gradient-brand: linear-gradient(135deg, oklch(0.56 0.11 195), oklch(0.62 0.09 165));
   --gradient-soft: linear-gradient(180deg, oklch(0.99 0.006 180), oklch(0.965 0.014 185));
   --shadow-soft: 0 4px 20px -8px color-mix(in oklab, oklch(0.56 0.11 195) 22%, transparent);

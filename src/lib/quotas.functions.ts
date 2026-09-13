@@ -55,18 +55,24 @@ export const listQuotas = createServerFn({ method: "POST" })
 // Any field left `undefined` is not touched. Pass `null` to make unlimited.
 export const setUserQuota = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: { userId: string; questionLimit?: number | null; apiCallLimit?: number | null }) => {
-    if (!data?.userId || typeof data.userId !== "string") throw new Error("userId required");
-    const check = (label: string, v: number | null | undefined) => {
-      if (v === undefined || v === null) return;
-      if (!Number.isFinite(v) || !Number.isInteger(v) || v < 0 || v > 10_000_000) {
-        throw new Error(`${label} must be a non-negative integer up to 10,000,000, or null`);
-      }
-    };
-    check("questionLimit", data.questionLimit);
-    check("apiCallLimit", data.apiCallLimit);
-    return { userId: data.userId, questionLimit: data.questionLimit, apiCallLimit: data.apiCallLimit };
-  })
+  .inputValidator(
+    (data: { userId: string; questionLimit?: number | null; apiCallLimit?: number | null }) => {
+      if (!data?.userId || typeof data.userId !== "string") throw new Error("userId required");
+      const check = (label: string, v: number | null | undefined) => {
+        if (v === undefined || v === null) return;
+        if (!Number.isFinite(v) || !Number.isInteger(v) || v < 0 || v > 10_000_000) {
+          throw new Error(`${label} must be a non-negative integer up to 10,000,000, or null`);
+        }
+      };
+      check("questionLimit", data.questionLimit);
+      check("apiCallLimit", data.apiCallLimit);
+      return {
+        userId: data.userId,
+        questionLimit: data.questionLimit,
+        apiCallLimit: data.apiCallLimit,
+      };
+    },
+  )
   .handler(async ({ data, context }) => {
     await ensureAdmin(context.supabase, context.userId);
     const { data: target, error: tErr } = await context.supabase

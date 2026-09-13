@@ -28,7 +28,7 @@ export async function gtranslate(text: string, source: string, target: string): 
     if (current) chunks.push(current);
     if (chunks.length > 1) {
       const translatedChunks = await Promise.all(
-        chunks.map((chunk) => gtranslateChunk(chunk, source, target))
+        chunks.map((chunk) => gtranslateChunk(chunk, source, target)),
       );
       return translatedChunks.join("\n\n");
     }
@@ -40,7 +40,8 @@ export async function gtranslate(text: string, source: string, target: string): 
 async function gtranslateChunk(text: string, source: string, target: string): Promise<string> {
   const MAX_ATTEMPTS = 3;
   const headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "User-Agent":
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
     Accept: "*/*",
   };
 
@@ -59,7 +60,13 @@ async function gtranslateChunk(text: string, source: string, target: string): Pr
           }
           if (Array.isArray(json) && Array.isArray(json[0])) {
             return (json[0] as unknown[])
-              .map((seg) => (Array.isArray(seg) && typeof seg[0] === "string" ? (seg[0] as string) : typeof seg === "string" ? seg : ""))
+              .map((seg) =>
+                Array.isArray(seg) && typeof seg[0] === "string"
+                  ? (seg[0] as string)
+                  : typeof seg === "string"
+                    ? seg
+                    : "",
+              )
               .join("");
           }
         }
@@ -76,13 +83,15 @@ async function gtranslateChunk(text: string, source: string, target: string): Pr
           },
           body: new URLSearchParams({ q: text }),
           signal: ctl.signal,
-        }
+        },
       );
       if (postRes.ok) {
         const json = (await postRes.json()) as unknown;
         if (Array.isArray(json) && Array.isArray(json[0])) {
           return (json[0] as unknown[])
-            .map((seg) => (Array.isArray(seg) && typeof seg[0] === "string" ? (seg[0] as string) : ""))
+            .map((seg) =>
+              Array.isArray(seg) && typeof seg[0] === "string" ? (seg[0] as string) : "",
+            )
             .join("");
         }
       }
@@ -94,7 +103,9 @@ async function gtranslateChunk(text: string, source: string, target: string): Pr
         const json = (await getRes.json()) as unknown;
         if (Array.isArray(json) && Array.isArray(json[0])) {
           return (json[0] as unknown[])
-            .map((seg) => (Array.isArray(seg) && typeof seg[0] === "string" ? (seg[0] as string) : ""))
+            .map((seg) =>
+              Array.isArray(seg) && typeof seg[0] === "string" ? (seg[0] as string) : "",
+            )
             .join("");
         }
       }
@@ -117,28 +128,49 @@ async function gtranslateChunk(text: string, source: string, target: string): Pr
 // sometimes reorders/renames "Answer:", "Solution:", "Column A:" — restore them.
 export function normalizeTranslated(text: string, idx: number): string {
   let s = text.replace(/\r\n?/g, "\n");
-  s = s.replace(/^\s*(?:(?:[Qq]\.?(?:uestion|ue|ues)?|Problem|Prob|MCQ|Item|Task|Case)(?:[ \t]*(?:No|Num|Number|#)\.?)?|प्रश्न(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|प्र\.?[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक)?|सवाल(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|क्र\.?[ \t]*(?:सं\.?|संख्या)?|[?¿\uFFFD]+)?[ \t]*[:.-]?[ \t]*\d{1,4}\s*[:.\-)\s]\s*/i, `${idx}. `);
+  s = s.replace(
+    /^\s*(?:(?:[Qq]\.?(?:uestion|ue|ues)?|Problem|Prob|MCQ|Item|Task|Case)(?:[ \t]*(?:No|Num|Number|#)\.?)?|प्रश्न(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|प्र\.?[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक)?|सवाल(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|क्र\.?[ \t]*(?:सं\.?|संख्या)?|[?¿\uFFFD]+)?[ \t]*[:.-]?[ \t]*\d{1,4}\s*[:.\-)\s]\s*/i,
+    `${idx}. `,
+  );
 
   // Reunite orphaned numbers that are on a line by themselves: "1\nText..." -> "1 Text..."
   s = s.replace(/(?:^|\n)\s*(\((?:[1-9]|10|i{1,3}|iv|v)\)|[1-9]|10)[.)]?\s*\n\s*(?=\S)/g, "\n$1 ");
 
   // Break inline numbered statements inside question body before options (protect decimal numbers!)
-  s = s.replace(/([:：])\s*(?=(?:[1-9]|10|\((?:[1-9]|10|i{1,3}|iv|v)\))\s*[.,):\-–—]?\s+)/g, "$1\n");
-  s = s.replace(/([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))\s*[.,):\-–—]?\s+[^\s\d])/g, "$1\n");
-  s = s.replace(/([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi, "$1\n");
+  s = s.replace(
+    /([:：])\s*(?=(?:[1-9]|10|\((?:[1-9]|10|i{1,3}|iv|v)\))\s*[.,):\-–—]?\s+)/g,
+    "$1\n",
+  );
+  s = s.replace(
+    /([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))\s*[.,):\-–—]?\s+[^\s\d])/g,
+    "$1\n",
+  );
+  s = s.replace(
+    /([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi,
+    "$1\n",
+  );
 
   s = s.replace(/^\s*(Ans(?:wer)?|उत्तर)\s*[:.-]\s*/gim, "Answer: ");
   s = s.replace(/^\s*(Sol(?:ution)?|समाधान|हल)\s*[:.-]\s*/gim, "Solution: ");
-  s = s.replace(/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?([ABI12]|II)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*$/gim, (m, p1) => {
-    return `Column ${/A|I|1/i.test(p1) ? 'A' : 'B'}:`;
-  });
+  s = s.replace(
+    /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?([ABI12]|II)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*$/gim,
+    (m, p1) => {
+      return `Column ${/A|I|1/i.test(p1) ? "A" : "B"}:`;
+    },
+  );
 
   s = s.replace(/(?<=\S)[^\S\r\n]*(?=Solution:)/gi, "\n\n");
   s = s.replace(/^(Solution:\s*)(\S)/gim, "$1\n$2");
-  
+
   // Fix "Code:" / "कूट :" glued to previous text or to options
-  s = s.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
-  s = s.replace(/^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
+  s = s.replace(
+    /(?<=\S)[^\S\r\n]+((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim,
+    "\n$1",
+  );
+  s = s.replace(
+    /^((?:उत्तर\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim,
+    "$1\n",
+  );
   // Only add space after option label if at line start or after 2+ spaces, and NOT followed by an abbreviation like B.C., A.D., C.E.
   s = s.replace(/(?:^|[^\S\r\n]{2,})([A-Ha-h]\.)(?!\s*[A-Za-z]\.)([^\s.])/gm, (m, g1, g2) => {
     return m.slice(0, m.length - g1.length - g2.length) + g1 + " " + g2;
@@ -147,7 +179,10 @@ export function normalizeTranslated(text: string, idx: number): string {
   s = s.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
 
   // Remove dots/commas from sub-statements (e.g. "1. Text" -> "1 Text")
-  s = s.replace(/(?<=\n)\s*(?:\(([1-9]|10)\)|([1-9]|10))\s*[.,):\-–—]?\s+(?=\S)/g, (m, g1, g2) => `${g2 || g1.replace(/[\(\)]/g, "")} `);
+  s = s.replace(
+    /(?<=\n)\s*(?:\(([1-9]|10)\)|([1-9]|10))\s*[.,):\-–—]?\s+(?=\S)/g,
+    (m, g1, g2) => `${g2 || g1.replace(/[\(\)]/g, "")} `,
+  );
 
   // Strictly enforce Column B numbers with NO dot (e.g., "1 Item", "2 Item")
   const colBMatch = s.match(/(Column\s*B:[\s\S]*)/i);
@@ -169,7 +204,10 @@ export function normalizeTranslated(text: string, idx: number): string {
   const solMatch = s.match(/(Solution:[\s\S]*)/i);
   if (solMatch) {
     let solText = solMatch[1];
-    solText = solText.replace(/^([ \t]*)(?:\((\d+)\)|(\d+))\s*[.,):\-–—]?\s+/gm, (m, indent, g1, g2) => `${indent}${g2 || g1} `);
+    solText = solText.replace(
+      /^([ \t]*)(?:\((\d+)\)|(\d+))\s*[.,):\-–—]?\s+/gm,
+      (m, indent, g1, g2) => `${indent}${g2 || g1} `,
+    );
     s = s.slice(0, solMatch.index) + solText;
   }
   // Some translations rewrite bullets — restore leading "* " for lines that start with a bullet char.
@@ -189,7 +227,11 @@ export function normalizeTranslated(text: string, idx: number): string {
 }
 
 // Simple concurrency-limited map.
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, i: number) => Promise<R>): Promise<R[]> {
+async function mapLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, i: number) => Promise<R>,
+): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let cursor = 0;
   const workers: Promise<void>[] = [];
@@ -219,7 +261,8 @@ export const translateBatchToOpposite = createServerFn({ method: "POST" })
       .eq("status", "done")
       .order("idx", { ascending: true });
     if (error) throw new Error(`Could not load questions: ${error.message}`);
-    if (!rows || rows.length === 0) throw new Error("Nothing to translate — no completed questions.");
+    if (!rows || rows.length === 0)
+      throw new Error("Nothing to translate — no completed questions.");
 
     // Extract the question/options portion (before Solution:) to detect whether the source question is English or Hindi.
     // Gemini solution is in Hindi by default, so we only evaluate the question body to detect the original language.

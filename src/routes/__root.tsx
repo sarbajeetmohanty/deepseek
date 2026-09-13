@@ -80,9 +80,16 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "Earthpuls — Format & Solve Bulk MCQs with AI" },
-      { name: "description", content: "Earthpuls turns hundreds of raw MCQs into clean, formatted questions with step-by-step Hindi solutions, exportable to Word or Google Docs." },
+      {
+        name: "description",
+        content:
+          "Earthpuls turns hundreds of raw MCQs into clean, formatted questions with step-by-step Hindi solutions, exportable to Word or Google Docs.",
+      },
       { property: "og:title", content: "Earthpuls" },
-      { property: "og:description", content: "AI-powered MCQ formatting & solutions with team collaboration." },
+      {
+        property: "og:description",
+        content: "AI-powered MCQ formatting & solutions with team collaboration.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -94,7 +101,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap",
+      },
     ],
   }),
   shellComponent: RootShell,

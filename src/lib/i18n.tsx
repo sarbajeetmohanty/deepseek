@@ -137,15 +137,20 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
     } catch {}
   }, []);
 
-  const value = useMemo<Ctx>(() => ({
-    lang,
-    setLang: (l) => {
-      setLangState(l);
-      try { localStorage.setItem(STORAGE_KEY, l); } catch {}
-      if (typeof document !== "undefined") document.documentElement.lang = l;
-    },
-    t: (key) => DICTS[lang][key] ?? DICTS.en[key] ?? String(key),
-  }), [lang]);
+  const value = useMemo<Ctx>(
+    () => ({
+      lang,
+      setLang: (l) => {
+        setLangState(l);
+        try {
+          localStorage.setItem(STORAGE_KEY, l);
+        } catch {}
+        if (typeof document !== "undefined") document.documentElement.lang = l;
+      },
+      t: (key) => DICTS[lang][key] ?? DICTS.en[key] ?? String(key),
+    }),
+    [lang],
+  );
 
   return <I18nCtx.Provider value={value}>{children}</I18nCtx.Provider>;
 }

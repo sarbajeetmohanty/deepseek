@@ -16,7 +16,9 @@ async function ensureAdmin(supabase: SupabaseClient, userId: string) {
 export const inviteUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((data: { email: string }) => {
-    const email = String(data?.email ?? "").trim().toLowerCase();
+    const email = String(data?.email ?? "")
+      .trim()
+      .toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Valid email required");
     if (email.length > 320) throw new Error("Email address is too long");
     return { email };
@@ -250,16 +252,22 @@ export const removeTeamMember = createServerFn({ method: "POST" })
 // Admin-only: directly create a user account with email and password so they can log in immediately.
 export const createTeamUser = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .inputValidator((data: { email: string; password: string; fullName?: string; role?: "member" | "admin" }) => {
-    const email = String(data?.email ?? "").trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Valid email required");
-    if (email.length > 320) throw new Error("Email address is too long");
-    const password = String(data?.password ?? "");
-    if (password.length < 6) throw new Error("Password must be at least 6 characters");
-    const fullName = String(data?.fullName ?? "").trim().slice(0, 100);
-    const role: "member" | "admin" = data?.role === "admin" ? "admin" : "member";
-    return { email, password, fullName, role };
-  })
+  .inputValidator(
+    (data: { email: string; password: string; fullName?: string; role?: "member" | "admin" }) => {
+      const email = String(data?.email ?? "")
+        .trim()
+        .toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("Valid email required");
+      if (email.length > 320) throw new Error("Email address is too long");
+      const password = String(data?.password ?? "");
+      if (password.length < 6) throw new Error("Password must be at least 6 characters");
+      const fullName = String(data?.fullName ?? "")
+        .trim()
+        .slice(0, 100);
+      const role: "member" | "admin" = data?.role === "admin" ? "admin" : "member";
+      return { email, password, fullName, role };
+    },
+  )
   .handler(async ({ data, context }) => {
     const { supabase, userId } = context;
     await ensureAdmin(supabase, userId);
@@ -297,10 +305,9 @@ export const createTeamUser = createServerFn({ method: "POST" })
     });
 
     // 3. Assign role
-    await supabaseAdmin.from("user_roles").upsert(
-      { user_id: newUserId, role: data.role },
-      { onConflict: "user_id,role" }
-    );
+    await supabaseAdmin
+      .from("user_roles")
+      .upsert({ user_id: newUserId, role: data.role }, { onConflict: "user_id,role" });
 
     // 4. Mark or insert invitation as accepted so status is clear
     await supabaseAdmin.from("invitations").upsert({
@@ -310,10 +317,12 @@ export const createTeamUser = createServerFn({ method: "POST" })
     });
 
     // 5. Initialize quota profile
-    await supabaseAdmin.from("user_quotas").upsert(
-      { user_id: newUserId, questions_used: 0, api_calls_used: 0 },
-      { onConflict: "user_id" }
-    );
+    await supabaseAdmin
+      .from("user_quotas")
+      .upsert(
+        { user_id: newUserId, questions_used: 0, api_calls_used: 0 },
+        { onConflict: "user_id" },
+      );
 
     return { ok: true, userId: newUserId, email: data.email };
   });

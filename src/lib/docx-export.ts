@@ -1,8 +1,23 @@
 import {
-  Document, Packer, Paragraph, TextRun, AlignmentType, HeadingLevel, LevelFormat,
-  Table, TableRow, TableCell, WidthType, BorderStyle,
+  Document,
+  Packer,
+  Paragraph,
+  TextRun,
+  AlignmentType,
+  HeadingLevel,
+  LevelFormat,
+  Table,
+  TableRow,
+  TableCell,
+  WidthType,
+  BorderStyle,
 } from "docx";
-import { normalizeOptionsInText, normalizeAnswerInText, healCorruptedMatchTitle, splitHorizontalOptions } from "./normalize-options";
+import {
+  normalizeOptionsInText,
+  normalizeAnswerInText,
+  healCorruptedMatchTitle,
+  splitHorizontalOptions,
+} from "./normalize-options";
 
 const FONT = "Noto Sans Devanagari";
 
@@ -31,17 +46,41 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
   let cleanText = healCorruptedMatchTitle(text);
 
   // Reunite orphaned numbers that are on a line by themselves: "1\nText..." -> "1 Text..."
-  cleanText = cleanText.replace(/(?:^|\n)\s*(\((?:[1-9]|10|i{1,3}|iv|v)\)|[1-9]|10)[.)]?\s*\n\s*(?=\S)/g, "\n$1 ");
+  cleanText = cleanText.replace(
+    /(?:^|\n)\s*(\((?:[1-9]|10|i{1,3}|iv|v)\)|[1-9]|10)[.)]?\s*\n\s*(?=\S)/g,
+    "\n$1 ",
+  );
 
   // Break inline numbered statements inside question body before options (protect decimal numbers!)
-  cleanText = cleanText.replace(/([:：])\s*(?=(?:[1-9]|10|\((?:[1-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g, "$1\n");
-  cleanText = cleanText.replace(/([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))[.)]?\s+[^\s\d])/g, "$1\n");
-  cleanText = cleanText.replace(/([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi, "$1\n");
+  cleanText = cleanText.replace(
+    /([:：])\s*(?=(?:[1-9]|10|\((?:[1-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g,
+    "$1\n",
+  );
+  cleanText = cleanText.replace(
+    /([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))[.)]?\s+[^\s\d])/g,
+    "$1\n",
+  );
+  cleanText = cleanText.replace(
+    /([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi,
+    "$1\n",
+  );
 
-  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
-  cleanText = cleanText.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
-  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
-  cleanText = cleanText.replace(/^((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
+  cleanText = cleanText.replace(
+    /(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim,
+    "\n$1",
+  );
+  cleanText = cleanText.replace(
+    /^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim,
+    "$1\n",
+  );
+  cleanText = cleanText.replace(
+    /(?<=\S)[^\S\r\n]+((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim,
+    "\n$1",
+  );
+  cleanText = cleanText.replace(
+    /^((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim,
+    "$1\n",
+  );
 
   // Only add space after option label if at line start or after 2+ spaces, and NOT followed by period or digit (avoids breaking B.C., A.D., C.E., B.C.E., or A.1)
   cleanText = cleanText.replace(/(?:^|[^\S\r\n]{2,})([A-Ha-h]\.)([^\s.0-9])/gm, (m, g1, g2) => {
@@ -55,7 +94,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
   cleanText = cleanText.replace(/(?<=\S)\s+(?=(?:Answer|Ans)\s*[:.-])/gi, "\n");
   cleanText = cleanText.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
 
-  let cleanLines = cleanText.split("\n");
+  const cleanLines = cleanText.split("\n");
 
   // Fix pipe-separated match-the-column items (e.g. "a. Item | 1. Item")
   for (let i = 0; i < cleanLines.length; i++) {
@@ -63,11 +102,16 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     if (line.startsWith("|") && line.endsWith("|")) {
       line = line.substring(1, line.length - 1).trim();
     }
-    
+
     if (line.includes("|") || line.includes("｜") || line.includes("│")) {
       const parts = line.split(/\s*[|｜│]\s*/);
-      
-      if (parts.length >= 2 && /^\s*([a-hA-H1-9]\.|I{1,3}\.|IV\.|V\.|VI\.|\([a-hA-H1-9]\)|\(I{1,3}\)|\(IV\)|\(V\)|\(VI\)|[a-hA-H1-9]\)|I{1,3}\)|IV\)|V\)|VI\))\s*/i.test(parts[0])) {
+
+      if (
+        parts.length >= 2 &&
+        /^\s*([a-hA-H1-9]\.|I{1,3}\.|IV\.|V\.|VI\.|\([a-hA-H1-9]\)|\(I{1,3}\)|\(IV\)|\(V\)|\(VI\)|[a-hA-H1-9]\)|I{1,3}\)|IV\)|V\)|VI\))\s*/i.test(
+          parts[0],
+        )
+      ) {
         let startIndex = i;
         while (startIndex > 0) {
           const prev = cleanLines[startIndex - 1].trim();
@@ -89,11 +133,14 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         let j = i;
         const newColA = [];
         const newColB = [];
-        
+
         while (j < cleanLines.length) {
           let currLine = cleanLines[j].trim();
-          
-          if (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(currLine) || /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(currLine)) {
+
+          if (
+            /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(currLine) ||
+            /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(currLine)
+          ) {
             break;
           }
 
@@ -113,7 +160,7 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
           }
           j++;
         }
-        
+
         if (newColA.length > 0) {
           const replacement = ["Column A:", ...newColA, "Column B:", ...newColB];
           cleanLines.splice(startIndex, j - startIndex, ...replacement);
@@ -124,10 +171,16 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
   }
 
   // Fix dash/hyphen/colon separated match-the-column items on the same line (e.g. "a Item - 1 Item")
-  const dashSplitRegex = /\s*(?:[-–—:;]|\t+)\s*(?=\(?(?:[1-9]|10|[a-hA-H]|i{1,3}|iv|v)\)?[.)]?\s+)/i;
-  const leftItemRegex = /^\s*(?:[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?|\([ivxIVX]{1,4}\)|(?:[1-9]|10)[.)]?|\((?:[1-9]|10)\))\s+/i;
-  const isQuestionPromptRegex = /(?:सुमेलित|सुमेल|मिलान|Match\b|Match the|निम्नलिखित|निम्न में|सूची\s*[-–—]?\s*[I1A].*सूची\s*[-–—]?\s*[II2B])/i;
-  const isStatementQuestion = /(?:केवल|सभी\s*सही|कोई\s*नहीं|\bदोनों\b|कथन\s*\d|उपर्युक्त|उपरोक्त|Only\b|All\s+of\s+the\s+above|None\s+of\s+the\s+above|Both\s+\d)/i.test(cleanText);
+  const dashSplitRegex =
+    /\s*(?:[-–—:;]|\t+)\s*(?=\(?(?:[1-9]|10|[a-hA-H]|i{1,3}|iv|v)\)?[.)]?\s+)/i;
+  const leftItemRegex =
+    /^\s*(?:[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?|\([ivxIVX]{1,4}\)|(?:[1-9]|10)[.)]?|\((?:[1-9]|10)\))\s+/i;
+  const isQuestionPromptRegex =
+    /(?:सुमेलित|सुमेल|मिलान|Match\b|Match the|निम्नलिखित|निम्न में|सूची\s*[-–—]?\s*[I1A].*सूची\s*[-–—]?\s*[II2B])/i;
+  const isStatementQuestion =
+    /(?:केवल|सभी\s*सही|कोई\s*नहीं|\bदोनों\b|कथन\s*\d|उपर्युक्त|उपरोक्त|Only\b|All\s+of\s+the\s+above|None\s+of\s+the\s+above|Both\s+\d)/i.test(
+      cleanText,
+    );
 
   if (!isStatementQuestion) {
     let inSolutionOrAnswer = false;
@@ -147,11 +200,20 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
           let startIndex = i;
           while (startIndex > 0) {
             const prev = cleanLines[startIndex - 1].trim();
-            if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I|1)\)?[:.\-]?/i.test(prev)) {
+            if (
+              /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I|1)\)?[:.\-]?/i.test(
+                prev,
+              )
+            ) {
               startIndex--;
               break;
             }
-            if (prev === "" || /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?[:.\-]?/i.test(prev)) {
+            if (
+              prev === "" ||
+              /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?[:.\-]?/i.test(
+                prev,
+              )
+            ) {
               startIndex--;
               continue;
             }
@@ -163,10 +225,15 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
           const colBItems: string[] = [];
           while (j < cleanLines.length) {
             const curr = cleanLines[j].trim();
-            if (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(curr) || /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(curr)) {
+            if (
+              /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(curr) ||
+              /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(curr)
+            ) {
               break;
             }
-            if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(curr)) {
+            if (
+              /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(curr)
+            ) {
               j++;
               continue;
             }
@@ -185,8 +252,12 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
 
           if (colAItems.length >= 3) {
             const precedingText = cleanLines.slice(0, startIndex).join(" ");
-            const m1 = precedingText.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:I|A|1)(?:\s*\([^\)\n]+\))?)/i);
-            const m2 = precedingText.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:II|B|2)(?:\s*\([^\)\n]+\))?)/i);
+            const m1 = precedingText.match(
+              /((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:I|A|1)(?:\s*\([^\)\n]+\))?)/i,
+            );
+            const m2 = precedingText.match(
+              /((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:II|B|2)(?:\s*\([^\)\n]+\))?)/i,
+            );
             const headerA = m1 ? `${m1[1]}:` : "Column A:";
             const headerB = m2 ? `${m2[1]}:` : "Column B:";
 
@@ -207,19 +278,19 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     }
     if (inSolutionOrAnswer2) break;
     const m1 = cleanLines[i].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
-    const m2 = cleanLines[i+1].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
-    const m3 = cleanLines[i+2].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
-    const m4 = cleanLines[i+3].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
+    const m2 = cleanLines[i + 1].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
+    const m3 = cleanLines[i + 2].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
+    const m4 = cleanLines[i + 3].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
     if (m1 && m2 && m3 && m4) {
-      let colA = [];
-      let colB = [];
+      const colA = [];
+      const colB = [];
       let j = i;
       while (j < cleanLines.length - 1) {
         const mA = cleanLines[j].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
-        const mB = cleanLines[j+1].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
+        const mB = cleanLines[j + 1].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
         if (mA && mB) {
           colA.push(cleanLines[j]);
-          colB.push(cleanLines[j+1]);
+          colB.push(cleanLines[j + 1]);
           j += 2;
         } else {
           break;
@@ -227,7 +298,12 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       }
       let startIndex = i;
       let countToRemove = j - i;
-      while (startIndex > 0 && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[:.\-]?/i.test(cleanLines[startIndex - 1])) {
+      while (
+        startIndex > 0 &&
+        /^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[:.\-]?/i.test(
+          cleanLines[startIndex - 1],
+        )
+      ) {
         startIndex--;
         countToRemove++;
       }
@@ -252,7 +328,9 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     // Question line: "374. ..." or "Question 1: ..."
-    const q = line.match(/^\s*(?:(?:[Qq]\.?(?:uestion|ue|ues)?|Problem|Prob|MCQ|Item|Task|Case)(?:[ \t]*(?:No|Num|Number|#)\.?)?|प्रश्न(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|प्र\.?[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक)?|सवाल(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|क्र\.?[ \t]*(?:सं\.?|संख्या)?|[?¿\uFFFD]+)?[ \t]*[:.-]?[ \t]*(\d{1,4})[.:\-)\]]\s+(.*)$/i);
+    const q = line.match(
+      /^\s*(?:(?:[Qq]\.?(?:uestion|ue|ues)?|Problem|Prob|MCQ|Item|Task|Case)(?:[ \t]*(?:No|Num|Number|#)\.?)?|प्रश्न(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|प्र\.?[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक)?|सवाल(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|क्र\.?[ \t]*(?:सं\.?|संख्या)?|[?¿\uFFFD]+)?[ \t]*[:.-]?[ \t]*(\d{1,4})[.:\-)\]]\s+(.*)$/i,
+    );
     if (q && !seenQuestion) {
       seenQuestion = true;
       inSolution = false;
@@ -265,7 +343,12 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       continue;
     }
 
-    if (!seenAnswer && !seenSolution && !inSolution && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?/i.test(line)) {
+    if (
+      !seenAnswer &&
+      !seenSolution &&
+      !inSolution &&
+      /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?/i.test(line)
+    ) {
       inSolution = false;
       let headerA = "Column A";
       let headerB = "Column B";
@@ -274,20 +357,28 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       let j = i + 1;
       while (
         j < lines.length &&
-        !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2|बी)\)?/i.test(lines[j]) &&
+        !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2|बी)\)?/i.test(
+          lines[j],
+        ) &&
         !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
         !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
         !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j])
       ) {
         // If this line has an embedded "Column B:" header, split it!
-        const colBMatch = lines[j].match(/^(.*?)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*)$/i);
+        const colBMatch = lines[j].match(
+          /^(.*?)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*)$/i,
+        );
         if (colBMatch) {
           if (colBMatch[1].trim()) colA.push(colBMatch[1].trim());
           lines[j] = colBMatch[2].trim();
           break;
         }
         // If this line is another "Column A:" / "सूची-I" header (e.g. from an earlier duplicate header), reset colA
-        if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?[:.\-]?/i.test(lines[j])) {
+        if (
+          /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?[:.\-]?/i.test(
+            lines[j],
+          )
+        ) {
           colA.length = 0;
           headerA = "Column A";
           j++;
@@ -296,12 +387,17 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         colA.push(lines[j]);
         j++;
       }
-      if (j < lines.length && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2|बी)\)?/i.test(lines[j])) {
+      if (
+        j < lines.length &&
+        /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2|बी)\)?/i.test(lines[j])
+      ) {
         headerB = "Column B";
         j++;
         while (
           j < lines.length &&
-          !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?/i.test(lines[j]) &&
+          !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?/i.test(
+            lines[j],
+          ) &&
           !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
           !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
           !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j]) &&
@@ -316,15 +412,22 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
 
       // If Column B is empty, check if colA contains numbered items belonging to Column B or embedded dash items
       if (colB.length === 0 && colA.length > 0) {
-        const firstNumIdx = colA.findIndex((item, idx) => idx > 0 && /^\s*(?:\(?\d{1,2}\)?|\d{1,2}[.)])\s+/.test(item));
+        const firstNumIdx = colA.findIndex(
+          (item, idx) => idx > 0 && /^\s*(?:\(?\d{1,2}\)?|\d{1,2}[.)])\s+/.test(item),
+        );
         if (firstNumIdx > 0) {
           const itemsForB = colA.splice(firstNumIdx);
           colB.push(...itemsForB);
           if (colA.length > 0) {
-            colA[colA.length - 1] = colA[colA.length - 1].replace(/[^\S\r\n]*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*$/i, "").trim();
+            colA[colA.length - 1] = colA[colA.length - 1]
+              .replace(
+                /[^\S\r\n]*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*$/i,
+                "",
+              )
+              .trim();
           }
         } else {
-          const splitMatches = colA.filter(item => dashSplitRegex.test(item));
+          const splitMatches = colA.filter((item) => dashSplitRegex.test(item));
           const canSplit = splitMatches.length >= 3 && splitMatches.length >= colA.length - 1;
           if (canSplit) {
             const splitColA: string[] = [];
@@ -347,26 +450,47 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
       const colALetters = ["a. ", "b. ", "c. ", "d. ", "e. "];
       const colBNumbers = ["1 ", "2 ", "3 ", "4 ", "5 "];
       for (let k = 0; k < colA.length; k++) {
-        const stripped = colA[k].replace(/^\s*(?:[A-Ea-e1-5][.)\s]|\([A-Ea-e1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
+        const stripped = colA[k]
+          .replace(
+            /^\s*(?:[A-Ea-e1-5][.)\s]|\([A-Ea-e1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i,
+            "",
+          )
+          .trim();
         if (k < colALetters.length) colA[k] = colALetters[k] + stripped;
       }
       for (let k = 0; k < colB.length; k++) {
-        const stripped = colB[k].replace(/^\s*(?:[A-Ea-e1-5][.)\s]|\([A-Ea-e1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
+        const stripped = colB[k]
+          .replace(
+            /^\s*(?:[A-Ea-e1-5][.)\s]|\([A-Ea-e1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i,
+            "",
+          )
+          .trim();
         if (k < colBNumbers.length) colB[k] = colBNumbers[k] + stripped;
       }
 
       const maxRows = Math.max(colA.length, colB.length);
-      const labelRegex = /^(\(?(?:[0-9]{1,2}|[a-zA-Z]|[ivxIVX]{1,4})\)?|[0-9]{1,2}[.)]?|[a-zA-Z][.)]|[ivxIVX]{1,4}[.)]?)\s+(.*)$/;
+      const labelRegex =
+        /^(\(?(?:[0-9]{1,2}|[a-zA-Z]|[ivxIVX]{1,4})\)?|[0-9]{1,2}[.)]?|[a-zA-Z][.)]|[ivxIVX]{1,4}[.)]?)\s+(.*)$/;
       const tableRows: TableRow[] = [
         new TableRow({
           children: [
             new TableCell({
               width: { size: 50, type: WidthType.PERCENTAGE },
-              children: [new Paragraph({ spacing: { before: 120, after: 60, line: 300 }, children: [run(headerA, true)] })],
+              children: [
+                new Paragraph({
+                  spacing: { before: 120, after: 60, line: 300 },
+                  children: [run(headerA, true)],
+                }),
+              ],
             }),
             new TableCell({
               width: { size: 50, type: WidthType.PERCENTAGE },
-              children: [new Paragraph({ spacing: { before: 120, after: 60, line: 300 }, children: [run(headerB, true)] })],
+              children: [
+                new Paragraph({
+                  spacing: { before: 120, after: 60, line: 300 },
+                  children: [run(headerB, true)],
+                }),
+              ],
             }),
           ],
         }),
@@ -383,7 +507,9 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
                   new Paragraph({
                     spacing: { before: 30, after: 30, line: 300 },
                     indent: { left: 360 },
-                    children: mA ? [run(`${mA[1]} `, true), ...runsFromMarkdown(mA[2])] : runsFromMarkdown(itemA),
+                    children: mA
+                      ? [run(`${mA[1]} `, true), ...runsFromMarkdown(mA[2])]
+                      : runsFromMarkdown(itemA),
                   }),
                 ],
               }),
@@ -393,7 +519,9 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
                   new Paragraph({
                     spacing: { before: 30, after: 30, line: 300 },
                     indent: { left: 360 },
-                    children: mB ? [run(`${mB[1].replace(/\.$/, "")} `, true), ...runsFromMarkdown(mB[2])] : runsFromMarkdown(itemB),
+                    children: mB
+                      ? [run(`${mB[1].replace(/\.$/, "")} `, true), ...runsFromMarkdown(mB[2])]
+                      : runsFromMarkdown(itemB),
                   }),
                 ],
               }),
@@ -414,14 +542,16 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
             insideVertical: { style: BorderStyle.NONE, size: 0, color: "auto" },
           },
           rows: tableRows,
-        })
+        }),
       );
       i = j - 1;
       continue;
     }
 
     // Code header: "कूट :", "Code:", "उत्तर कूट:", "सही कूट:"
-    const isCodeHeader = /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)(?:\s*\([a-zA-Z]+\))?\s*[:.\-]/i.test(line) || /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(line);
+    const isCodeHeader =
+      /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)(?:\s*\([a-zA-Z]+\))?\s*[:.\-]/i.test(line) ||
+      /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(line);
     if (isCodeHeader) {
       inSolution = false;
       paragraphs.push(
@@ -434,8 +564,9 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     }
 
     // Assertion / Reason: "कथन (A):", "कारण (R):", "अभिकथन (A):", "कथन-I:", "कथन II:", "Statement I:"
-    const assertionRegex = /^(\s*(?:अभिकथन|कथन|कारण|दलील|Assertion|Reason|Statement)\s*(?:[\-–—\s]*(?:I{1,3}|IV|V|[A-Za-z0-9]|ए|आर)|\((?:[A-Za-z0-9]|ए|आर)+\))\s*[:.\-]?)\s*(.*)$/i;
-    const isAssertionReason = (!seenAnswer && !seenSolution) && assertionRegex.test(line);
+    const assertionRegex =
+      /^(\s*(?:अभिकथन|कथन|कारण|दलील|Assertion|Reason|Statement)\s*(?:[\-–—\s]*(?:I{1,3}|IV|V|[A-Za-z0-9]|ए|आर)|\((?:[A-Za-z0-9]|ए|आर)+\))\s*[:.\-]?)\s*(.*)$/i;
+    const isAssertionReason = !seenAnswer && !seenSolution && assertionRegex.test(line);
     if (isAssertionReason) {
       inSolution = false;
       const m = line.match(assertionRegex);
@@ -443,7 +574,9 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
         new Paragraph({
           spacing: { before: 40, after: 40, line: 300 },
           indent: { left: 360 },
-          children: m ? [run(`${m[1]} `, true), ...runsFromMarkdown(m[2])] : runsFromMarkdown(line, true),
+          children: m
+            ? [run(`${m[1]} `, true), ...runsFromMarkdown(m[2])]
+            : runsFromMarkdown(line, true),
         }),
       );
       continue;
@@ -453,10 +586,18 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     const isAbbrev = /^\s*[A-Za-z]\.(?:\s*[A-Za-z]\.)+/i.test(line);
 
     // Check if line is an option A., B., C., D. or (a), (b), (c), (d) or A) Option
-    const letterOptMatch = (!seenAnswer && !seenSolution && !isAbbrev) ? line.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s+(.*)$/) : null;
+    const letterOptMatch =
+      !seenAnswer && !seenSolution && !isAbbrev
+        ? line.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s+(.*)$/)
+        : null;
 
     // Check if line is a sub-statement (1), (2), (3), (4) or (i), (ii), etc. or "1 ", "2 " before options
-    const statementMatch = (!seenAnswer && !seenSolution && !letterOptMatch) ? line.match(/^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\)|(?:[1-9]|10)[.,):\-–—]?|(?:i{1,3}|iv|v|vi)[.,):\-–—]?)\s+(.*)$/i) : null;
+    const statementMatch =
+      !seenAnswer && !seenSolution && !letterOptMatch
+        ? line.match(
+            /^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\)|(?:[1-9]|10)[.,):\-–—]?|(?:i{1,3}|iv|v|vi)[.,):\-–—]?)\s+(.*)$/i,
+          )
+        : null;
 
     if (letterOptMatch) {
       inSolution = false;
@@ -471,7 +612,9 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
           j++;
           while (
             j < lines.length &&
-            !/^\s*(?:(?:[A-Ha-h]\.)|(?:\([a-hA-H1-8]\))|(?:[A-Ha-h]\))|(?:[1-8]\.))\s+/i.test(lines[j]) &&
+            !/^\s*(?:(?:[A-Ha-h]\.)|(?:\([a-hA-H1-8]\))|(?:[A-Ha-h]\))|(?:[1-8]\.))\s+/i.test(
+              lines[j],
+            ) &&
             !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j]) &&
             !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
             !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j])
@@ -541,7 +684,9 @@ function parseFormatted(text: string, isMath: boolean): (Paragraph | Table)[] {
     }
 
     // Solution step "1. …" or "1 …" inside Solution block
-    const step = inSolution ? line.match(/^\s*(\((?:\d{1,2})\)|\d{1,2})\s*[.,):\-–—]?\s+(.*)$/) : null;
+    const step = inSolution
+      ? line.match(/^\s*(\((?:\d{1,2})\)|\d{1,2})\s*[.,):\-–—]?\s+(.*)$/)
+      : null;
     if (step) {
       const stepNum = step[1].replace(/[\(\)]/g, "");
       if (isMath) {
@@ -614,7 +759,9 @@ export async function downloadBatchAsDocx(
 ) {
   const isMath = subjectType === "math";
   const safeTitle = (title && title.trim()) || "Batch";
-  const valid = (questions ?? []).filter((q) => q && typeof q.formatted_output === "string" && q.formatted_output.trim().length > 0);
+  const valid = (questions ?? []).filter(
+    (q) => q && typeof q.formatted_output === "string" && q.formatted_output.trim().length > 0,
+  );
   if (valid.length === 0) throw new Error("Nothing to export yet — no completed questions.");
 
   const body: (Paragraph | Table)[] = [];
@@ -637,23 +784,32 @@ export async function downloadBatchAsDocx(
       default: { document: { run: { font: "Noto Sans Devanagari", size: 22 } } },
     },
     numbering: {
-      config: [{
-        reference: "bullets",
-        levels: [{
-          level: 0, format: LevelFormat.BULLET, text: "*", alignment: AlignmentType.LEFT,
-          style: { paragraph: { indent: { left: 720, hanging: 360 } } },
-        }],
-      }],
-    },
-    sections: [{
-      properties: {
-        page: {
-          size: { width: 11906, height: 16838 }, // Standard A4 (210mm x 297mm)
-          margin: { top: 1080, bottom: 1080, left: 1080, right: 1080 },
+      config: [
+        {
+          reference: "bullets",
+          levels: [
+            {
+              level: 0,
+              format: LevelFormat.BULLET,
+              text: "*",
+              alignment: AlignmentType.LEFT,
+              style: { paragraph: { indent: { left: 720, hanging: 360 } } },
+            },
+          ],
         },
+      ],
+    },
+    sections: [
+      {
+        properties: {
+          page: {
+            size: { width: 11906, height: 16838 }, // Standard A4 (210mm x 297mm)
+            margin: { top: 1080, bottom: 1080, left: 1080, right: 1080 },
+          },
+        },
+        children: body,
       },
-      children: body,
-    }],
+    ],
   });
 
   let blob: Blob;

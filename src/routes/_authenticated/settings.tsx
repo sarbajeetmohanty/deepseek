@@ -7,7 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from "@/components/ui/select";
 import { UserAvatar } from "@/components/user-avatar";
 import { LANGUAGES, useI18n, type Lang } from "@/lib/i18n";
@@ -19,7 +23,9 @@ export const Route = createFileRoute("/_authenticated/settings")({
   notFoundComponent: () => (
     <div className="max-w-md mx-auto text-center py-16 space-y-4">
       <h2 className="text-lg font-semibold">Not found</h2>
-      <Link to="/"><Button>Back to dashboard</Button></Link>
+      <Link to="/">
+        <Button>Back to dashboard</Button>
+      </Link>
     </div>
   ),
 });
@@ -30,7 +36,14 @@ function SettingsError({ error, reset }: { error: Error; reset: () => void }) {
     <div className="max-w-md mx-auto text-center py-16 space-y-4">
       <h2 className="text-lg font-semibold">Settings failed to load</h2>
       <p className="text-sm text-muted-foreground">{error.message}</p>
-      <Button onClick={() => { router.invalidate(); reset(); }}>Try again</Button>
+      <Button
+        onClick={() => {
+          router.invalidate();
+          reset();
+        }}
+      >
+        Try again
+      </Button>
     </div>
   );
 }
@@ -106,7 +119,8 @@ function SettingsPage() {
     }
     setUploading(true);
     try {
-      const ext = (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
+      const ext =
+        (file.name.split(".").pop() || "jpg").toLowerCase().replace(/[^a-z0-9]/g, "") || "jpg";
       const path = `${userId}/avatar-${Date.now()}.${ext}`;
       const { error: upErr } = await supabase.storage
         .from("avatars")
@@ -116,7 +130,10 @@ function SettingsPage() {
       // Best-effort: remove any prior file so storage doesn't accumulate.
       const prev = profile?.avatar_url;
       if (prev && prev !== path) {
-        await supabase.storage.from("avatars").remove([prev]).catch(() => {});
+        await supabase.storage
+          .from("avatars")
+          .remove([prev])
+          .catch(() => {});
       }
 
       const { error: dbErr } = await supabase
@@ -139,12 +156,12 @@ function SettingsPage() {
   async function removePhoto() {
     if (!userId || !profile?.avatar_url) return;
     const prev = profile.avatar_url;
-    const { error } = await supabase
-      .from("profiles")
-      .update({ avatar_url: null })
-      .eq("id", userId);
+    const { error } = await supabase.from("profiles").update({ avatar_url: null }).eq("id", userId);
     if (error) return toast.error(error.message);
-    await supabase.storage.from("avatars").remove([prev]).catch(() => {});
+    await supabase.storage
+      .from("avatars")
+      .remove([prev])
+      .catch(() => {});
     toast.success(t("photoRemoved"));
     qc.invalidateQueries({ queryKey: ["profile", userId] });
     qc.invalidateQueries({ queryKey: ["team"] });
@@ -160,7 +177,9 @@ function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>{t("profile")}</CardTitle>
-          <CardDescription>{t("profilePicture")} · {t("displayName")}</CardDescription>
+          <CardDescription>
+            {t("profilePicture")} · {t("displayName")}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="flex items-center gap-4">
@@ -192,7 +211,13 @@ function SettingsPage() {
                 {uploading ? t("saving") : t("uploadPhoto")}
               </Button>
               {profile?.avatar_url && (
-                <Button type="button" size="sm" variant="ghost" onClick={removePhoto} className="text-destructive hover:text-destructive hover:bg-destructive/10">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={removePhoto}
+                  className="text-destructive hover:text-destructive hover:bg-destructive/10"
+                >
                   {t("removePhoto")}
                 </Button>
               )}
@@ -200,7 +225,10 @@ function SettingsPage() {
           </div>
 
           <form
-            onSubmit={(e) => { e.preventDefault(); saveName.mutate(name.trim()); }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              saveName.mutate(name.trim());
+            }}
             className="space-y-2"
           >
             <Label htmlFor="displayName">{t("displayName")}</Label>
@@ -212,7 +240,9 @@ function SettingsPage() {
                 placeholder={email}
                 maxLength={80}
               />
-              <Button type="submit" disabled={saveName.isPending}>{saveName.isPending ? t("saving") : t("save")}</Button>
+              <Button type="submit" disabled={saveName.isPending}>
+                {saveName.isPending ? t("saving") : t("save")}
+              </Button>
             </div>
           </form>
         </CardContent>

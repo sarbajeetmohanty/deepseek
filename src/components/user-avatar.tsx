@@ -30,9 +30,7 @@ export function UserAvatar({
     gcTime: 60 * 60_000,
     queryFn: async () => {
       if (!path) return null;
-      const { data, error } = await supabase.storage
-        .from("avatars")
-        .createSignedUrl(path, 60 * 60);
+      const { data, error } = await supabase.storage.from("avatars").createSignedUrl(path, 60 * 60);
       if (error) return null;
       return data.signedUrl;
     },

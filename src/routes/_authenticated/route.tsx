@@ -8,8 +8,14 @@ import { toast } from "sonner";
 import { UserAvatar } from "@/components/user-avatar";
 import { useI18n } from "@/lib/i18n";
 import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
@@ -26,7 +32,9 @@ export const Route = createFileRoute("/_authenticated")({
       <div className="max-w-md space-y-3">
         <h2 className="text-lg font-semibold">Something went wrong</h2>
         <p className="text-sm text-muted-foreground">{error.message}</p>
-        <a href="/" className="text-sm underline">Reload</a>
+        <a href="/" className="text-sm underline">
+          Reload
+        </a>
       </div>
     </div>
   ),
@@ -36,7 +44,9 @@ function Layout() {
   const { email, userId } = Route.useRouteContext();
   const navigate = useNavigate();
   const { t } = useI18n();
-  const [greetingKey, setGreetingKey] = useState<"goodMorning" | "goodAfternoon" | "goodEvening">("goodMorning");
+  const [greetingKey, setGreetingKey] = useState<"goodMorning" | "goodAfternoon" | "goodEvening">(
+    "goodMorning",
+  );
 
   const { data: role } = useQuery({
     queryKey: ["my-role"],
@@ -84,39 +94,72 @@ function Layout() {
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-6">
             <Link to="/" className="flex items-center gap-2 group">
-              <img 
-                src="/favicon.svg" 
-                className="h-6 w-6 transition-transform group-hover:scale-110 duration-200" 
-                alt="Earthpuls Logo" 
+              <img
+                src="/favicon.svg"
+                className="h-6 w-6 transition-transform group-hover:scale-110 duration-200"
+                alt="Earthpuls Logo"
               />
               <span className="font-semibold text-lg tracking-tight bg-gradient-to-r from-primary to-accent-foreground bg-clip-text text-transparent">
                 Earthpuls
               </span>
             </Link>
             <nav className="flex items-center gap-1 text-sm">
-              <Link to="/" activeProps={{ className: "bg-secondary" }} className="px-3 py-1.5 rounded-md hover:bg-secondary transition-colors">{t("dashboard")}</Link>
+              <Link
+                to="/"
+                activeProps={{ className: "bg-secondary" }}
+                className="px-3 py-1.5 rounded-md hover:bg-secondary transition-colors"
+              >
+                {t("dashboard")}
+              </Link>
               {isAdmin && (
-                <Link to="/admin" activeProps={{ className: "bg-secondary" }} className="px-3 py-1.5 rounded-md hover:bg-secondary transition-colors">{t("team")}</Link>
+                <Link
+                  to="/admin"
+                  activeProps={{ className: "bg-secondary" }}
+                  className="px-3 py-1.5 rounded-md hover:bg-secondary transition-colors"
+                >
+                  {t("team")}
+                </Link>
               )}
-              <Link to="/settings" activeProps={{ className: "bg-secondary" }} className="px-3 py-1.5 rounded-md hover:bg-secondary transition-colors">{t("settings")}</Link>
+              <Link
+                to="/settings"
+                activeProps={{ className: "bg-secondary" }}
+                className="px-3 py-1.5 rounded-md hover:bg-secondary transition-colors"
+              >
+                {t("settings")}
+              </Link>
             </nav>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <span className="text-muted-foreground hidden md:inline">{t(greetingKey)}, {myProfile?.full_name || email}</span>
-            {isAdmin && <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">{t("admin")}</span>}
-            <Link to="/settings" aria-label={t("settings")} className="rounded-full ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-              <UserAvatar path={myProfile?.avatar_url} name={myProfile?.full_name} email={email} size={32} />
+            <span className="text-muted-foreground hidden md:inline">
+              {t(greetingKey)}, {myProfile?.full_name || email}
+            </span>
+            {isAdmin && (
+              <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
+                {t("admin")}
+              </span>
+            )}
+            <Link
+              to="/settings"
+              aria-label={t("settings")}
+              className="rounded-full ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <UserAvatar
+                path={myProfile?.avatar_url}
+                name={myProfile?.full_name}
+                email={email}
+                size={32}
+              />
             </Link>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button size="sm" variant="ghost">{t("signOut")}</Button>
+                <Button size="sm" variant="ghost">
+                  {t("signOut")}
+                </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
                   <AlertDialogTitle>{t("signOutConfirm")}</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {email}
-                  </AlertDialogDescription>
+                  <AlertDialogDescription>{email}</AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>{"Cancel"}</AlertDialogCancel>

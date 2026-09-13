@@ -215,7 +215,11 @@ export type DeepSeekOptions = QuestionSolverOptions;
 // OUTPUT SANITIZER
 // ============================================================================
 
-export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_english" | "math"): string {
+export function sanitizeAiOutput(
+  text: string,
+  idx: number,
+  subjectType?: "gk_english" | "math",
+): string {
   let s = text;
   // Clean up OCR spacing glitches in labels and options (e.g., "A nswer:" -> "Answer:", "A . " -> "A. ")
   s = s.replace(/\bA\s+nswer:/gi, "Answer:");
@@ -229,7 +233,7 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   s = s.replace(/__(.+?)__/g, "$1");
   // Normalize line endings.
   s = s.replace(/\r\n?/g, "\n");
-  // Re-insert breaks before canonical anchors (Answer:, Solution:) in case they got 
+  // Re-insert breaks before canonical anchors (Answer:, Solution:) in case they got
   // glued to previous text or have messy leading whitespace.
   s = s.replace(/(?<=\S)[^\S\r\n]*(?=Answer:)/gi, "\n\n");
   s = s.replace(/(?<=\S)[^\S\r\n]*(?=Solution:)/gi, "\n\n");
@@ -241,18 +245,36 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
 
   // Break inline numbered statements inside question body before options (protect decimal numbers!)
   s = s.replace(/([:：])\s*(?=(?:[1-9]|10|\((?:[1-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g, "$1\n");
-  s = s.replace(/([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))[.)]?\s+[^\s\d])/g, "$1\n");
-  s = s.replace(/([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi, "$1\n");
+  s = s.replace(
+    /([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))[.)]?\s+[^\s\d])/g,
+    "$1\n",
+  );
+  s = s.replace(
+    /([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi,
+    "$1\n",
+  );
 
   // Fix column headers glued to the end of a line or to their first item
-  s = s.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[ \t\-]*\(?(?:A|B|I{1,3}|1|2)\)?(?:\([^\)\n]+\))?(?:[ \t.:\-]+(?=\(?[a-zA-Z1-9]\)?[ \t.)])|[ \t.:\-]*$))/gim, "\n$1");
-  s = s.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[ \t\-]*\(?(?:A|B|I{1,3}|1|2)\)?(?:\([^\)\n]+\))?[ \t.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[ \t.)])/gim, "$1\n");
+  s = s.replace(
+    /(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[ \t\-]*\(?(?:A|B|I{1,3}|1|2)\)?(?:\([^\)\n]+\))?(?:[ \t.:\-]+(?=\(?[a-zA-Z1-9]\)?[ \t.)])|[ \t.:\-]*$))/gim,
+    "\n$1",
+  );
+  s = s.replace(
+    /^((?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[ \t\-]*\(?(?:A|B|I{1,3}|1|2)\)?(?:\([^\)\n]+\))?[ \t.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[ \t.)])/gim,
+    "$1\n",
+  );
 
   // Fix dash/hyphen/colon separated match-the-column items on the same line (e.g. "a Item - 1 Item")
-  const dashSplitRegex = /\s*(?:[-–—:;]|\t+)\s*(?=\(?(?:[1-9]|10|[a-hA-H]|i{1,3}|iv|v)\)?[.)]?\s+)/i;
-  const leftItemRegex = /^\s*(?:[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?|\([ivxIVX]{1,4}\)|(?:[1-9]|10)[.)]?|\((?:[1-9]|10)\))\s+/i;
-  const isQuestionPromptRegex = /(?:सुमेलित|सुमेल|मिलान|Match\b|Match the|निम्नलिखित|निम्न में|सूची\s*[-–—]?\s*[I1A].*सूची\s*[-–—]?\s*[II2B])/i;
-  const isStatementQuestion = /(?:केवल|सभी\s*सही|कोई\s*नहीं|\bदोनों\b|कथन\s*\d|उपर्युक्त|उपरोक्त|Only\b|All\s+of\s+the\s+above|None\s+of\s+the\s+above|Both\s+\d)/i.test(s);
+  const dashSplitRegex =
+    /\s*(?:[-–—:;]|\t+)\s*(?=\(?(?:[1-9]|10|[a-hA-H]|i{1,3}|iv|v)\)?[.)]?\s+)/i;
+  const leftItemRegex =
+    /^\s*(?:[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?|\([ivxIVX]{1,4}\)|(?:[1-9]|10)[.)]?|\((?:[1-9]|10)\))\s+/i;
+  const isQuestionPromptRegex =
+    /(?:सुमेलित|सुमेल|मिलान|Match\b|Match the|निम्नलिखित|निम्न में|सूची\s*[-–—]?\s*[I1A].*सूची\s*[-–—]?\s*[II2B])/i;
+  const isStatementQuestion =
+    /(?:केवल|सभी\s*सही|कोई\s*नहीं|\bदोनों\b|कथन\s*\d|उपर्युक्त|उपरोक्त|Only\b|All\s+of\s+the\s+above|None\s+of\s+the\s+above|Both\s+\d)/i.test(
+      s,
+    );
   const linesArr = s.split("\n");
 
   if (!isStatementQuestion) {
@@ -273,11 +295,20 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
           let startIndex = i;
           while (startIndex > 0) {
             const prev = linesArr[startIndex - 1].trim();
-            if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I|1)\)?[:.\-]?/i.test(prev)) {
+            if (
+              /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I|1)\)?[:.\-]?/i.test(
+                prev,
+              )
+            ) {
               startIndex--;
               break;
             }
-            if (prev === "" || /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?[:.\-]?/i.test(prev)) {
+            if (
+              prev === "" ||
+              /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?[:.\-]?/i.test(
+                prev,
+              )
+            ) {
               startIndex--;
               continue;
             }
@@ -289,10 +320,15 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
           const colBItems: string[] = [];
           while (j < linesArr.length) {
             const curr = linesArr[j].trim();
-            if (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(curr) || /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(curr)) {
+            if (
+              /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(curr) ||
+              /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(curr)
+            ) {
               break;
             }
-            if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(curr)) {
+            if (
+              /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(curr)
+            ) {
               j++;
               continue;
             }
@@ -311,8 +347,12 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
 
           if (colAItems.length >= 3) {
             const precedingText = linesArr.slice(0, startIndex).join(" ");
-            const m1 = precedingText.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:I|A|1)(?:\s*\([^\)\n]+\))?)/i);
-            const m2 = precedingText.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:II|B|2)(?:\s*\([^\)\n]+\))?)/i);
+            const m1 = precedingText.match(
+              /((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:I|A|1)(?:\s*\([^\)\n]+\))?)/i,
+            );
+            const m2 = precedingText.match(
+              /((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:II|B|2)(?:\s*\([^\)\n]+\))?)/i,
+            );
             const headerA = m1 ? `${m1[1]}:` : "Column A:";
             const headerB = m2 ? `${m2[1]}:` : "Column B:";
 
@@ -327,8 +367,14 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   s = linesArr.join("\n");
 
   // Fix "कूट :" / "Code:" glued to previous text or to options
-  s = s.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
-  s = s.replace(/^((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
+  s = s.replace(
+    /(?<=\S)[^\S\r\n]+((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim,
+    "\n$1",
+  );
+  s = s.replace(
+    /^((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim,
+    "$1\n",
+  );
 
   // Only add space after option label if at line start or after 2+ spaces, and NOT followed by an abbreviation like B.C., A.D., C.E.
   s = s.replace(/(?:^|[^\S\r\n]{2,})([A-Ha-h]\.)(?!\s*[A-Za-z]\.)([^\s.])/gm, (m, g1, g2) => {
@@ -340,11 +386,17 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
   s = s.replace(/^([1-9]|10)(?=[\u0900-\u097FA-Za-z])/gm, "$1 ");
 
   // Remove dots, commas, parentheses, colons, hyphens from sub-statement numbers (e.g., "1. वैगनर" or "1, वैगनर" or "(1) वैगनर" -> "1 वैगनर"), skipping the first line (question number)
-  s = s.replace(/(?<=\n)\s*(?:\(([1-9]|10)\)|([1-9]|10))\s*[.,):\-–—]?\s+(?=\S)/g, (m, g1, g2) => `${g2 || g1.replace(/[\(\)]/g, "")} `);
+  s = s.replace(
+    /(?<=\n)\s*(?:\(([1-9]|10)\)|([1-9]|10))\s*[.,):\-–—]?\s+(?=\S)/g,
+    (m, g1, g2) => `${g2 || g1.replace(/[\(\)]/g, "")} `,
+  );
 
   // Also split sub-statements like (1), (2), (3), (4) or (i), (ii), (iii), (iv) if on same line
   s = s.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
-  s = s.replace(/(?<=[।;]|\S[^\S\r\n]{2,})(?=(?:\(([2-9]|10)\)|([2-9]|10))\s*[.,):\-–—]?\s+[^\s\d])/g, "\n");
+  s = s.replace(
+    /(?<=[।;]|\S[^\S\r\n]{2,})(?=(?:\(([2-9]|10)\)|([2-9]|10))\s*[.,):\-–—]?\s+[^\s\d])/g,
+    "\n",
+  );
 
   // Split options (A-H) if they were output on the same line horizontally, protecting initials like B. B. Lal, R. D. Banerjee
   s = splitHorizontalOptions(s);
@@ -366,13 +418,17 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
     let solText = solMatch[1];
     solText = solText.replace(/^(Solution:\s*)(?=[1-9]\s+|-\s+)/i, "Solution:\n");
     solText = solText.replace(/(?<=\S)[^\S\r\n]{2,}(?=(?:[1-9]|10)\s+)/g, "\n");
-    solText = solText.replace(/^([ \t]*)(?:\((\d+)\)|(\d+))\s*[.,):\-–—]?\s+/gm, (m, indent, g1, g2) => `${indent}${g2 || g1} `);
+    solText = solText.replace(
+      /^([ \t]*)(?:\((\d+)\)|(\d+))\s*[.,):\-–—]?\s+/gm,
+      (m, indent, g1, g2) => `${indent}${g2 || g1} `,
+    );
     s = s.slice(0, solMatch.index) + solText;
   }
 
   // Force the main question number to the caller-supplied idx with a dot,
   // matching the first occurrence of a number at the top, or prepending if missing.
-  const prefixRegex = /^\s*(?:#+\s*)?(?:(?:[Qq]\.?(?:uestion|ue|ues)?|Problem|Prob|MCQ|Item|Task|Case)(?:[ \t]*(?:No|Num|Number|#)\.?)?|प्रश्न(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|प्र\.?[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक)?|सवाल(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|क्र\.?[ \t]*(?:सं\.?|संख्या)?|[?¿\uFFFD]+)?[ \t]*[:.-]?[ \t]*\d{1,4}[.:\-)\]\s]+/i;
+  const prefixRegex =
+    /^\s*(?:#+\s*)?(?:(?:[Qq]\.?(?:uestion|ue|ues)?|Problem|Prob|MCQ|Item|Task|Case)(?:[ \t]*(?:No|Num|Number|#)\.?)?|प्रश्न(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|प्र\.?[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक)?|सवाल(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|क्र\.?[ \t]*(?:सं\.?|संख्या)?|[?¿\uFFFD]+)?[ \t]*[:.-]?[ \t]*\d{1,4}[.:\-)\]\s]+/i;
   if (!prefixRegex.test(s)) {
     s = `${idx}. ` + s.trim();
   } else {
@@ -386,9 +442,15 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
     let inSol = false;
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (/^Solution:/i.test(line)) { inSol = true; continue; }
+      if (/^Solution:/i.test(line)) {
+        inSol = true;
+        continue;
+      }
       if (!inSol) continue;
-      if (/^Answer:/i.test(line)) { inSol = false; continue; }
+      if (/^Answer:/i.test(line)) {
+        inSol = false;
+        continue;
+      }
       // Convert "1. text" or "1) text" or "1 text" step lines to "- text"; keep bullets "* ..." untouched.
       const m = line.match(/^\s*\d{1,2}[.)]?\s+(.*)$/);
       if (m) lines[i] = `- ${m[1]}`;
@@ -407,8 +469,14 @@ export function sanitizeAiOutput(text: string, idx: number, subjectType?: "gk_en
 const defaultSafetySettings = [
   { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
   { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-  { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-  { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE },
+  {
+    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+    threshold: HarmBlockThreshold.BLOCK_NONE,
+  },
+  {
+    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+    threshold: HarmBlockThreshold.BLOCK_NONE,
+  },
 ];
 
 // Specific, ultra-fast, lowest-cost Google Gemini Flash-Lite models verified on live benchmarks:
@@ -515,7 +583,12 @@ export async function formatQuestionWithGemini({
   subjectType,
   solutionLength,
   workerIdx,
+  signal,
 }: QuestionSolverOptions): Promise<string> {
+  if (signal?.aborted) {
+    throw new Error("Question solving aborted");
+  }
+
   const allKeys = await getGeminiApiKeys();
   if (allKeys.length === 0) {
     throw new Error("No available Gemini API keys configured");
@@ -530,9 +603,14 @@ export async function formatQuestionWithGemini({
   if (!cleaned.trim()) throw new Error("Empty question text");
 
   const isLong = solutionLength === "long";
-  const systemInstruction = subjectType === "math"
-    ? (isLong ? UNIFIED_SYSTEM_PROMPT_MATH_LONG : UNIFIED_SYSTEM_PROMPT_MATH_NORMAL)
-    : (isLong ? UNIFIED_SYSTEM_PROMPT_GK_LONG : UNIFIED_SYSTEM_PROMPT_GK_NORMAL);
+  const systemInstruction =
+    subjectType === "math"
+      ? isLong
+        ? UNIFIED_SYSTEM_PROMPT_MATH_LONG
+        : UNIFIED_SYSTEM_PROMPT_MATH_NORMAL
+      : isLong
+        ? UNIFIED_SYSTEM_PROMPT_GK_LONG
+        : UNIFIED_SYSTEM_PROMPT_GK_NORMAL;
 
   const prompt = `Solve and format the following MCQ:\n\n${cleaned}`;
 
@@ -540,18 +618,26 @@ export async function formatQuestionWithGemini({
   const MAX_ATTEMPTS = 25;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    if (signal?.aborted) {
+      throw new Error("Question solving aborted");
+    }
+
     const now = Date.now();
     const activeKeys = allKeys.filter((k) => (disabledKeysUntil.get(k) || 0) <= now);
     if (activeKeys.length === 0) {
-      throw new Error("All configured Gemini API keys are temporarily disabled or in cooldown. Please check your keys in Team settings.");
+      throw new Error(
+        "All configured Gemini API keys are temporarily disabled or in cooldown. Please check your keys in Team settings.",
+      );
     }
 
     // Rotate keys across every request and retry attempt
-    const keyIndex = (globalRequestIndex++) % activeKeys.length;
+    const keyIndex = globalRequestIndex++ % activeKeys.length;
     const key = activeKeys[keyIndex];
 
     // Pick model stream for this worker/attempt, skipping models in cooldown for this specific key
-    const preferredModelIdx = (workerIdx !== undefined ? workerIdx + attempt - 1 : attempt - 1) % GEMINI_SOLVER_MODELS.length;
+    const preferredModelIdx =
+      (workerIdx !== undefined ? workerIdx + attempt - 1 : attempt - 1) %
+      GEMINI_SOLVER_MODELS.length;
     let modelName = GEMINI_SOLVER_MODELS[preferredModelIdx];
 
     if (isKeyModelInCooldown(key, modelName)) {
@@ -563,7 +649,6 @@ export async function formatQuestionWithGemini({
 
     try {
       const genAI = getGenAIClient(key);
-      const is37 = modelName.includes("3.7");
       const model = genAI.getGenerativeModel(
         {
           model: modelName,
@@ -572,12 +657,15 @@ export async function formatQuestionWithGemini({
             temperature: 0.1,
             topP: 0.1,
             maxOutputTokens: 1200,
-            ...(is37 ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
           },
           safetySettings: defaultSafetySettings,
         },
-        { timeout: 15000 }
+        { timeout: 15000, signal } as any,
       );
+
+      if (signal?.aborted) {
+        throw new Error("Question solving aborted");
+      }
 
       const result = await model.generateContent([prompt]);
       const response = await result.response;
@@ -591,7 +679,12 @@ export async function formatQuestionWithGemini({
       const status = error?.status;
 
       // If the key has 403 or is suspended, temporarily disable it with a 10-minute TTL
-      if (status === 403 || msg.includes("denied access") || msg.includes("api_key_invalid") || msg.includes("consumer_suspended")) {
+      if (
+        status === 403 ||
+        msg.includes("denied access") ||
+        msg.includes("api_key_invalid") ||
+        msg.includes("consumer_suspended")
+      ) {
         disabledKeysUntil.set(key, Date.now() + 10 * 60 * 1000);
         continue;
       }
@@ -613,5 +706,7 @@ export async function formatQuestionWithGemini({
     }
   }
 
-  throw new Error(lastError?.message || "Failed to solve question across all Gemini keys and models.");
+  throw new Error(
+    lastError?.message || "Failed to solve question across all Gemini keys and models.",
+  );
 }

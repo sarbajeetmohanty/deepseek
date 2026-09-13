@@ -9,7 +9,12 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { downloadBatchAsDocx } from "@/lib/docx-export";
 import { logDownload } from "@/lib/invitations.functions";
-import { normalizeOptionsInText, normalizeAnswerInText, healCorruptedMatchTitle, splitHorizontalOptions } from "@/lib/normalize-options";
+import {
+  normalizeOptionsInText,
+  normalizeAnswerInText,
+  healCorruptedMatchTitle,
+  splitHorizontalOptions,
+} from "@/lib/normalize-options";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/batch/$id")({
@@ -25,8 +30,17 @@ function BatchError({ error, reset }: { error: Error; reset: () => void }) {
       <h2 className="text-lg font-semibold">Could not load this batch</h2>
       <p className="text-sm text-muted-foreground">{error.message}</p>
       <div className="flex justify-center gap-2">
-        <Button onClick={() => { router.invalidate(); reset(); }}>Try again</Button>
-        <Link to="/"><Button variant="outline">Back to dashboard</Button></Link>
+        <Button
+          onClick={() => {
+            router.invalidate();
+            reset();
+          }}
+        >
+          Try again
+        </Button>
+        <Link to="/">
+          <Button variant="outline">Back to dashboard</Button>
+        </Link>
       </div>
     </div>
   );
@@ -36,8 +50,12 @@ function BatchNotFound() {
   return (
     <div className="max-w-md mx-auto text-center py-16 space-y-4">
       <h2 className="text-lg font-semibold">Batch not found</h2>
-      <p className="text-sm text-muted-foreground">It may have been deleted, or the link is wrong.</p>
-      <Link to="/"><Button>Back to dashboard</Button></Link>
+      <p className="text-sm text-muted-foreground">
+        It may have been deleted, or the link is wrong.
+      </p>
+      <Link to="/">
+        <Button>Back to dashboard</Button>
+      </Link>
     </div>
   );
 }
@@ -48,7 +66,11 @@ function BatchView() {
   const [viewLang, setViewLang] = useState<"original" | "translated">("original");
   const qc = useQueryClient();
 
-  const { data: batch, isLoading: batchLoading, error: batchErr } = useQuery({
+  const {
+    data: batch,
+    isLoading: batchLoading,
+    error: batchErr,
+  } = useQuery({
     queryKey: ["batch", id],
     queryFn: async () => {
       const { data, error } = await supabase.from("batches").select("*").eq("id", id).maybeSingle();
@@ -101,7 +123,9 @@ function BatchView() {
         () => qc.invalidateQueries({ queryKey: ["batch", id] }),
       )
       .subscribe();
-    return () => { supabase.removeChannel(channel); };
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [id, qc]);
 
   const resume = useMutation({
@@ -116,7 +140,7 @@ function BatchView() {
 
   // Initial resume check on page mount
   useEffect(() => {
-    if (batch && batch.status === "processing" && (batch.completed + batch.failed < batch.total)) {
+    if (batch && batch.status === "processing" && batch.completed + batch.failed < batch.total) {
       resume.mutate();
     }
   }, [id]);
@@ -124,7 +148,8 @@ function BatchView() {
   // Stalled-watchdog: only fires if progress has made zero change for >= 15s while processing
   useEffect(() => {
     if (!batch) return;
-    const isProcessing = batch.status === "processing" && (batch.completed + batch.failed < batch.total);
+    const isProcessing =
+      batch.status === "processing" && batch.completed + batch.failed < batch.total;
     if (!isProcessing) return;
 
     const currentDone = batch.completed + batch.failed;
@@ -166,7 +191,9 @@ function BatchView() {
     staleTime: 5 * 60_000,
     retry: 1,
     queryFn: async () => {
-      const { questions: rows, targetLang } = await translateBatchToOpposite({ data: { batchId: id } });
+      const { questions: rows, targetLang } = await translateBatchToOpposite({
+        data: { batchId: id },
+      });
       const byIdx = new Map<number, string>();
       for (const r of rows) byIdx.set(r.idx, r.formatted_output ?? "");
       return { byIdx, targetLang };
@@ -177,10 +204,14 @@ function BatchView() {
   if (batchErr) throw batchErr;
   if (!batch) throw notFound();
 
-  const pct = batch.total > 0 ? Math.round(((batch.completed + batch.failed) / batch.total) * 100) : 0;
+  const pct =
+    batch.total > 0 ? Math.round(((batch.completed + batch.failed) / batch.total) * 100) : 0;
   const doneQs = (questions ?? []).filter((q) => q.status === "done");
   const failedQs = (questions ?? []).filter((q) => q.status === "failed");
-  const combinedText = doneQs.map((q) => q.formatted_output).filter(Boolean).join("\n\n");
+  const combinedText = doneQs
+    .map((q) => q.formatted_output)
+    .filter(Boolean)
+    .join("\n\n");
   const providerBlocked = failedQs.some((q) => isProviderBlockedError(q.error));
   const translatedByIdx = translatedQ.data?.byIdx;
   const translatedTargetLabel = translatedQ.data?.targetLang === "hi" ? "Hindi" : "English";
@@ -200,9 +231,13 @@ function BatchView() {
     if (!batch) return;
     setDownloading("original");
     try {
-      await downloadBatchAsDocx(batch.title, doneQs, batch.subject_type as "gk_english" | "math" | undefined);
+      await downloadBatchAsDocx(
+        batch.title,
+        doneQs,
+        batch.subject_type as "gk_english" | "math" | undefined,
+      );
       // Fire-and-forget usage log; don't block the download UX on it.
-      void logDownload({ data: { batchId: id, kind: "original" } }).catch(() => { });
+      void logDownload({ data: { batchId: id, kind: "original" } }).catch(() => {});
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not download .docx");
     } finally {
@@ -214,10 +249,16 @@ function BatchView() {
     if (!batch) return;
     setDownloading("translated");
     try {
-      const { questions: translated, targetLang } = await translateBatchToOpposite({ data: { batchId: id } });
+      const { questions: translated, targetLang } = await translateBatchToOpposite({
+        data: { batchId: id },
+      });
       const suffix = targetLang === "en" ? "English" : "Hindi";
-      await downloadBatchAsDocx(`${batch.title} (${suffix})`, translated, batch.subject_type as "gk_english" | "math" | undefined);
-      void logDownload({ data: { batchId: id, kind: "translated" } }).catch(() => { });
+      await downloadBatchAsDocx(
+        `${batch.title} (${suffix})`,
+        translated,
+        batch.subject_type as "gk_english" | "math" | undefined,
+      );
+      void logDownload({ data: { batchId: id, kind: "translated" } }).catch(() => {});
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not translate & download .docx");
     } finally {
@@ -228,7 +269,9 @@ function BatchView() {
   return (
     <div className="space-y-6">
       <div>
-        <Link to="/" className="text-sm text-muted-foreground hover:underline">← Back</Link>
+        <Link to="/" className="text-sm text-muted-foreground hover:underline">
+          ← Back
+        </Link>
         <div className="mt-2 flex items-start justify-between gap-3">
           <h1 className="text-2xl font-bold tracking-tight">{batch.title}</h1>
           <Button
@@ -236,17 +279,27 @@ function BatchView() {
             variant="ghost"
             disabled={remove.isPending}
             onClick={() => {
-              if (!window.confirm(`Delete "${batch.title}"? This removes all its questions and cannot be undone.`)) return;
+              if (
+                !window.confirm(
+                  `Delete "${batch.title}"? This removes all its questions and cannot be undone.`,
+                )
+              )
+                return;
               remove.mutate();
             }}
             className="text-destructive hover:text-destructive hover:bg-destructive/10 shrink-0"
-          >{remove.isPending ? "Deleting…" : "Delete batch"}</Button>
+          >
+            {remove.isPending ? "Deleting…" : "Delete batch"}
+          </Button>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          {batch.completed} / {batch.total} done{batch.failed > 0 && ` · ${batch.failed} failed`} · status: {batch.status}
+          {batch.completed} / {batch.total} done{batch.failed > 0 && ` · ${batch.failed} failed`} ·
+          status: {batch.status}
         </p>
         {qErr && (
-          <p className="text-xs text-destructive mt-1">Could not refresh questions: {qErr instanceof Error ? qErr.message : String(qErr)}</p>
+          <p className="text-xs text-destructive mt-1">
+            Could not refresh questions: {qErr instanceof Error ? qErr.message : String(qErr)}
+          </p>
         )}
       </div>
 
@@ -255,11 +308,14 @@ function BatchView() {
           <Progress value={pct} />
           {providerBlocked && (
             <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-              AI service is currently rate limited or blocked. Please check your Gemini keys on the Team page, then use retry.
+              AI service is currently rate limited or blocked. Please check your Gemini keys on the
+              Team page, then use retry.
             </div>
           )}
           <div className="flex flex-wrap gap-2">
-            <Button onClick={copyAll} disabled={doneQs.length === 0}>Copy all ({doneQs.length})</Button>
+            <Button onClick={copyAll} disabled={doneQs.length === 0}>
+              Copy all ({doneQs.length})
+            </Button>
             <Button
               variant="secondary"
               disabled={doneQs.length === 0 || downloading !== null}
@@ -272,7 +328,9 @@ function BatchView() {
               disabled={doneQs.length === 0 || downloading !== null}
               onClick={downloadTranslated}
             >
-              {downloading === "translated" ? "Translating & building…" : "Download translated .docx"}
+              {downloading === "translated"
+                ? "Translating & building…"
+                : "Download translated .docx"}
             </Button>
             {(failedQs.length > 0 || (batch && batch.completed < batch.total)) && (
               <Button
@@ -283,8 +341,10 @@ function BatchView() {
                 {resume.isPending
                   ? "Resuming…"
                   : failedQs.length > 0
-                  ? (providerBlocked ? `I topped up — retry ${failedQs.length}` : `Retry ${failedQs.length} failed`)
-                  : `Resume processing (${batch.total - batch.completed} remaining)`}
+                    ? providerBlocked
+                      ? `I topped up — retry ${failedQs.length}`
+                      : `Retry ${failedQs.length} failed`
+                    : `Resume processing (${batch.total - batch.completed} remaining)`}
               </Button>
             )}
           </div>
@@ -300,50 +360,70 @@ function BatchView() {
                 type="button"
                 onClick={() => setViewLang("original")}
                 className={`px-3 py-1 ${viewLang === "original" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}
-              >Original</button>
+              >
+                Original
+              </button>
               <button
                 type="button"
                 onClick={() => setViewLang("translated")}
                 className={`px-3 py-1 border-l ${viewLang === "translated" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-muted"}`}
-              >{viewLang === "translated" && translatedQ.data ? `Translated (${translatedTargetLabel})` : "Translated"}</button>
+              >
+                {viewLang === "translated" && translatedQ.data
+                  ? `Translated (${translatedTargetLabel})`
+                  : "Translated"}
+              </button>
             </div>
             {viewLang === "translated" && translatedQ.isFetching && (
               <span className="text-muted-foreground italic">translating…</span>
             )}
             {viewLang === "translated" && translatedQ.error && (
-              <span className="text-destructive">Could not translate: {translatedQ.error instanceof Error ? translatedQ.error.message : String(translatedQ.error)}</span>
+              <span className="text-destructive">
+                Could not translate:{" "}
+                {translatedQ.error instanceof Error
+                  ? translatedQ.error.message
+                  : String(translatedQ.error)}
+              </span>
             )}
           </div>
         )}
-      {(questions ?? []).map((q) => (
-        <Card key={q.id} className={q.status === "failed" ? "border-destructive/40" : ""}>
-          <CardHeader className="py-3 flex-row items-center justify-between">
-            <span className="text-xs font-mono text-muted-foreground">Q{q.idx}</span>
-            <span className={`text-xs px-2 py-0.5 rounded ${q.status === "done" ? "bg-primary/10 text-primary" :
-                q.status === "processing" ? "bg-secondary" :
-                  q.status === "failed" ? "bg-destructive/10 text-destructive" : "bg-muted"
-              }`}>{q.status}</span>
-          </CardHeader>
-          <CardContent className="pt-0">
-            {q.formatted_output ? (
-              <FormattedOutput
-                text={
-                  viewLang === "translated" && translatedByIdx?.get(q.idx)
-                    ? (translatedByIdx.get(q.idx) as string)
-                    : q.formatted_output
-                }
-                subjectType={batch.subject_type as "gk_english" | "math" | undefined}
-              />
-            ) : q.error ? (
-              <p className="text-sm text-destructive">{formatQuestionError(q.error)}</p>
-            ) : (
-              <p className="text-sm text-muted-foreground italic">Processing…</p>
-            )}
-          </CardContent>
-        </Card>
-      ))}
+        {(questions ?? []).map((q) => (
+          <Card key={q.id} className={q.status === "failed" ? "border-destructive/40" : ""}>
+            <CardHeader className="py-3 flex-row items-center justify-between">
+              <span className="text-xs font-mono text-muted-foreground">Q{q.idx}</span>
+              <span
+                className={`text-xs px-2 py-0.5 rounded ${
+                  q.status === "done"
+                    ? "bg-primary/10 text-primary"
+                    : q.status === "processing"
+                      ? "bg-secondary"
+                      : q.status === "failed"
+                        ? "bg-destructive/10 text-destructive"
+                        : "bg-muted"
+                }`}
+              >
+                {q.status}
+              </span>
+            </CardHeader>
+            <CardContent className="pt-0">
+              {q.formatted_output ? (
+                <FormattedOutput
+                  text={
+                    viewLang === "translated" && translatedByIdx?.get(q.idx)
+                      ? (translatedByIdx.get(q.idx) as string)
+                      : q.formatted_output
+                  }
+                  subjectType={batch.subject_type as "gk_english" | "math" | undefined}
+                />
+              ) : q.error ? (
+                <p className="text-sm text-destructive">{formatQuestionError(q.error)}</p>
+              ) : (
+                <p className="text-sm text-muted-foreground italic">Processing…</p>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </div>
-    </div >
   );
 }
 
@@ -365,42 +445,79 @@ function renderMarkdownText(text: string): React.ReactNode {
   const parts = text.split(/(\*\*.*?\*\*)/g);
   return parts.map((part, idx) => {
     if (part.startsWith("**") && part.endsWith("**") && part.length >= 4) {
-      return <strong key={idx} className="font-semibold">{part.slice(2, -2)}</strong>;
+      return (
+        <strong key={idx} className="font-semibold">
+          {part.slice(2, -2)}
+        </strong>
+      );
     }
     return part;
   });
 }
 
-const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { text: string; subjectType?: "gk_english" | "math" }) {
+const FormattedOutput = memo(function FormattedOutput({
+  text,
+  subjectType,
+}: {
+  text: string;
+  subjectType?: "gk_english" | "math";
+}) {
   const isMath = subjectType === "math";
-  
+
   let cleanText = healCorruptedMatchTitle(text);
 
   // Reunite orphaned numbers that are on a line by themselves: "1\nText..." -> "1 Text..."
-  cleanText = cleanText.replace(/(?:^|\n)\s*(\((?:[1-9]|10|i{1,3}|iv|v)\)|[1-9]|10)[.)]?\s*\n\s*(?=\S)/g, "\n$1 ");
+  cleanText = cleanText.replace(
+    /(?:^|\n)\s*(\((?:[1-9]|10|i{1,3}|iv|v)\)|[1-9]|10)[.)]?\s*\n\s*(?=\S)/g,
+    "\n$1 ",
+  );
 
   // Break inline numbered statements inside question body before options (protect decimal numbers!)
-  cleanText = cleanText.replace(/([:：])\s*(?=(?:[1-9]|10|\((?:[1-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g, "$1\n");
-  cleanText = cleanText.replace(/([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))[.)]?\s+[^\s\d])/g, "$1\n");
-  cleanText = cleanText.replace(/([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi, "$1\n");
+  cleanText = cleanText.replace(
+    /([:：])\s*(?=(?:[1-9]|10|\((?:[1-9]|10|i{1,3}|iv|v)\))[.)]?\s+)/g,
+    "$1\n",
+  );
+  cleanText = cleanText.replace(
+    /([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:[2-9]|10|\((?:[2-9]|10|i{1,3}|iv|v)\))[.)]?\s+[^\s\d])/g,
+    "$1\n",
+  );
+  cleanText = cleanText.replace(
+    /([।\?!;]|(?<!\d)\.(?!\d))\s*(?=(?:उपर्युक्त|उपरोक्त|इनमें|निम्न|Which of the|Of the above)[^\n]*[\?？:])/gi,
+    "$1\n",
+  );
 
   // Pre-process to unglue headers that might be stuck on the same line as the previous option or statements
-  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim, "\n$1");
-  cleanText = cleanText.replace(/^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim, "$1\n");
-  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]+((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim, "\n$1");
-  cleanText = cleanText.replace(/^((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim, "$1\n");
+  cleanText = cleanText.replace(
+    /(?<=\S)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)(?:[\s.:\-]+(?=\(?[a-zA-Z1-9]\)?[\s.)])|[\s.:\-]*$))/gim,
+    "\n$1",
+  );
+  cleanText = cleanText.replace(
+    /^((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[\s.:\-]*)[^\S\r\n]+(?=\(?[a-zA-Z1-9]\)?[\s.)])/gim,
+    "$1\n",
+  );
+  cleanText = cleanText.replace(
+    /(?<=\S)[^\S\r\n]+((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*(?::|:-|[-–—]|(?=\s*(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))))/gim,
+    "\n$1",
+  );
+  cleanText = cleanText.replace(
+    /^((?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]*)[^\S\r\n]+(?=(?:[A-Ha-h]\.|\([a-hA-H1-8]\)|[A-Ha-h]\)))/gim,
+    "$1\n",
+  );
 
   // Only add space after option label if at line start or after 2+ spaces, and NOT followed by period or digit (avoids breaking B.C., A.D., C.E., B.C.E., or A.1)
   cleanText = cleanText.replace(/(?:^|[^\S\r\n]{2,})([A-Ha-h]\.)([^\s.0-9])/gm, (m, g1, g2) => {
     return m.slice(0, m.length - g1.length - g2.length) + g1 + " " + g2;
   });
   cleanText = cleanText.replace(/(?<![A-Za-z0-9])(\([a-hA-H1-8]\)|[A-Ha-h]\))(?=\S)/g, "$1 ");
-  cleanText = cleanText.replace(/(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi, "\n");
+  cleanText = cleanText.replace(
+    /(?<=\S)[^\S\r\n]{2,}(?=\((?:[1-9]|10|i{1,3}|iv|v|vi)\)\s+)/gi,
+    "\n",
+  );
   cleanText = splitHorizontalOptions(cleanText);
   cleanText = cleanText.replace(/(?<=\S)\s+(?=(?:Answer|Ans)\s*[:.-])/gi, "\n");
   cleanText = cleanText.replace(/^((?:[A-Ha-h]\.)|(?:\([a-h1-8]\)))\s*\n\s*/gm, "$1 ");
-  
-  let cleanLines = cleanText.split("\n");
+
+  const cleanLines = cleanText.split("\n");
 
   // Fix pipe-separated match-the-column items (e.g. "a. Item | 1. Item")
   for (let i = 0; i < cleanLines.length; i++) {
@@ -408,11 +525,16 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
     if (line.startsWith("|") && line.endsWith("|")) {
       line = line.substring(1, line.length - 1).trim();
     }
-    
+
     if (line.includes("|") || line.includes("｜") || line.includes("│")) {
       const parts = line.split(/\s*[|｜│]\s*/);
-      
-      if (parts.length >= 2 && /^\s*([a-hA-H1-9]\.|I{1,3}\.|IV\.|V\.|VI\.|\([a-hA-H1-9]\)|\(I{1,3}\)|\(IV\)|\(V\)|\(VI\)|[a-hA-H1-9]\)|I{1,3}\)|IV\)|V\)|VI\))\s*/i.test(parts[0])) {
+
+      if (
+        parts.length >= 2 &&
+        /^\s*([a-hA-H1-9]\.|I{1,3}\.|IV\.|V\.|VI\.|\([a-hA-H1-9]\)|\(I{1,3}\)|\(IV\)|\(V\)|\(VI\)|[a-hA-H1-9]\)|I{1,3}\)|IV\)|V\)|VI\))\s*/i.test(
+          parts[0],
+        )
+      ) {
         let startIndex = i;
         while (startIndex > 0) {
           const prev = cleanLines[startIndex - 1].trim();
@@ -434,11 +556,14 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
         let j = i;
         const newColA = [];
         const newColB = [];
-        
+
         while (j < cleanLines.length) {
           let currLine = cleanLines[j].trim();
-          
-          if (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(currLine) || /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(currLine)) {
+
+          if (
+            /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(currLine) ||
+            /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(currLine)
+          ) {
             break;
           }
 
@@ -458,7 +583,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           }
           j++;
         }
-        
+
         if (newColA.length > 0) {
           const replacement = ["Column A:", ...newColA, "Column B:", ...newColB];
           cleanLines.splice(startIndex, j - startIndex, ...replacement);
@@ -469,10 +594,16 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
   }
 
   // Fix dash/hyphen/colon separated match-the-column items on the same line (e.g. "a Item - 1 Item")
-  const dashSplitRegex = /\s*(?:[-–—:;]|\t+)\s*(?=\(?(?:[1-9]|10|[a-hA-H]|i{1,3}|iv|v)\)?[.)]?\s+)/i;
-  const leftItemRegex = /^\s*(?:[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?|\([ivxIVX]{1,4}\)|(?:[1-9]|10)[.)]?|\((?:[1-9]|10)\))\s+/i;
-  const isQuestionPromptRegex = /(?:सुमेलित|सुमेल|मिलान|Match\b|Match the|निम्नलिखित|निम्न में|सूची\s*[-–—]?\s*[I1A].*सूची\s*[-–—]?\s*[II2B])/i;
-  const isStatementQuestion = /(?:केवल|सभी\s*सही|कोई\s*नहीं|\bदोनों\b|कथन\s*\d|उपर्युक्त|उपरोक्त|Only\b|All\s+of\s+the\s+above|None\s+of\s+the\s+above|Both\s+\d)/i.test(cleanText);
+  const dashSplitRegex =
+    /\s*(?:[-–—:;]|\t+)\s*(?=\(?(?:[1-9]|10|[a-hA-H]|i{1,3}|iv|v)\)?[.)]?\s+)/i;
+  const leftItemRegex =
+    /^\s*(?:[a-hA-H][.)]?|\([a-hA-H]\)|[ivxIVX]{1,4}[.)]?|\([ivxIVX]{1,4}\)|(?:[1-9]|10)[.)]?|\((?:[1-9]|10)\))\s+/i;
+  const isQuestionPromptRegex =
+    /(?:सुमेलित|सुमेल|मिलान|Match\b|Match the|निम्नलिखित|निम्न में|सूची\s*[-–—]?\s*[I1A].*सूची\s*[-–—]?\s*[II2B])/i;
+  const isStatementQuestion =
+    /(?:केवल|सभी\s*सही|कोई\s*नहीं|\bदोनों\b|कथन\s*\d|उपर्युक्त|उपरोक्त|Only\b|All\s+of\s+the\s+above|None\s+of\s+the\s+above|Both\s+\d)/i.test(
+      cleanText,
+    );
 
   if (!isStatementQuestion) {
     let inSolutionOrAnswer = false;
@@ -492,11 +623,20 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           let startIndex = i;
           while (startIndex > 0) {
             const prev = cleanLines[startIndex - 1].trim();
-            if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I|1)\)?[:.\-]?/i.test(prev)) {
+            if (
+              /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I|1)\)?[:.\-]?/i.test(
+                prev,
+              )
+            ) {
               startIndex--;
               break;
             }
-            if (prev === "" || /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?[:.\-]?/i.test(prev)) {
+            if (
+              prev === "" ||
+              /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?[:.\-]?/i.test(
+                prev,
+              )
+            ) {
               startIndex--;
               continue;
             }
@@ -508,10 +648,15 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           const colBItems: string[] = [];
           while (j < cleanLines.length) {
             const curr = cleanLines[j].trim();
-            if (/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(curr) || /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(curr)) {
+            if (
+              /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(curr) ||
+              /^\s*(?:Answer|Ans|उत्तर|Solution|Sol|हल|समाधान)[:.\-]/i.test(curr)
+            ) {
               break;
             }
-            if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(curr)) {
+            if (
+              /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2)\)?/i.test(curr)
+            ) {
               j++;
               continue;
             }
@@ -530,8 +675,12 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
 
           if (colAItems.length >= 3) {
             const precedingText = cleanLines.slice(0, startIndex).join(" ");
-            const m1 = precedingText.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:I|A|1)(?:\s*\([^\)\n]+\))?)/i);
-            const m2 = precedingText.match(/((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:II|B|2)(?:\s*\([^\)\n]+\))?)/i);
+            const m1 = precedingText.match(
+              /((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:I|A|1)(?:\s*\([^\)\n]+\))?)/i,
+            );
+            const m2 = precedingText.match(
+              /((?:सूची|कॉलम|स्तंभ|List|Column)[\s\-]*(?:II|B|2)(?:\s*\([^\)\n]+\))?)/i,
+            );
             const headerA = m1 ? `${m1[1]}:` : "Column A:";
             const headerB = m2 ? `${m2[1]}:` : "Column B:";
 
@@ -552,19 +701,19 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
     }
     if (inSolutionOrAnswer2) break;
     const m1 = cleanLines[i].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
-    const m2 = cleanLines[i+1].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
-    const m3 = cleanLines[i+2].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
-    const m4 = cleanLines[i+3].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
+    const m2 = cleanLines[i + 1].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
+    const m3 = cleanLines[i + 2].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
+    const m4 = cleanLines[i + 3].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
     if (m1 && m2 && m3 && m4) {
-      let colA = [];
-      let colB = [];
+      const colA = [];
+      const colB = [];
       let j = i;
       while (j < cleanLines.length - 1) {
         const mA = cleanLines[j].match(/^\s*((?:[a-hA-H]\.)|(?:\([a-hA-H]\)))\s*(.*)$/);
-        const mB = cleanLines[j+1].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
+        const mB = cleanLines[j + 1].match(/^\s*((?:[1-8]\.)|(?:\([1-8]\)))\s*(.*)$/);
         if (mA && mB) {
           colA.push(cleanLines[j]);
-          colB.push(cleanLines[j+1]);
+          colB.push(cleanLines[j + 1]);
           j += 2;
         } else {
           break;
@@ -572,7 +721,12 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       }
       let startIndex = i;
       let countToRemove = j - i;
-      while (startIndex > 0 && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[:.\-]?/i.test(cleanLines[startIndex - 1])) {
+      while (
+        startIndex > 0 &&
+        /^\s*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*(?:A|B|I{1,3}|1|2)[:.\-]?/i.test(
+          cleanLines[startIndex - 1],
+        )
+      ) {
         startIndex--;
         countToRemove++;
       }
@@ -585,8 +739,11 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
   cleanText = normalizeAnswerInText(cleanText);
   cleanText = normalizeOptionsInText(cleanText);
   cleanText = cleanText.replace(/^\s*(\d{1,4}[.:\-)\]])\s*\n\s*(?=\S)/, "$1 ");
-  
-  const lines = cleanText.split("\n").map((l) => l.replace(/\s+$/g, "")).filter((l) => l.trim().length > 0);
+
+  const lines = cleanText
+    .split("\n")
+    .map((l) => l.replace(/\s+$/g, ""))
+    .filter((l) => l.trim().length > 0);
   const blocks: React.ReactNode[] = [];
   let seenQuestion = false;
   let inSolution = false;
@@ -595,7 +752,9 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const q = line.match(/^\s*(?:(?:[Qq]\.?(?:uestion|ue|ues)?|Problem|Prob|MCQ|Item|Task|Case)(?:[ \t]*(?:No|Num|Number|#)\.?)?|प्रश्न(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|प्र\.?[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक)?|सवाल(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|क्र\.?[ \t]*(?:सं\.?|संख्या)?|[?¿\uFFFD]+)?[ \t]*[:.-]?[ \t]*(\d{1,4})[.:\-)\]]\s+(.*)$/i);
+    const q = line.match(
+      /^\s*(?:(?:[Qq]\.?(?:uestion|ue|ues)?|Problem|Prob|MCQ|Item|Task|Case)(?:[ \t]*(?:No|Num|Number|#)\.?)?|प्रश्न(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|प्र\.?[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक)?|सवाल(?:[ \t]*(?:संख्या|सं\.?|क्र\.?|क्रमांक))?|क्र\.?[ \t]*(?:सं\.?|संख्या)?|[?¿\uFFFD]+)?[ \t]*[:.-]?[ \t]*(\d{1,4})[.:\-)\]]\s+(.*)$/i,
+    );
     if (q && !seenQuestion) {
       seenQuestion = true;
       inSolution = false;
@@ -607,7 +766,12 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       );
       continue;
     }
-    if (!seenAnswer && !seenSolution && !inSolution && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?/i.test(line)) {
+    if (
+      !seenAnswer &&
+      !seenSolution &&
+      !inSolution &&
+      /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?/i.test(line)
+    ) {
       inSolution = false;
       let headerA = "Column A";
       let headerB = "Column B";
@@ -616,20 +780,28 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       let j = i + 1;
       while (
         j < lines.length &&
-        !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2|बी)\)?/i.test(lines[j]) &&
+        !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2|बी)\)?/i.test(
+          lines[j],
+        ) &&
         !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
         !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
         !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j])
       ) {
         // If this line has an embedded "Column B:" header, split it!
-        const colBMatch = lines[j].match(/^(.*?)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*)$/i);
+        const colBMatch = lines[j].match(
+          /^(.*?)[^\S\r\n]+((?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*)$/i,
+        );
         if (colBMatch) {
           if (colBMatch[1].trim()) colA.push(colBMatch[1].trim());
           lines[j] = colBMatch[2].trim();
           break;
         }
         // If this line is another "Column A:" / "सूची-I" header (e.g. from an earlier duplicate header), reset colA
-        if (/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?[:.\-]?/i.test(lines[j])) {
+        if (
+          /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?[:.\-]?/i.test(
+            lines[j],
+          )
+        ) {
           colA.length = 0;
           headerA = "Column A";
           j++;
@@ -638,12 +810,17 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
         colA.push(lines[j]);
         j++;
       }
-      if (j < lines.length && /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2|बी)\)?/i.test(lines[j])) {
+      if (
+        j < lines.length &&
+        /^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:B|II|2|बी)\)?/i.test(lines[j])
+      ) {
         headerB = "Column B";
         j++;
         while (
           j < lines.length &&
-          !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?/i.test(lines[j]) &&
+          !/^\s*(?:Column|कॉलम|स्तंभ|List|सूची|[?¿\uFFFD]+)[\s\-]*\(?(?:A|I{1,3}|1|ए)\)?/i.test(
+            lines[j],
+          ) &&
           !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
           !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j]) &&
           !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j]) &&
@@ -658,15 +835,22 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
 
       // If Column B is empty, check if colA contains numbered items belonging to Column B or embedded dash items
       if (colB.length === 0 && colA.length > 0) {
-        const firstNumIdx = colA.findIndex((item, idx) => idx > 0 && /^\s*(?:\(?\d{1,2}\)?|\d{1,2}[.)])\s+/.test(item));
+        const firstNumIdx = colA.findIndex(
+          (item, idx) => idx > 0 && /^\s*(?:\(?\d{1,2}\)?|\d{1,2}[.)])\s+/.test(item),
+        );
         if (firstNumIdx > 0) {
           const itemsForB = colA.splice(firstNumIdx);
           colB.push(...itemsForB);
           if (colA.length > 0) {
-            colA[colA.length - 1] = colA[colA.length - 1].replace(/[^\S\r\n]*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*$/i, "").trim();
+            colA[colA.length - 1] = colA[colA.length - 1]
+              .replace(
+                /[^\S\r\n]*(?:Column|कॉलम|स्तंभ|List|सूची)[\s\-]*\(?(?:B|II|2|बी)\)?(?:\([^\)\n]+\))?\s*[:.-]?\s*$/i,
+                "",
+              )
+              .trim();
           }
         } else {
-          const splitMatches = colA.filter(item => dashSplitRegex.test(item));
+          const splitMatches = colA.filter((item) => dashSplitRegex.test(item));
           const canSplit = splitMatches.length >= 3 && splitMatches.length >= colA.length - 1;
           if (canSplit) {
             const splitColA: string[] = [];
@@ -689,21 +873,37 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       const colALetters = ["a. ", "b. ", "c. ", "d. ", "e. "];
       const colBNumbers = ["1 ", "2 ", "3 ", "4 ", "5 "];
       for (let k = 0; k < colA.length; k++) {
-        const stripped = colA[k].replace(/^\s*(?:[A-Ea-e1-5][.)\s]|\([A-Ea-e1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
+        const stripped = colA[k]
+          .replace(
+            /^\s*(?:[A-Ea-e1-5][.)\s]|\([A-Ea-e1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i,
+            "",
+          )
+          .trim();
         if (k < colALetters.length) colA[k] = colALetters[k] + stripped;
       }
       for (let k = 0; k < colB.length; k++) {
-        const stripped = colB[k].replace(/^\s*(?:[A-Ea-e1-5][.)\s]|\([A-Ea-e1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i, "").trim();
+        const stripped = colB[k]
+          .replace(
+            /^\s*(?:[A-Ea-e1-5][.)\s]|\([A-Ea-e1-5]\)|(?:[क-ङअ-द]|ए|बी|सी|डी|ई)[.)\s]|\((?:[क-ङअ-द]|ए|बी|सी|डी|ई)\))\s*/i,
+            "",
+          )
+          .trim();
         if (k < colBNumbers.length) colB[k] = colBNumbers[k] + stripped;
       }
 
-      const labelRegex = /^(\(?(?:[0-9]{1,2}|[a-zA-Z]|[ivxIVX]{1,4})\)?|[0-9]{1,2}[.)]?|[a-zA-Z][.)]|[ivxIVX]{1,4}[.)]?)\s+(.*)$/;
+      const labelRegex =
+        /^(\(?(?:[0-9]{1,2}|[a-zA-Z]|[ivxIVX]{1,4})\)?|[0-9]{1,2}[.)]?|[a-zA-Z][.)]|[ivxIVX]{1,4}[.)]?)\s+(.*)$/;
       blocks.push(
-        <div key={i} className="my-6 rounded-md overflow-hidden border border-gray-300 dark:border-gray-700">
+        <div
+          key={i}
+          className="my-6 rounded-md overflow-hidden border border-gray-300 dark:border-gray-700"
+        >
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="bg-gray-100 dark:bg-gray-800 border-b border-gray-300 dark:border-gray-700">
-                <th className="p-4 font-semibold text-[15px] border-r border-gray-300 dark:border-gray-700 w-1/2">{headerA}</th>
+                <th className="p-4 font-semibold text-[15px] border-r border-gray-300 dark:border-gray-700 w-1/2">
+                  {headerA}
+                </th>
                 <th className="p-4 font-semibold text-[15px] w-1/2">{headerB}</th>
               </tr>
             </thead>
@@ -713,48 +913,69 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
                 const cellB = colB[idx] || "";
                 const matchA = cellA ? cellA.match(labelRegex) : null;
                 const matchB = cellB ? cellB.match(labelRegex) : null;
-                
+
                 return (
-                  <tr key={idx} className="border-b last:border-b-0 border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900">
+                  <tr
+                    key={idx}
+                    className="border-b last:border-b-0 border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900"
+                  >
                     <td className="p-4 text-[15px] leading-7 border-r border-gray-300 dark:border-gray-700 align-top">
-                      {matchA ? <><span className="font-semibold">{matchA[1]} </span>{renderMarkdownText(matchA[2])}</> : renderMarkdownText(cellA)}
+                      {matchA ? (
+                        <>
+                          <span className="font-semibold">{matchA[1]} </span>
+                          {renderMarkdownText(matchA[2])}
+                        </>
+                      ) : (
+                        renderMarkdownText(cellA)
+                      )}
                     </td>
                     <td className="p-4 text-[15px] leading-7 align-top">
-                      {matchB ? <><span className="font-semibold">{matchB[1].replace(/\.$/, "")} </span>{renderMarkdownText(matchB[2])}</> : renderMarkdownText(cellB)}
+                      {matchB ? (
+                        <>
+                          <span className="font-semibold">{matchB[1].replace(/\.$/, "")} </span>
+                          {renderMarkdownText(matchB[2])}
+                        </>
+                      ) : (
+                        renderMarkdownText(cellB)
+                      )}
                     </td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
-        </div>
+        </div>,
       );
       i = j - 1;
       continue;
     }
 
     // Code header: "कूट :", "Code:", "उत्तर कूट:", "सही कूट:"
-    const isCodeHeader = /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)(?:\s*\([a-zA-Z]+\))?\s*[:.\-]/i.test(line) || /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(line);
+    const isCodeHeader =
+      /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)(?:\s*\([a-zA-Z]+\))?\s*[:.\-]/i.test(line) ||
+      /^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?$/i.test(line);
     if (isCodeHeader) {
       inSolution = false;
       blocks.push(
         <p key={i} className="text-[15px] leading-7 font-semibold mt-2 mb-1">
           {renderMarkdownText(line)}
-        </p>
+        </p>,
       );
       continue;
     }
 
     // Assertion / Reason: "कथन (A):", "कारण (R):", "अभिकथन (A):", "कथन-I:", "कथन II:", "Statement I:"
-    const assertionRegex = /^(\s*(?:अभिकथन|कथन|कारण|दलील|Assertion|Reason|Statement)\s*(?:[\-–—\s]*(?:I{1,3}|IV|V|[A-Za-z0-9]|ए|आर)|\((?:[A-Za-z0-9]|ए|आर)+\))\s*[:.\-]?)\s*(.*)$/i;
-    const isAssertionReason = (!seenAnswer && !seenSolution) && assertionRegex.test(line);
+    const assertionRegex =
+      /^(\s*(?:अभिकथन|कथन|कारण|दलील|Assertion|Reason|Statement)\s*(?:[\-–—\s]*(?:I{1,3}|IV|V|[A-Za-z0-9]|ए|आर)|\((?:[A-Za-z0-9]|ए|आर)+\))\s*[:.\-]?)\s*(.*)$/i;
+    const isAssertionReason = !seenAnswer && !seenSolution && assertionRegex.test(line);
     if (isAssertionReason) {
       inSolution = false;
       const m = line.match(assertionRegex);
       blocks.push(
         <p key={i} className="text-[15px] leading-7 pl-4 my-1">
-          <span className="font-semibold">{m ? m[1] : line} </span>{m ? renderMarkdownText(m[2]) : ""}
-        </p>
+          <span className="font-semibold">{m ? m[1] : line} </span>
+          {m ? renderMarkdownText(m[2]) : ""}
+        </p>,
       );
       continue;
     }
@@ -763,10 +984,18 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
     const isAbbrev = /^\s*[A-Za-z]\.(?:\s*[A-Za-z]\.)+/i.test(line);
 
     // Check if line is an option A., B., C., D. or (a), (b), (c), (d) or A) Option
-    const letterOptMatch = (!seenAnswer && !seenSolution && !isAbbrev) ? line.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s+(.*)$/) : null;
+    const letterOptMatch =
+      !seenAnswer && !seenSolution && !isAbbrev
+        ? line.match(/^\s*((?:[A-Ha-h]\.)|(?:\([a-hA-H]\))|(?:[A-Ha-h]\)))\s+(.*)$/)
+        : null;
 
     // Check if line is a sub-statement (1), (2), (3), (4) or (i), (ii), etc. or "1 ", "2 " before options
-    const statementMatch = (!seenAnswer && !seenSolution && !letterOptMatch) ? line.match(/^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\)|(?:[1-9]|10)[.,):\-–—]?|(?:i{1,3}|iv|v|vi)[.,):\-–—]?)\s+(.*)$/i) : null;
+    const statementMatch =
+      !seenAnswer && !seenSolution && !letterOptMatch
+        ? line.match(
+            /^\s*(\((?:[1-9]|10|i{1,3}|iv|v|vi)\)|(?:[1-9]|10)[.,):\-–—]?|(?:i{1,3}|iv|v|vi)[.,):\-–—]?)\s+(.*)$/i,
+          )
+        : null;
 
     if (letterOptMatch) {
       inSolution = false;
@@ -781,7 +1010,9 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
           j++;
           while (
             j < lines.length &&
-            !/^\s*(?:(?:[A-Ha-h]\.)|(?:\([a-hA-H1-8]\))|(?:[A-Ha-h]\))|(?:[1-8]\.))\s+/i.test(lines[j]) &&
+            !/^\s*(?:(?:[A-Ha-h]\.)|(?:\([a-hA-H1-8]\))|(?:[A-Ha-h]\))|(?:[1-8]\.))\s+/i.test(
+              lines[j],
+            ) &&
             !/^\s*(?:उत्तर\s*|सही\s*)?(?:कूट|कोड|Code|Codes)\s*[:.\-]?/i.test(lines[j]) &&
             !/^\s*(?:Answer|Ans|उत्तर)\s*[:.-]/i.test(lines[j]) &&
             !/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]/i.test(lines[j])
@@ -802,7 +1033,7 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
               <span>{renderMarkdownText(o.text)}</span>
             </div>
           ))}
-        </div>
+        </div>,
       );
       i = j - 1;
       continue;
@@ -813,8 +1044,9 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       const rawNum = statementMatch[1].replace(/[\(\)\.,:;\-–—]/g, "").trim();
       blocks.push(
         <p key={i} className="text-[15px] leading-7 pl-4 my-1">
-          <span className="font-semibold">{rawNum} </span>{renderMarkdownText(statementMatch[2])}
-        </p>
+          <span className="font-semibold">{rawNum} </span>
+          {renderMarkdownText(statementMatch[2])}
+        </p>,
       );
       continue;
     }
@@ -837,12 +1069,15 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       const rest = line.replace(/^\s*(?:Solution|Sol|हल|समाधान)\s*[:.-]\s*/i, "");
       blocks.push(
         <p key={i} className="text-[15px] leading-7 mt-2">
-          <span className="font-semibold">Solution:</span>{rest ? <span> {renderMarkdownText(rest)}</span> : ""}
+          <span className="font-semibold">Solution:</span>
+          {rest ? <span> {renderMarkdownText(rest)}</span> : ""}
         </p>,
       );
       continue;
     }
-    const step = inSolution ? line.match(/^\s*(\((?:\d{1,2})\)|\d{1,2})\s*[.,):\-–—]?\s+(.*)$/) : null;
+    const step = inSolution
+      ? line.match(/^\s*(\((?:\d{1,2})\)|\d{1,2})\s*[.,):\-–—]?\s+(.*)$/)
+      : null;
     if (step) {
       const stepNum = step[1].replace(/[\(\)]/g, "");
       if (isMath) {
@@ -883,7 +1118,11 @@ const FormattedOutput = memo(function FormattedOutput({ text, subjectType }: { t
       );
       continue;
     }
-    blocks.push(<p key={i} className="text-[15px] leading-7">{renderMarkdownText(line)}</p>);
+    blocks.push(
+      <p key={i} className="text-[15px] leading-7">
+        {renderMarkdownText(line)}
+      </p>,
+    );
   }
 
   return <div className="font-sans">{blocks}</div>;
