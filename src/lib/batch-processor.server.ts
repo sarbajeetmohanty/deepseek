@@ -152,16 +152,20 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     const keyCount = Math.max(1, configuredKeys.length);
 
     // Worker fan-out is limited by how fast the key pool refills, not by how many
-    // questions are waiting. Measured on 17 keys with real (~1500-token) requests:
-    // 16 workers over-drove the pool and solved 30/100; 8 workers solved 96/100.
-    // That is roughly one worker per two keys, so scale on keyCount rather than
-    // pinning a constant - otherwise adding keys buys daily headroom but no speed.
+    // questions are waiting, so it scales on keyCount rather than being pinned -
+    // otherwise adding keys buys daily headroom but no extra speed.
     //
-    // The /3 slope is deliberately gentler than the measured 1-per-2 ratio, and
-    // the floor keeps the 8 workers that were actually verified at 17 keys. The
-    // 24 ceiling is a guard, not a measurement: nothing above 8 has been tested
-    // against a live pool, so raise it only with numbers in hand.
-    const CONCURRENCY = Math.min(24, Math.max(8, Math.floor(keyCount / 3)), pending.length);
+    // Only ONE configuration has ever been measured on an undamaged pool: 8
+    // workers over 17 keys solved 100/100 in 27s with zero retries. An attempt to
+    // calibrate 6/10/16/24/40/60 workers over 81 keys produced nothing usable,
+    // because by then the pool had been degraded by a day of testing and every
+    // level failed for that reason rather than because of its worker count.
+    //
+    // So the ceiling here is deliberately just above the verified figure instead
+    // of the ~38 that the 1-worker-per-2-keys ratio would suggest. Raise it only
+    // after a clean run on a rested pool says it is safe: shipping an untested
+    // jump is exactly what caused the earlier stampede.
+    const CONCURRENCY = Math.min(12, Math.max(8, Math.floor(keyCount / 3)), pending.length);
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
     for (let i = 0; i < pending.length; i += 400) {

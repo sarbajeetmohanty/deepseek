@@ -595,11 +595,19 @@ async function acquireSlot(
   }
 
   const offset = workerIdx ?? 0;
-  let bestKey = usableKeys[0];
-  let bestModel = GEMINI_SOLVER_MODELS[0];
+  let bestKey = usableKeys[offset % usableKeys.length];
+  let bestModel = GEMINI_SOLVER_MODELS[offset % GEMINI_SOLVER_MODELS.length];
   let bestAt = Infinity;
 
-  outer: for (let i = 0; i < usableKeys.length; i++) {
+  // Full scan, no early exit. An earlier version stopped at the first idle bucket
+  // it found, scanning from the worker's own offset. With more keys than workers
+  // that pinned all traffic to the lowest-indexed keys: measured at 81 keys and 24
+  // workers, keys 1-18 were rate-limited while 62 keys sat completely untouched,
+  // so adding keys could not help at all. Taking the genuinely earliest bucket
+  // spreads load evenly, since using one pushes it to the back of the queue.
+  // keys x models is small (81 keys = 243 buckets) and this runs once per API
+  // call, so the scan cost is irrelevant next to a ~2s request.
+  for (let i = 0; i < usableKeys.length; i++) {
     const k = usableKeys[(offset + i) % usableKeys.length];
     const keyAt = keyNextAvailable.get(k) ?? 0;
     for (let j = 0; j < GEMINI_SOLVER_MODELS.length; j++) {
@@ -609,8 +617,6 @@ async function acquireSlot(
         bestAt = at;
         bestKey = k;
         bestModel = m;
-        // An idle bucket is the best possible outcome; stop scanning.
-        if (bestAt <= now) break outer;
       }
     }
   }
