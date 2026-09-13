@@ -169,7 +169,23 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     //
     // The window refills every 60 seconds, so a drained pool recovers in about a
     // minute - it does not need hours.
-    const CONCURRENCY = Math.min(24, Math.max(8, Math.floor(keyCount / 3)), pending.length);
+    // Size worker fan-out from what the pool can actually SUPPLY, not from a
+    // crude ratio of key count. Two measured inputs:
+    //   - a question takes ~15s end to end (8-10 point Hindi solutions are long)
+    //   - each key x model bucket may fire once per SLOT_MIN_INTERVAL_MS
+    // so supply is keys*models/6.5 calls per second, and the workers needed to
+    // keep that busy is supply * latency. Using ~60% of supply leaves headroom.
+    //
+    // This matters because the two are not proportional. With 15 live keys the
+    // old keyCount/3 rule gave 8 workers against a supply of 6.9 calls/sec - the
+    // pool was 93% idle and 100 questions took minutes. Conversely 80 workers on
+    // a pool that only had ~15 live keys just piled onto the survivors.
+    const MODELS_PER_KEY = 3;
+    const SLOT_SECONDS = 6.5;
+    const AVG_QUESTION_SECONDS = 15;
+    const supplyPerSecond = (keyCount * MODELS_PER_KEY) / SLOT_SECONDS;
+    const workersToSaturate = Math.round(supplyPerSecond * 0.6 * AVG_QUESTION_SECONDS);
+    const CONCURRENCY = Math.min(64, Math.max(8, workersToSaturate), pending.length);
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
     for (let i = 0; i < pending.length; i += 400) {

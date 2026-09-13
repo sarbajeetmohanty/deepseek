@@ -51,3 +51,6 @@ test-*.ts
 test-text.txt
 set_keys.js
 scratch-test.js
+
+# Parked API keys (secrets - never commit)
+DEAD_KEYS_PARKED.txt

@@ -670,6 +670,12 @@ async function acquireSlot(
     }
   }
 
+  if (process.env.GEMINI_DEBUG_SLOTS) {
+    const tot = usableKeys.length * GEMINI_SOLVER_MODELS.length;
+    console.log(
+      `[slots] free ${freeNow.length}/${tot}  nextFreeIn ${freeNow.length ? 0 : Math.round((bestAt - now) / 1000)}s`,
+    );
+  }
   if (freeNow.length > 0) {
     const pick = freeNow[Math.floor(Math.random() * freeNow.length)];
     bestKey = pick.k;
