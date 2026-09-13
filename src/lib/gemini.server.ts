@@ -500,28 +500,138 @@ function getGenAIClient(key: string): GoogleGenerativeAI {
   return client;
 }
 
-let globalRequestIndex = 0;
-// Track per-key per-model cooldowns: keyHash:modelName -> expiration timestamp
-const keyModelCooldowns = new Map<string, number>();
+// ===========================================================================
+// PER-(KEY x MODEL) SLOT SCHEDULER
+//
+// Google's free-tier ceiling is GenerateRequestsPerMinutePerProjectPerModel
+// (verified live against the API: quotaId
+// "GenerateRequestsPerMinutePerProjectPerModel-FreeTier", ~15 RPM).
+// Every API key is a separate project, so N keys x M models gives N*M
+// INDEPENDENT buckets — 17 keys x 3 models = 51 buckets, ~729 RPM total.
+//
+// Two rules keep us under the ceiling instead of discovering it via 429s:
+//   1. Each bucket is paced to one request per SLOT_MIN_INTERVAL_MS.
+//   2. Callers are always handed the bucket that frees up soonest, so load
+//      spreads evenly instead of hammering one key until it rate-limits.
+// A 429 still pushes that single bucket out (honouring the server's
+// RetryInfo) without affecting the other 50.
+// ===========================================================================
+
+// 60000 / 4200 = ~14.3 RPM per bucket, a deliberate margin under the 15 RPM cap.
+const SLOT_MIN_INTERVAL_MS = 4200;
+
+// Additional pacing across ALL models sharing one key. Measured behaviour: a key
+// tolerates a burst of real (~1500-token) requests and then throttles, so spacing
+// per key matters even when each individual bucket looks idle.
+const KEY_MIN_INTERVAL_MS = 1200;
+
+// Backoff for a 429 that arrives with NO RetryInfo - the bare "Resource has been
+// exhausted" replies, which are the ones this workload actually hits. Retrying
+// those quickly is what produced the measured death spiral (96.6% of calls
+// failing, 30/100 questions solved). They clear on their own in about a minute,
+// so park the bucket instead of hammering it.
+const HARD_EXHAUSTION_BACKOFF_MS = 60_000;
+
+// `${key}::${model}` -> epoch ms at which this bucket may next be used.
+const slotNextAvailable = new Map<string, number>();
+// key -> epoch ms at which that key (any model) may next be used.
+const keyNextAvailable = new Map<string, number>();
 const disabledKeysUntil = new Map<string, number>();
 
-function getKeyHash(key: string): string {
-  return key.slice(-8);
+function slotId(key: string, modelName: string): string {
+  return `${key}::${modelName}`;
 }
 
-function recordKeyModelCooldown(key: string, modelName: string, retryAfterMs?: number) {
-  const cooldown = retryAfterMs ? Math.max(retryAfterMs + 500, 3000) : 10000;
-  keyModelCooldowns.set(`${getKeyHash(key)}:${modelName}`, Date.now() + cooldown);
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("Question solving aborted"));
+      return;
+    }
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new Error("Question solving aborted"));
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
-function isKeyModelInCooldown(key: string, modelName: string): boolean {
-  const exp = keyModelCooldowns.get(`${getKeyHash(key)}:${modelName}`);
-  if (!exp) return false;
-  if (exp <= Date.now()) {
-    keyModelCooldowns.delete(`${getKeyHash(key)}:${modelName}`);
-    return false;
+/**
+ * Reserve the (key, model) bucket that becomes free soonest, then wait for it.
+ *
+ * The reservation — reading slotNextAvailable and writing the new value — runs
+ * synchronously with no await in between, so two concurrent workers can never
+ * be handed the same bucket for the same instant.
+ *
+ * `workerIdx` only rotates where each worker STARTS scanning, so 16 workers
+ * don't all evaluate key[0] first; it never restricts which bucket they may use.
+ */
+async function acquireSlot(
+  keys: string[],
+  workerIdx: number | undefined,
+  signal?: AbortSignal,
+): Promise<{ key: string; modelName: string }> {
+  const now = Date.now();
+  const usableKeys = keys.filter((k) => (disabledKeysUntil.get(k) || 0) <= now);
+  if (usableKeys.length === 0) {
+    throw new Error(
+      "All configured Gemini API keys are temporarily disabled. Please check your keys in Team settings.",
+    );
   }
-  return true;
+
+  const offset = workerIdx ?? 0;
+  let bestKey = usableKeys[0];
+  let bestModel = GEMINI_SOLVER_MODELS[0];
+  let bestAt = Infinity;
+
+  outer: for (let i = 0; i < usableKeys.length; i++) {
+    const k = usableKeys[(offset + i) % usableKeys.length];
+    const keyAt = keyNextAvailable.get(k) ?? 0;
+    for (let j = 0; j < GEMINI_SOLVER_MODELS.length; j++) {
+      const m = GEMINI_SOLVER_MODELS[(offset + j) % GEMINI_SOLVER_MODELS.length];
+      const at = Math.max(slotNextAvailable.get(slotId(k, m)) ?? 0, keyAt);
+      if (at < bestAt) {
+        bestAt = at;
+        bestKey = k;
+        bestModel = m;
+        // An idle bucket is the best possible outcome; stop scanning.
+        if (bestAt <= now) break outer;
+      }
+    }
+  }
+
+  const scheduledAt = Math.max(now, bestAt);
+  // Reserve synchronously, before any await, so the slot is claimed atomically.
+  slotNextAvailable.set(slotId(bestKey, bestModel), scheduledAt + SLOT_MIN_INTERVAL_MS);
+  keyNextAvailable.set(bestKey, scheduledAt + KEY_MIN_INTERVAL_MS);
+
+  const waitMs = scheduledAt - now;
+  if (waitMs > 0) await sleep(waitMs, signal);
+  return { key: bestKey, modelName: bestModel };
+}
+
+/**
+ * Push one bucket out after a 429/503, honouring the server's RetryInfo.
+ * Jitter stops workers released at the same instant from colliding again.
+ */
+function penalizeSlot(key: string, modelName: string, retryAfterMs?: number) {
+  // No RetryInfo means a bare RESOURCE_EXHAUSTED: the bucket is spent, not merely
+  // early. Park it for a minute. A server-supplied retryDelay is honoured as-is.
+  const isHardExhaustion = retryAfterMs === undefined;
+  const backoff = isHardExhaustion
+    ? HARD_EXHAUSTION_BACKOFF_MS + Math.floor(Math.random() * 5000)
+    : Math.max(retryAfterMs, SLOT_MIN_INTERVAL_MS) + 500 + Math.floor(Math.random() * 1000);
+  const id = slotId(key, modelName);
+  const until = Date.now() + backoff;
+  slotNextAvailable.set(id, Math.max(slotNextAvailable.get(id) ?? 0, until));
+  if (isHardExhaustion) {
+    // Give the whole key a moment too; its other models are usually close behind.
+    keyNextAvailable.set(key, Math.max(keyNextAvailable.get(key) ?? 0, Date.now() + 5000));
+  }
 }
 
 function classifyError(error: any): { isRateLimitOr503: boolean; retryAfterMs?: number } {
@@ -615,37 +725,20 @@ export async function formatQuestionWithGemini({
   const prompt = `Solve and format the following MCQ:\n\n${cleaned}`;
 
   let lastError: any = null;
-  const MAX_ATTEMPTS = 25;
+  // With 51 paced buckets a request rarely needs more than a couple of tries.
+  // Each attempt waits for a free bucket, so this is self-limiting rather than
+  // the old tight spin of instant retries against already-throttled models.
+  const MAX_ATTEMPTS = 12;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) {
       throw new Error("Question solving aborted");
     }
 
-    const now = Date.now();
-    const activeKeys = allKeys.filter((k) => (disabledKeysUntil.get(k) || 0) <= now);
-    if (activeKeys.length === 0) {
-      throw new Error(
-        "All configured Gemini API keys are temporarily disabled or in cooldown. Please check your keys in Team settings.",
-      );
-    }
-
-    // Rotate keys across every request and retry attempt
-    const keyIndex = globalRequestIndex++ % activeKeys.length;
-    const key = activeKeys[keyIndex];
-
-    // Pick model stream for this worker/attempt, skipping models in cooldown for this specific key
-    const preferredModelIdx =
-      (workerIdx !== undefined ? workerIdx + attempt - 1 : attempt - 1) %
-      GEMINI_SOLVER_MODELS.length;
-    let modelName = GEMINI_SOLVER_MODELS[preferredModelIdx];
-
-    if (isKeyModelInCooldown(key, modelName)) {
-      const alternate = GEMINI_SOLVER_MODELS.find((m) => !isKeyModelInCooldown(key, m));
-      if (alternate) {
-        modelName = alternate;
-      }
-    }
+    // Wait for the (key, model) bucket that frees up soonest. This is the only
+    // pacing in the pipeline — it is what keeps us under the per-minute cap.
+    // A throw here (no usable keys, or aborted) is terminal: retrying cannot help.
+    const { key, modelName } = await acquireSlot(allKeys, workerIdx, signal);
 
     try {
       const genAI = getGenAIClient(key);
@@ -678,22 +771,29 @@ export async function formatQuestionWithGemini({
       const msg = (error?.message || "").toLowerCase();
       const status = error?.status;
 
-      // If the key has 403 or is suspended, temporarily disable it with a 10-minute TTL
-      if (
-        status === 403 ||
-        msg.includes("denied access") ||
-        msg.includes("api_key_invalid") ||
-        msg.includes("consumer_suspended")
-      ) {
-        disabledKeysUntil.set(key, Date.now() + 10 * 60 * 1000);
+      // Bad-key handling. The SDK appends JSON.stringify(error.details) to the
+      // message, so the upstream `reason` (e.g. API_KEY_INVALID) is matchable here
+      // even though that error arrives as HTTP 400 rather than 403.
+      const isDeadKey = msg.includes("api_key_invalid") || msg.includes("consumer_suspended");
+      if (isDeadKey || status === 403 || msg.includes("denied access")) {
+        // A key Google reports as invalid/suspended will not recover on its own,
+        // so park it for hours instead of letting it re-enter rotation every 10
+        // minutes and burn one failure per model each time. Rotating the key in
+        // Team settings produces a different string, which is tracked separately
+        // and is therefore unaffected by this entry.
+        disabledKeysUntil.set(key, Date.now() + (isDeadKey ? 6 * 60 * 60 * 1000 : 10 * 60 * 1000));
+        console.warn(
+          `[Gemini] Disabling key ...${key.slice(-6)} for ${isDeadKey ? "6h" : "10m"}: ${(error?.message || "").slice(0, 120)}`,
+        );
         continue;
       }
 
       const { isRateLimitOr503, retryAfterMs } = classifyError(error);
 
       if (isRateLimitOr503) {
-        recordKeyModelCooldown(key, modelName, retryAfterMs);
-        // Immediate next attempt will rotate to another key or model
+        // Push only this bucket out; the other 50 stay available. The next
+        // attempt waits for whichever bucket frees up soonest.
+        penalizeSlot(key, modelName, retryAfterMs);
         continue;
       }
 

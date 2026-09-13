@@ -151,7 +151,11 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     const { getGeminiApiKeys } = await import("./settings.functions");
     const configuredKeys = await getGeminiApiKeys().catch(() => []);
     const keyCount = Math.max(1, configuredKeys.length);
-    const CONCURRENCY = Math.min(16, Math.max(4, keyCount * 2), pending.length);
+    // Measured against the live free tier with real (~1500-token) requests:
+    // 16 workers over-drove the pool and solved only 30/100 questions; 8 workers
+    // solved 96/100. Throughput is limited by how fast the key pool refills, not
+    // by worker count, so more workers buy nothing and cost accuracy.
+    const CONCURRENCY = Math.min(8, Math.max(4, keyCount), pending.length);
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
     for (let i = 0; i < pending.length; i += 400) {
@@ -297,7 +301,10 @@ export async function processBatchInternal(batchId: string): Promise<void> {
                   idx: q.idx,
                   subjectType,
                   solutionLength,
-                  workerIdx: (workerId + retry) % 3,
+                  // Scan-start offset for the key x model scheduler. Not clamped:
+                  // it is spread across the whole key pool (the scheduler mods it),
+                  // so each worker begins scanning at a different key.
+                  workerIdx: workerId + retry,
                 });
                 if (res && res.trim().length > 0) {
                   return res;
