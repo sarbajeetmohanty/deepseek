@@ -530,7 +530,20 @@ const KEY_MIN_INTERVAL_MS = 1333;
 // those quickly is what produced the measured death spiral (96.6% of calls
 // failing, 30/100 questions solved). They clear on their own in about a minute,
 // so park the bucket instead of hammering it.
+// A key that has already answered successfully in this process is known-good, so
+// a 429 from it is just its per-minute window being full: it is back in about a
+// minute and should not be taken out of rotation for longer.
 const HARD_EXHAUSTION_BACKOFF_MS = 60_000;
+
+// A key that has NEVER answered successfully and is refusing with a bare 429 is
+// almost certainly out of daily quota. Park it long enough that it stops costing
+// worker time. A 10-minute park proved harmful when applied to healthy keys - one
+// transient 429 removed a good key for 10 minutes and the pool ate itself, which
+// is why this is now gated on "never succeeded" rather than applied to every 429.
+const UNPROVEN_KEY_BACKOFF_MS = 1_800_000;
+
+// Keys that have returned at least one successful response this process.
+const provenKeys = new Set<string>();
 
 // A bucket that keeps coming back exhausted after serving out full parking
 // periods has run out of DAILY quota, not per-minute quota, and will not recover
@@ -624,32 +637,44 @@ async function acquireSlot(
   // was a batch sitting at 0/100 for roughly 190 seconds while ~60 healthy keys
   // stayed idle. Randomising the start spreads workers over the whole pool
   // immediately, so dead keys are discovered in parallel instead of in sequence.
-  const offset = Math.floor(Math.random() * usableKeys.length);
-  const modelOffset = Math.floor(Math.random() * GEMINI_SOLVER_MODELS.length);
-  let bestKey = usableKeys[offset];
-  let bestModel = GEMINI_SOLVER_MODELS[modelOffset];
+  // Collect every bucket that is usable RIGHT NOW and pick one at random, rather
+  // than converging on a single "best" bucket.
+  //
+  // Two earlier versions both failed here. Stopping at the first idle bucket
+  // pinned all traffic to the lowest-indexed keys (measured: 24 of 81 keys used,
+  // 57 idle). Taking the strict minimum was no better, because untouched buckets
+  // all sit at 0 and a strict "<" keeps whichever was seen first - so every worker
+  // walked the pool in sequence and had to fail through each dead bucket one at a
+  // time (measured: 0/100 for ~190s while ~60 healthy keys stayed idle).
+  //
+  // Choosing uniformly from the free set fixes both: work spreads across every
+  // live key at once, and a dead or parked bucket is simply never in the set, so
+  // nobody ever waits on one.
+  const freeNow: Array<{ k: string; m: string }> = [];
+  let bestKey = usableKeys[Math.floor(Math.random() * usableKeys.length)];
+  let bestModel = GEMINI_SOLVER_MODELS[Math.floor(Math.random() * GEMINI_SOLVER_MODELS.length)];
   let bestAt = Infinity;
 
-  // Full scan, no early exit. An earlier version stopped at the first idle bucket
-  // it found, scanning from the worker's own offset. With more keys than workers
-  // that pinned all traffic to the lowest-indexed keys: measured at 81 keys and 24
-  // workers, keys 1-18 were rate-limited while 62 keys sat completely untouched,
-  // so adding keys could not help at all. Taking the genuinely earliest bucket
-  // spreads load evenly, since using one pushes it to the back of the queue.
-  // keys x models is small (81 keys = 243 buckets) and this runs once per API
-  // call, so the scan cost is irrelevant next to a ~2s request.
-  for (let i = 0; i < usableKeys.length; i++) {
-    const k = usableKeys[(offset + i) % usableKeys.length];
+  for (const k of usableKeys) {
     const keyAt = keyNextAvailable.get(k) ?? 0;
-    for (let j = 0; j < GEMINI_SOLVER_MODELS.length; j++) {
-      const m = GEMINI_SOLVER_MODELS[(modelOffset + j) % GEMINI_SOLVER_MODELS.length];
+    for (const m of GEMINI_SOLVER_MODELS) {
       const at = Math.max(slotNextAvailable.get(slotId(k, m)) ?? 0, keyAt);
-      if (at < bestAt) {
+      if (at <= now) {
+        freeNow.push({ k, m });
+      } else if (at < bestAt) {
+        // Only tracked so we know the shortest possible wait if nothing is free.
         bestAt = at;
         bestKey = k;
         bestModel = m;
       }
     }
+  }
+
+  if (freeNow.length > 0) {
+    const pick = freeNow[Math.floor(Math.random() * freeNow.length)];
+    bestKey = pick.k;
+    bestModel = pick.m;
+    bestAt = now;
   }
 
   const scheduledAt = Math.max(now, bestAt);
@@ -714,10 +739,19 @@ function penalizeSlot(key: string, modelName: string, retryAfterMs?: number) {
     const streak = prev === undefined ? 1 : recoveredAndFailedAgain ? prev.count + 1 : prev.count;
     hardFailStreak.set(id, { count: streak, at: now });
 
-    backoff =
-      streak >= HARD_FAILS_BEFORE_DAILY
-        ? DAILY_EXHAUSTION_BACKOFF_MS + Math.floor(Math.random() * 600_000)
-        : HARD_EXHAUSTION_BACKOFF_MS + Math.floor(Math.random() * 5000);
+    if (streak >= HARD_FAILS_BEFORE_DAILY) {
+      backoff = DAILY_EXHAUSTION_BACKOFF_MS + Math.floor(Math.random() * 600_000);
+    } else if (!provenKeys.has(key)) {
+      // Never answered successfully in this process and is refusing with a bare
+      // 429: treat it as out of daily quota and get it out of the way now, rather
+      // than re-testing it every minute for the whole batch. Measured: with ~97
+      // dead buckets and a 60s park, a 253s run burned ~409 calls and ~818
+      // worker-seconds on keys that could not work at all that day.
+      backoff = UNPROVEN_KEY_BACKOFF_MS + Math.floor(Math.random() * 300_000);
+    } else {
+      // Known-good key, so this is just its per-minute window being full.
+      backoff = HARD_EXHAUSTION_BACKOFF_MS + Math.floor(Math.random() * 5000);
+    }
     // Nudge the whole key too; its other models are usually close behind.
     keyNextAvailable.set(key, Math.max(keyNextAvailable.get(key) ?? 0, Date.now() + 5000));
   } else {
@@ -727,9 +761,13 @@ function penalizeSlot(key: string, modelName: string, retryAfterMs?: number) {
   slotNextAvailable.set(id, Math.max(slotNextAvailable.get(id) ?? 0, Date.now() + backoff));
 }
 
-/** A bucket that answers successfully is clearly not out of daily quota. */
+/**
+ * A bucket that answers successfully proves two things: it is not out of daily
+ * quota, and its key is worth trusting with a short backoff from now on.
+ */
 function noteSlotSuccess(key: string, modelName: string) {
   hardFailStreak.delete(slotId(key, modelName));
+  provenKeys.add(key);
 }
 
 function classifyError(error: any): { isRateLimitOr503: boolean; retryAfterMs?: number } {
