@@ -39,16 +39,41 @@ export async function gtranslate(text: string, source: string, target: string): 
 
 async function gtranslateChunk(text: string, source: string, target: string): Promise<string> {
   const MAX_ATTEMPTS = 3;
+  const headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    Accept: "*/*",
+  };
+
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const ctl = new AbortController();
     const timer = setTimeout(() => ctl.abort(), 20_000);
     try {
-      // 1. Try HTTP POST first (no URL query length limits)
+      // 1. Try clients5 Google Translate endpoint (ultra reliable & fast)
+      try {
+        const c5Url = `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${source}&tl=${target}&q=${encodeURIComponent(text)}`;
+        const c5Res = await fetch(c5Url, { headers, signal: ctl.signal });
+        if (c5Res.ok) {
+          const json = (await c5Res.json()) as unknown;
+          if (Array.isArray(json) && typeof json[0] === "string") {
+            return json.join("");
+          }
+          if (Array.isArray(json) && Array.isArray(json[0])) {
+            return (json[0] as unknown[])
+              .map((seg) => (Array.isArray(seg) && typeof seg[0] === "string" ? (seg[0] as string) : typeof seg === "string" ? seg : ""))
+              .join("");
+          }
+        }
+      } catch {}
+
+      // 2. Try HTTP POST to translate.googleapis.com (no URL query length limits)
       const postRes = await fetch(
         `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${source}&tl=${target}&dt=t`,
         {
           method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded;charset=utf-8" },
+          headers: {
+            ...headers,
+            "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
+          },
           body: new URLSearchParams({ q: text }),
           signal: ctl.signal,
         }
@@ -62,9 +87,9 @@ async function gtranslateChunk(text: string, source: string, target: string): Pr
         }
       }
 
-      // 2. Fallback to GET if POST returned an unexpected status
+      // 3. Fallback to GET on translate.googleapis.com
       const getUrl = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${source}&tl=${target}&dt=t&q=${encodeURIComponent(text)}`;
-      const getRes = await fetch(getUrl, { signal: ctl.signal });
+      const getRes = await fetch(getUrl, { headers, signal: ctl.signal });
       if (getRes.ok) {
         const json = (await getRes.json()) as unknown;
         if (Array.isArray(json) && Array.isArray(json[0])) {
@@ -74,7 +99,7 @@ async function gtranslateChunk(text: string, source: string, target: string): Pr
         }
       }
 
-      throw new Error(`Google Translate POST failed (${postRes.status}), GET failed (${getRes.status})`);
+      throw new Error("All Google Translate endpoints returned non-OK status");
     } catch (e) {
       if (attempt === MAX_ATTEMPTS) {
         console.error(`Google Translate exhausted ${MAX_ATTEMPTS} attempts for chunk:`, e);
