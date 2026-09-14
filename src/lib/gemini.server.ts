@@ -1,5 +1,11 @@
 // Server-only Gemini question solver and formatter (uses free-tier multi-key pool)
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
+import {
+  GoogleGenAI,
+  HarmCategory,
+  HarmBlockThreshold,
+  ThinkingLevel,
+  type SafetySetting,
+} from "@google/genai";
 import { latexToText } from "./latex-to-text";
 import { getGeminiApiKeys } from "./settings.functions";
 import {
@@ -9,16 +15,6 @@ import {
   healCorruptedMatchTitle,
   splitHorizontalOptions,
 } from "./normalize-options";
-
-// Type augmentation: @google/generative-ai v0.24.1 does not yet include thinkingConfig in GenerationConfig
-declare module "@google/generative-ai" {
-  interface GenerationConfig {
-    thinkingConfig?: {
-      thinkingBudget?: number;
-      turnOffThinking?: boolean;
-    };
-  }
-}
 
 // ============================================================================
 // UNIFIED STATIC SYSTEM PROMPTS
@@ -207,7 +203,17 @@ export interface QuestionSolverOptions {
   signal?: AbortSignal;
   subjectType?: "gk_english" | "math";
   solutionLength?: "normal" | "long";
-  workerIdx?: number;
+  /**
+   * Longest this question may wait for a free (key x model) bucket.
+   *
+   * Defaults to MAX_SLOT_WAIT_MS (70s), which is right when Gemini is the only
+   * option - waiting out a rate limit beats failing. But when a paid provider is
+   * standing by, waiting 70s is absurd: the question should give up in a few
+   * seconds and go get answered. The batch processor passes a small value in
+   * that case, which is what turns "Gemini then DeepSeek" from a slow serial
+   * fallback into a fast parallel one.
+   */
+  maxSlotWaitMs?: number;
 }
 export type DeepSeekOptions = QuestionSolverOptions;
 
@@ -466,7 +472,7 @@ export function sanitizeAiOutput(
 // GEMINI MULTI-KEY & MULTI-MODEL FREE TIER SOLVER
 // ============================================================================
 
-const defaultSafetySettings = [
+const defaultSafetySettings: SafetySetting[] = [
   { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
   { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
   {
@@ -479,31 +485,78 @@ const defaultSafetySettings = [
   },
 ];
 
-// Specific, ultra-fast, lowest-cost Google Gemini Flash-Lite models verified on live benchmarks:
-// 1. gemini-3.5-flash-lite: ~1.7s latency, 100% accuracy, independent 15 RPM free tier
-// 2. gemini-3.1-flash-lite-preview: ~1.7s latency, independent 15 RPM free tier
-// 3. gemini-3.1-flash-lite: ~2.0s latency, independent 15 RPM free tier
-// Specific, ultra-fast, lowest-cost Google Gemini Flash-Lite models verified on live benchmarks:
-// Gemini 3 Flash first, then Gemini 3.1 Flash-Lite, with the Flash-Lite preview
-// kept purely as a third failover target.
+// Thinking is billed against maxOutputTokens, and it is ON BY DEFAULT on the
+// Gemini 3 Flash family (thinking_level "high"). Measured on a live key with a
+// short MCQ and maxOutputTokens 2048:
 //
-// Note what these models are NOT doing: they are not multiplying quota. Measured
-// today, gemini-3.5-flash had not been called once and still answered 0/5 on keys
-// that were exhausted on the models we had been using, so the daily allowance is
-// per key/project and shared across every model. The list buys failover when one
-// model is briefly unavailable, not three times the capacity.
-export const GEMINI_SOLVER_MODELS = [
-  "gemini-3.5-flash-lite",
-  "gemini-3.1-flash-lite",
-  "gemini-3.1-flash-lite-preview",
-  "gemini-3-flash-preview",
-];
+//   gemini-3-flash-preview, default thinking : 303 answer + 711 THINKING tokens
+//   gemini-3-flash-preview, thinkingLevel MIN: 298 answer +   0 thinking tokens
+//
+// So three quarters of the budget was going to reasoning we never read, and on a
+// full 8-10 point Hindi solution thinking + answer crossed 2048 and came back as
+// finishReason MAX_TOKENS - which is exactly the truncation that raising the cap
+// from 1200 to 2048 was trying to paper over. Solving a formatted MCQ needs no
+// extended reasoning, so ask for none. The Flash-Lite models already default to
+// minimal; setting it explicitly keeps them pinned there if that default moves.
+export const SOLVER_THINKING_CONFIG = { thinkingLevel: ThinkingLevel.MINIMAL } as const;
 
-const genAiClientCache = new Map<string, GoogleGenerativeAI>();
-function getGenAIClient(key: string): GoogleGenerativeAI {
+// The solver pool, sized from the project's ACTUAL free-tier grants as shown on
+// the AI Studio rate-limit dashboard (per project, per day):
+//
+//   Gemini 3.5 Flash Lite   15 RPM   250K TPM     500 RPD
+//   Gemini 3.1 Flash Lite   15 RPM   250K TPM     500 RPD
+//   Gemini 3 Flash           5 RPM   250K TPM      20 RPD   <- excluded, see below
+//   Gemma 4 26B / 31B       30 RPM    16K TPM   14,400 RPD
+//
+// Two models were removed from this list on that evidence:
+//
+//   gemini-3-flash-preview  - 20 requests per project per DAY. Across 81 keys
+//     that is 1,620 requests total, under 2% of the pool's daily budget, while
+//     occupying 25% of the scheduler's bucket picks. Measured directly: it went
+//     79/81 keys alive -> 49 -> 0 within an afternoon. It cost far more in
+//     wasted picks and 429-parks than the handful of answers it returned.
+//
+//   gemini-3.1-flash-lite-preview - the dashboard has NO separate line for it,
+//     so it draws on the Gemini 3.1 Flash Lite grant. Treating it as its own
+//     bucket meant the scheduler paced two buckets at 15 RPM each against a
+//     single shared 15 RPM allowance and then blamed the pool for the 429s. It
+//     is also deprecated. Removing it loses no capacity - it never had any of
+//     its own.
+export const GEMINI_SOLVER_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"];
+
+// Gemma 4 is the single largest capacity lever available on this tier: 14,400
+// requests per project per day against Flash-Lite's 500, i.e. ~29x. It is off by
+// default because it is a different model family and the output bar here is
+// yours, not mine. Verified working on this pool before shipping:
+//
+//   - gemma-4-26b-a4b-it answered a Hindi MCQ correctly, in the required plain
+//     text layout, in 5.4s. One flaw seen: it skipped a solution number
+//     (3 -> 5), so check a sample batch before trusting it wholesale.
+//   - gemma-4-31b-it was too slow to be useful here (timed out past 40s).
+//   - Gemma has thinking ON by default and burned 509 thinking tokens on a
+//     ONE WORD answer. thinkingLevel MINIMAL fixes it (thinkingBudget is
+//     rejected outright with 400). Without that it is unusable.
+//   - Gemma has no system role, so the system prompt must be folded into the
+//     user turn. isGemmaModel() below drives that.
+//
+// Turn on with GEMINI_ENABLE_GEMMA=1 once you have eyeballed a sample.
+export const GEMMA_SOLVER_MODELS = ["gemma-4-26b-a4b-it"];
+
+export function isGemmaModel(modelName: string): boolean {
+  return modelName.startsWith("gemma");
+}
+
+export function solverModels(): string[] {
+  return process.env.GEMINI_ENABLE_GEMMA === "1"
+    ? [...GEMINI_SOLVER_MODELS, ...GEMMA_SOLVER_MODELS]
+    : GEMINI_SOLVER_MODELS;
+}
+
+const genAiClientCache = new Map<string, GoogleGenAI>();
+function getGenAIClient(key: string): GoogleGenAI {
   let client = genAiClientCache.get(key);
   if (!client) {
-    client = new GoogleGenerativeAI(key);
+    client = new GoogleGenAI({ apiKey: key });
     genAiClientCache.set(key, client);
   }
   return client;
@@ -526,32 +579,216 @@ function getGenAIClient(key: string): GoogleGenerativeAI {
 // RetryInfo) without affecting the other 50.
 // ===========================================================================
 
-// Per-model pacing. Google publishes a different RPM ceiling per model, so one
-// shared interval either throttles the fast models or overdrives the slow ones:
-// gemini-3.5-flash-lite allows 30 RPM while the 3.1 Flash-Lite models allow 15,
-// and pacing everything at a single value wasted half the workhorse's allowance.
+// Per-model pacing, taken from the project's AI Studio rate-limit dashboard.
 //
-// Each figure is a little under the published ceiling. Riding the exact limit was
-// measured to trip 429s constantly on ordinary jitter.
+// An earlier revision paced these from a live measurement that read 32 RPM for
+// gemini-3.5-flash-lite. That was a measurement artefact: the probe ran for 65
+// seconds, so a window straddling the per-minute reset captured two minutes of
+// allowance and reported roughly double. The dashboard is authoritative and says
+// 15 RPM. Pacing at 28 RPM against a real 15 RPM ceiling is precisely how a pool
+// of healthy keys turns into a wall of 429s.
+//
+// Each interval targets ~90% of the granted ceiling, leaving room for jitter.
 const MODEL_MIN_INTERVAL_MS: Record<string, number> = {
-  "gemini-3.5-flash-lite": 2200, // 30 RPM
-  "gemini-3.1-flash-lite": 4300, // 15 RPM
-  "gemini-3.1-flash-lite-preview": 4300, // 15 RPM
-  "gemini-3-flash-preview": 5400, // ~12 RPM, the Flash family is tighter
+  "gemini-3.5-flash-lite": 4400, // grant 15 RPM -> pace ~13.6
+  "gemini-3.1-flash-lite": 4400, // grant 15 RPM -> pace ~13.6
+  // Gemma's grant is 30 RPM but only 16K TPM, and a solve costs ~1,400 tokens.
+  // 16,000 / 1,400 = ~11 requests/min, so TOKENS bind here, not requests - the
+  // only model in the pool where that is true. Paced to ~10/min.
+  "gemma-4-26b-a4b-it": 6000,
 };
 
-// Anything not listed above is assumed to be on the tightest Flash ceiling rather
-// than the most generous Flash-Lite one.
 const SLOT_MIN_INTERVAL_MS = 5400;
 
 function slotIntervalFor(modelName: string): number {
   return MODEL_MIN_INTERVAL_MS[modelName] ?? SLOT_MIN_INTERVAL_MS;
 }
 
-// Additional pacing across ALL models sharing one key. The quota is per model, so
-// a key's real ceiling is models x 15 = 45 requests/minute; 60000/45 = 1333ms.
-// This is a backstop - the per-bucket pacing above is what normally binds.
-const KEY_MIN_INTERVAL_MS = 1333;
+/**
+ * Mean seconds between two firings of the SAME bucket, averaged over the pool.
+ *
+ * The batch processor sizes its worker fan-out from this. It used to hard-code
+ * 6.5s, which was already wrong for a three-model pool and got worse when a
+ * fourth model was added: the true mean is (2.2+4.3+4.3+5.4)/4 = 4.05s, so
+ * supply was being under-estimated by ~60%. Deriving it here means the two
+ * files can never drift apart again.
+ */
+export function meanSlotIntervalSeconds(): number {
+  const models = solverModels();
+  const total = models.reduce((sum, m) => sum + slotIntervalFor(m), 0);
+  return total / models.length / 1000;
+}
+
+// Additional pacing across ALL models sharing one key. This is only a backstop -
+// the per-bucket pacing above is what should normally bind.
+//
+// Per project the grants total 15 + 15 = 30 RPM on Gemini, plus ~10 more if
+// Gemma is enabled. Set just above the Gemini-only figure so it never binds
+// before the per-model intervals do.
+const KEY_MIN_INTERVAL_MS = Math.floor(60_000 / 32);
+
+// At most this many requests may be in flight on one key at any instant.
+//
+// This is the single most important limit in the file, and it is not about rate
+// - it is about simultaneity. Measured on one rested key, round-robining all
+// four models for 62 seconds:
+//
+//   in-flight   successes/min   429s   success rate
+//       1             48          10       83%
+//       2             63         116       35%
+//       3             59         267       18%
+//       6             74         690       10%
+//
+// Throughput barely moves past one in-flight request, while the 429 rate goes up
+// 70x. That trade is catastrophic HERE specifically, because this scheduler
+// parks a bucket for 60s on every 429: at six in flight a key produces ~11 parks
+// per successful answer, so the pool destroys itself faster than it can serve.
+// Holding one request per key costs ~25% of peak throughput and removes ~98% of
+// the 429s. Pacing alone could not achieve this - a key can be well under its
+// per-minute ceiling and still be refused for having six requests open at once.
+const MAX_INFLIGHT_PER_KEY = 1;
+
+// Keys with a request currently open. A key in here is not offered to anyone.
+const keyInFlight = new Map<string, number>();
+
+// ===========================================================================
+// ADAPTIVE PER-MODEL CONCURRENCY (AIMD)
+//
+// How much work this pool absorbs is NOT a constant: it falls as each project's
+// daily grant is spent, and the only signal is refusals. So the gate is learned,
+// not configured - additive increase while clean, multiplicative decrease on
+// refusals.
+//
+// Critically the gate is PER MODEL, not global. A single global gate was
+// measured doing real damage: once the Flash-Lite models had spent their 500
+// requests/day, their refusals dragged the shared limit down to the floor of 4
+// and throttled Gemma along with them - even though Gemma still had ~14,000
+// requests of daily grant left and was answering every time it was asked. The
+// batch then crawled at 4 concurrent against a model that could have run at 40.
+// Capacity is per model, so back-pressure has to be per model too.
+// ===========================================================================
+const CONCURRENCY_FLOOR = 2;
+const CONCURRENCY_CEILING = 48;
+const CONTROL_WINDOW = 12;
+const WIDEN_BELOW_REFUSAL_RATE = 0.15;
+const NARROW_ABOVE_REFUSAL_RATE = 0.35;
+const DECREASE_FACTOR = 0.6;
+// Slow start, borrowed from TCP. Pure additive increase is far too slow on a
+// SHORT run: a 100-question batch is ~130 outcomes, so at +1 per window the gate
+// barely leaves its seed and the batch is paced by the seed rather than by what
+// the pool can take. While a window comes back completely clean, grow
+// geometrically; the moment anything is refused, drop to cautious +1 steps.
+const SLOW_START_FACTOR = 1.5;
+
+type ModelGate = {
+  limit: number;
+  inFlight: number;
+  winOk: number;
+  winRefused: number;
+  slowStart: boolean;
+};
+const modelGates = new Map<string, ModelGate>();
+const gateWaiters: Array<() => void> = [];
+
+function gateFor(model: string): ModelGate {
+  let g = modelGates.get(model);
+  if (!g) {
+    g = { limit: 12, inFlight: 0, winOk: 0, winRefused: 0, slowStart: true };
+    modelGates.set(model, g);
+  }
+  return g;
+}
+
+/** Models that still have room for another request right now. */
+function modelsWithHeadroom(models: string[]): string[] {
+  return models.filter((m) => gateFor(m).inFlight < gateFor(m).limit);
+}
+
+function wakeGateWaiters() {
+  while (gateWaiters.length > 0) {
+    const wake = gateWaiters.shift();
+    if (!wake) break;
+    wake();
+  }
+}
+
+/** Wait until at least one of `models` has gate headroom. */
+async function awaitAnyHeadroom(models: string[], signal?: AbortSignal): Promise<void> {
+  if (modelsWithHeadroom(models).length > 0) return;
+  await new Promise<void>((resolve, reject) => {
+    const wake = () => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    };
+    const onAbort = () => {
+      const i = gateWaiters.indexOf(wake);
+      if (i >= 0) gateWaiters.splice(i, 1);
+      reject(new Error("Question solving aborted"));
+    };
+    if (signal?.aborted) {
+      reject(new Error("Question solving aborted"));
+      return;
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+    gateWaiters.push(wake);
+  });
+}
+
+function evaluateGate(model: string) {
+  const g = gateFor(model);
+  const total = g.winOk + g.winRefused;
+  if (total < CONTROL_WINDOW) return;
+  const refusalRate = g.winRefused / total;
+  g.winOk = 0;
+  g.winRefused = 0;
+  if (refusalRate > 0) g.slowStart = false;
+
+  if (refusalRate > NARROW_ABOVE_REFUSAL_RATE) {
+    const next = Math.max(CONCURRENCY_FLOOR, Math.floor(g.limit * DECREASE_FACTOR));
+    if (next !== g.limit) {
+      g.limit = next;
+      poolStats.concurrencyDecreases++;
+    }
+  } else if (refusalRate < WIDEN_BELOW_REFUSAL_RATE && g.limit < CONCURRENCY_CEILING) {
+    g.limit =
+      g.slowStart && refusalRate === 0
+        ? Math.min(
+            CONCURRENCY_CEILING,
+            Math.max(g.limit + 1, Math.round(g.limit * SLOW_START_FACTOR)),
+          )
+        : g.limit + 1;
+    poolStats.concurrencyIncreases++;
+    wakeGateWaiters();
+  }
+}
+
+function noteRateLimitForControl(model: string) {
+  gateFor(model).winRefused++;
+  evaluateGate(model);
+}
+
+function noteSuccessForControl(model: string) {
+  gateFor(model).winOk++;
+  evaluateGate(model);
+}
+
+/**
+ * Seed every model's gate when a batch starts.
+ *
+ * Sized at half the key pool. With one request in flight per key that means half
+ * the keys working and half as headroom; a quarter (the previous seed) left a
+ * 57-key pool running at 20 concurrent and paced the whole batch off the seed
+ * rather than off the pool. AIMD pulls it back within one window if too generous.
+ */
+export function primeConcurrency(keyCount: number) {
+  const seed = Math.max(CONCURRENCY_FLOOR, Math.min(CONCURRENCY_CEILING, Math.round(keyCount / 2)));
+  for (const m of solverModels()) {
+    const g = gateFor(m);
+    g.limit = Math.max(g.limit, seed);
+    g.slowStart = true;
+  }
+  wakeGateWaiters();
+}
 
 // Backoff for a 429 that arrives with NO RetryInfo - the bare "Resource has been
 // exhausted" replies, which are the ones this workload actually hits. Retrying
@@ -563,20 +800,45 @@ const KEY_MIN_INTERVAL_MS = 1333;
 // minute and should not be taken out of rotation for longer.
 const HARD_EXHAUSTION_BACKOFF_MS = 60_000;
 
-// A key that has NEVER answered successfully and is refusing with a bare 429 is
-// almost certainly out of daily quota. Park it long enough that it stops costing
-// worker time. A 10-minute park proved harmful when applied to healthy keys - one
-// transient 429 removed a good key for 10 minutes and the pool ate itself, which
-// is why this is now gated on "never succeeded" rather than applied to every 429.
-const UNPROVEN_KEY_BACKOFF_MS = 1_800_000;
-
+// A bucket's first bare 429 is parked for one recovery window and nothing more.
+//
+// There used to be a 30-MINUTE park here for any key that had not yet answered
+// successfully in this process. The intent was to clear out daily-exhausted keys
+// quickly, but "has not answered YET" is not evidence of exhaustion - at process
+// start it is true of every key in the pool, which is the exact moment a batch
+// begins. Measured on this pool: a 60-question run at 32 workers issued 166 of
+// these 30-minute parks and finished with 278 of 324 buckets parked, i.e. 86% of
+// a healthy 61-key pool taken out of service in 52 seconds, and 31/60 solved.
+//
+// Escalation now needs real evidence instead: a bucket only earns a longer park
+// by serving out a FULL recovery window and coming back exhausted anyway.
 // Keys that have returned at least one successful response this process.
 const provenKeys = new Set<string>();
+
+// Park for a bucket that failed for a reason that is NOT rate limiting - a 404
+// for a retired model, a malformed-request 400, a 500 from the backend.
+//
+// These used to fall through with no penalty at all, which inverted the whole
+// scheduler. Healthy buckets get pushed out by their pacing interval and by
+// 429s; a bucket that fails instantly and is never parked stays at the front of
+// the free set and therefore gets picked MORE often than working ones. A model
+// retirement would have turned a quarter of the pool into a traffic magnet that
+// answered nothing. Escalates so a permanently broken bucket leaves rotation.
+const TRANSIENT_FAIL_BACKOFF_MS = 30_000;
+const TRANSIENT_FAILS_BEFORE_LONG_PARK = 3;
+const TRANSIENT_LONG_PARK_MS = 30 * 60 * 1000;
+const transientFailStreak = new Map<string, number>();
 
 // A bucket that keeps coming back exhausted after serving out full parking
 // periods has run out of DAILY quota, not per-minute quota, and will not recover
 // until Google's daily reset. Park those for hours so the scheduler stops
 // spending attempts on them and routes to keys that still have budget.
+// Escalation ladder for a bucket that keeps coming back exhausted AFTER serving
+// out a full park: 60s -> 10min -> 3h. A genuinely daily-dead bucket therefore
+// costs three wasted calls spread over ~11 minutes and is then gone for the day,
+// while a merely busy one is never punished for more than a minute at a time.
+const HARD_FAILS_BEFORE_MEDIUM = 2;
+const MEDIUM_EXHAUSTION_BACKOFF_MS = 10 * 60 * 1000;
 const HARD_FAILS_BEFORE_DAILY = 3;
 const DAILY_EXHAUSTION_BACKOFF_MS = 3 * 60 * 60 * 1000;
 
@@ -607,6 +869,62 @@ const slotNextAvailable = new Map<string, number>();
 const keyNextAvailable = new Map<string, number>();
 const disabledKeysUntil = new Map<string, number>();
 
+// Lightweight pool telemetry. Cheap counters only - no per-request objects - so
+// this can stay on in production. Read it with getPoolStats() to see whether a
+// slow batch is the pool being genuinely exhausted or the scheduler mis-pacing.
+const poolStats = {
+  ok: new Map<string, number>(),
+  rateLimited: new Map<string, number>(),
+  transientFail: new Map<string, number>(),
+  rlByKey: new Map<string, number>(),
+  okByKey: new Map<string, number>(),
+  picksByKey: new Map<string, number>(),
+  deadKey: 0,
+  parkedShort: 0,
+  parkedMedium: 0,
+  parkedDaily: 0,
+  saturatedGiveUps: 0,
+  concurrencyIncreases: 0,
+  concurrencyDecreases: 0,
+  slotWaitMsTotal: 0,
+  slotWaits: 0,
+};
+function bump(m: Map<string, number>, k: string) {
+  m.set(k, (m.get(k) ?? 0) + 1);
+}
+export function getPoolStats() {
+  const now = Date.now();
+  let parked = 0;
+  for (const at of slotNextAvailable.values()) if (at > now) parked++;
+  return {
+    ok: Object.fromEntries(poolStats.ok),
+    rateLimited: Object.fromEntries(poolStats.rateLimited),
+    transientFail: Object.fromEntries(poolStats.transientFail),
+    deadKey: poolStats.deadKey,
+    parkedShort: poolStats.parkedShort,
+    parkedMedium: poolStats.parkedMedium,
+    parkedDaily: poolStats.parkedDaily,
+    saturatedGiveUps: poolStats.saturatedGiveUps,
+    gates: Object.fromEntries(
+      [...modelGates.entries()].map(([m, g]) => [m, `${g.inFlight}/${g.limit}`]),
+    ),
+    concurrencyIncreases: poolStats.concurrencyIncreases,
+    concurrencyDecreases: poolStats.concurrencyDecreases,
+    bucketsParkedNow: parked,
+    keysDisabledNow: [...disabledKeysUntil.values()].filter((t) => t > now).length,
+    avgSlotWaitMs: poolStats.slotWaits
+      ? Math.round(poolStats.slotWaitMsTotal / poolStats.slotWaits)
+      : 0,
+    provenKeys: provenKeys.size,
+    keysInFlightNow: keyInFlight.size,
+    distinctKeysPicked: poolStats.picksByKey.size,
+    distinctKeysOk: poolStats.okByKey.size,
+    distinctKeysRateLimited: poolStats.rlByKey.size,
+    topPickedKeys: [...poolStats.picksByKey.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6),
+    topRateLimitedKeys: [...poolStats.rlByKey.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6),
+  };
+}
+
 function slotId(key: string, modelName: string): string {
   return `${key}::${modelName}`;
 }
@@ -636,15 +954,30 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
  * synchronously with no await in between, so two concurrent workers can never
  * be handed the same bucket for the same instant.
  *
- * `workerIdx` only rotates where each worker STARTS scanning, so 16 workers
- * don't all evaluate key[0] first; it never restricts which bucket they may use.
+ * There is deliberately no per-worker start offset. An earlier version took one
+ * and never used it; uniform random choice over the free set already spreads
+ * load across every live key, which is what the offset was trying to achieve.
  */
 async function acquireSlot(
   keys: string[],
-  workerIdx: number | undefined,
   signal?: AbortSignal,
   maxWaitMs: number = MAX_SLOT_WAIT_MS,
-): Promise<{ key: string; modelName: string }> {
+  models: string[] = solverModels(),
+): Promise<{ key: string; modelName: string; release: () => void }> {
+  // Wait until at least one model has gate headroom, then let the scan consider
+  // only those models. Back-pressure is applied once, per model, rather than by
+  // every worker independently rediscovering the same 429s.
+  await awaitAnyHeadroom(models, signal);
+  const open = modelsWithHeadroom(models);
+  return acquireSlotInner(keys, signal, maxWaitMs, open.length > 0 ? open : models);
+}
+
+async function acquireSlotInner(
+  keys: string[],
+  signal?: AbortSignal,
+  maxWaitMs: number = MAX_SLOT_WAIT_MS,
+  models: string[] = solverModels(),
+): Promise<{ key: string; modelName: string; release: () => void }> {
   const now = Date.now();
   const usableKeys = keys.filter((k) => (disabledKeysUntil.get(k) || 0) <= now);
   if (usableKeys.length === 0) {
@@ -680,12 +1013,14 @@ async function acquireSlot(
   // nobody ever waits on one.
   const freeNow: Array<{ k: string; m: string }> = [];
   let bestKey = usableKeys[Math.floor(Math.random() * usableKeys.length)];
-  let bestModel = GEMINI_SOLVER_MODELS[Math.floor(Math.random() * GEMINI_SOLVER_MODELS.length)];
+  let bestModel = models[Math.floor(Math.random() * models.length)];
   let bestAt = Infinity;
 
   for (const k of usableKeys) {
+    // A key already serving a request is not a candidate at any price.
+    if ((keyInFlight.get(k) ?? 0) >= MAX_INFLIGHT_PER_KEY) continue;
     const keyAt = keyNextAvailable.get(k) ?? 0;
-    for (const m of GEMINI_SOLVER_MODELS) {
+    for (const m of models) {
       const at = Math.max(slotNextAvailable.get(slotId(k, m)) ?? 0, keyAt);
       if (at <= now) {
         freeNow.push({ k, m });
@@ -699,7 +1034,7 @@ async function acquireSlot(
   }
 
   if (process.env.GEMINI_DEBUG_SLOTS) {
-    const tot = usableKeys.length * GEMINI_SOLVER_MODELS.length;
+    const tot = usableKeys.length * models.length;
     console.log(
       `[slots] free ${freeNow.length}/${tot}  nextFreeIn ${freeNow.length ? 0 : Math.round((bestAt - now) / 1000)}s`,
     );
@@ -721,6 +1056,7 @@ async function acquireSlot(
   // question, the batch keeps moving, and "Retry failed" picks it up once the
   // pool has refilled. Do NOT reserve the slot on this path.
   if (waitMs > maxWaitMs) {
+    poolStats.saturatedGiveUps++;
     throw new Error(
       `Gemini key pool is saturated - every key/model is rate-limited for at least ${Math.round(waitMs / 1000)}s. Wait a minute, then use "Retry failed".`,
     );
@@ -729,9 +1065,35 @@ async function acquireSlot(
   // Reserve synchronously, before any await, so the slot is claimed atomically.
   slotNextAvailable.set(slotId(bestKey, bestModel), scheduledAt + slotIntervalFor(bestModel));
   keyNextAvailable.set(bestKey, scheduledAt + KEY_MIN_INTERVAL_MS);
+  keyInFlight.set(bestKey, (keyInFlight.get(bestKey) ?? 0) + 1);
+  gateFor(bestModel).inFlight++;
 
-  if (waitMs > 0) await sleep(waitMs, signal);
-  return { key: bestKey, modelName: bestModel };
+  bump(poolStats.picksByKey, bestKey.slice(-6));
+  poolStats.slotWaitMsTotal += waitMs;
+  poolStats.slotWaits++;
+
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    const n = (keyInFlight.get(bestKey) ?? 1) - 1;
+    if (n <= 0) keyInFlight.delete(bestKey);
+    else keyInFlight.set(bestKey, n);
+    const g = gateFor(bestModel);
+    g.inFlight = Math.max(0, g.inFlight - 1);
+    wakeGateWaiters();
+  };
+
+  if (waitMs > 0) {
+    try {
+      await sleep(waitMs, signal);
+    } catch (e) {
+      // Aborted while waiting - never leak the in-flight reservation.
+      release();
+      throw e;
+    }
+  }
+  return { key: bestKey, modelName: bestModel, release };
 }
 
 /**
@@ -739,6 +1101,9 @@ async function acquireSlot(
  * Jitter stops workers released at the same instant from colliding again.
  */
 function penalizeSlot(key: string, modelName: string, retryAfterMs?: number) {
+  bump(poolStats.rateLimited, modelName);
+  noteRateLimitForControl(modelName);
+  bump(poolStats.rlByKey, key.slice(-6));
   // No RetryInfo means a bare RESOURCE_EXHAUSTED. That covers two very different
   // situations, and telling them apart matters:
   //
@@ -774,16 +1139,16 @@ function penalizeSlot(key: string, modelName: string, retryAfterMs?: number) {
     hardFailStreak.set(id, { count: streak, at: now });
 
     if (streak >= HARD_FAILS_BEFORE_DAILY) {
+      poolStats.parkedDaily++;
       backoff = DAILY_EXHAUSTION_BACKOFF_MS + Math.floor(Math.random() * 600_000);
-    } else if (!provenKeys.has(key)) {
-      // Never answered successfully in this process and is refusing with a bare
-      // 429: treat it as out of daily quota and get it out of the way now, rather
-      // than re-testing it every minute for the whole batch. Measured: with ~97
-      // dead buckets and a 60s park, a 253s run burned ~409 calls and ~818
-      // worker-seconds on keys that could not work at all that day.
-      backoff = UNPROVEN_KEY_BACKOFF_MS + Math.floor(Math.random() * 300_000);
+    } else if (streak >= HARD_FAILS_BEFORE_MEDIUM) {
+      poolStats.parkedMedium++;
+      backoff = MEDIUM_EXHAUSTION_BACKOFF_MS + Math.floor(Math.random() * 60_000);
     } else {
-      // Known-good key, so this is just its per-minute window being full.
+      // First bare 429 from this bucket. Either its per-minute window is full or
+      // it is out for the day; both look identical here, so assume the cheap one
+      // and let the ladder above sort out the difference.
+      poolStats.parkedShort++;
       backoff = HARD_EXHAUSTION_BACKOFF_MS + Math.floor(Math.random() * 5000);
     }
     // Nudge the whole key too; its other models are usually close behind.
@@ -801,8 +1166,33 @@ function penalizeSlot(key: string, modelName: string, retryAfterMs?: number) {
  * quota, and its key is worth trusting with a short backoff from now on.
  */
 function noteSlotSuccess(key: string, modelName: string) {
-  hardFailStreak.delete(slotId(key, modelName));
+  bump(poolStats.ok, modelName);
+  noteSuccessForControl(modelName);
+  bump(poolStats.okByKey, key.slice(-6));
+  const id = slotId(key, modelName);
+  hardFailStreak.delete(id);
+  transientFailStreak.delete(id);
   provenKeys.add(key);
+}
+
+/**
+ * Park a bucket that failed for a reason other than rate limiting.
+ *
+ * Without this the bucket is never pushed out, so it stays permanently in the
+ * free set and out-competes every healthy bucket that a 429 or its own pacing
+ * interval has moved forward. A bucket that keeps failing this way (a retired
+ * model, a key with an API restriction) is parked for half an hour.
+ */
+function penalizeSlotTransient(key: string, modelName: string) {
+  bump(poolStats.transientFail, modelName);
+  const id = slotId(key, modelName);
+  const streak = (transientFailStreak.get(id) ?? 0) + 1;
+  transientFailStreak.set(id, streak);
+  const backoff =
+    streak >= TRANSIENT_FAILS_BEFORE_LONG_PARK
+      ? TRANSIENT_LONG_PARK_MS + Math.floor(Math.random() * 300_000)
+      : TRANSIENT_FAIL_BACKOFF_MS + Math.floor(Math.random() * 5_000);
+  slotNextAvailable.set(id, Math.max(slotNextAvailable.get(id) ?? 0, Date.now() + backoff));
 }
 
 function classifyError(error: any): { isRateLimitOr503: boolean; retryAfterMs?: number } {
@@ -843,33 +1233,174 @@ function classifyError(error: any): { isRateLimitOr503: boolean; retryAfterMs?: 
 }
 
 function getResponseTextSafely(response: any): string {
-  try {
-    return response.text();
-  } catch (e: any) {
-    const candidate = response?.candidates?.[0];
-    const partsText = candidate?.content?.parts
-      ?.map((p: any) => (typeof p.text === "string" ? p.text : ""))
-      .filter(Boolean)
-      .join("");
-    if (partsText && partsText.trim().length > 0) {
-      return partsText;
-    }
-    throw e;
-  }
+  const direct = typeof response?.text === "string" ? response.text : "";
+  if (direct.trim().length > 0) return direct;
+  const partsText = response?.candidates?.[0]?.content?.parts
+    ?.map((part: any) => (typeof part.text === "string" ? part.text : ""))
+    .filter(Boolean)
+    .join("");
+  return partsText ?? "";
 }
+
+/**
+ * Run one arbitrary Gemini request through the SHARED bucket scheduler.
+ *
+ * Everything in the app that calls Gemini must come through here or through
+ * formatQuestionWithGemini, because the per-(key x model) pacing only works if
+ * it sees every request. OCR used to keep its own rotation and its own cooldown
+ * map over the same keys, so it spent per-minute allowance the solver believed
+ * it still had, and both sides then blamed the pool.
+ *
+ * `models` lets a caller use a different subset of the pool (OCR skips the
+ * deprecated preview model) while still sharing the same bucket state.
+ */
+export async function runGeminiTask(opts: {
+  models: string[];
+  systemInstruction: string;
+  contents: Array<Record<string, unknown>>;
+  maxOutputTokens: number;
+  temperature?: number;
+  topP?: number;
+  maxAttempts?: number;
+  signal?: AbortSignal;
+  label?: string;
+}): Promise<{ text: string; apiCalls: number }> {
+  const allKeys = await getGeminiApiKeys();
+  if (allKeys.length === 0) throw new Error("No available Gemini API keys configured");
+
+  const label = opts.label ?? "Gemini task";
+  const maxAttempts = opts.maxAttempts ?? 6;
+  const startedAt = Date.now();
+  let apiCalls = 0;
+  let lastError: any = null;
+  let maxOutputTokens = opts.maxOutputTokens;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    if (opts.signal?.aborted) throw new Error(`${label} aborted`);
+
+    const elapsed = Date.now() - startedAt;
+    if (elapsed > QUESTION_BUDGET_MS) break;
+
+    const { key, modelName, release } = await acquireSlot(
+      allKeys,
+      opts.signal,
+      Math.min(MAX_SLOT_WAIT_MS, QUESTION_BUDGET_MS - elapsed),
+      opts.models,
+    );
+
+    const timeoutCtl = new AbortController();
+    const timer = setTimeout(() => timeoutCtl.abort(), REQUEST_TIMEOUT_MS);
+    const abortSignal = opts.signal
+      ? AbortSignal.any([opts.signal, timeoutCtl.signal])
+      : timeoutCtl.signal;
+
+    try {
+      apiCalls++;
+      const response = await getGenAIClient(key).models.generateContent({
+        model: modelName,
+        contents: [{ role: "user", parts: opts.contents as any }],
+        config: {
+          systemInstruction: opts.systemInstruction,
+          temperature: opts.temperature ?? 0.1,
+          topP: opts.topP ?? 0.95,
+          maxOutputTokens,
+          thinkingConfig: SOLVER_THINKING_CONFIG,
+          safetySettings: defaultSafetySettings,
+          abortSignal,
+        },
+      });
+
+      if (response.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+        // Same escalation as the solver: retrying on the same cap reproduces
+        // the same truncation.
+        maxOutputTokens = Math.min(maxOutputTokens * 2, 32768);
+        lastError = new Error(`${label}: ${modelName} truncated at the output limit`);
+        continue;
+      }
+
+      const text = getResponseTextSafely(response);
+      if (text && text.trim().length > 0) {
+        noteSlotSuccess(key, modelName);
+        return { text, apiCalls };
+      }
+
+      lastError = new Error(`${label}: ${modelName} returned an empty response`);
+      penalizeSlotTransient(key, modelName);
+    } catch (error: any) {
+      lastError = error;
+      if (opts.signal?.aborted) throw new Error(`${label} aborted`);
+
+      const msg = (error?.message || "").toLowerCase();
+      const isDeadKey =
+        msg.includes("api_key_invalid") ||
+        msg.includes("consumer_suspended") ||
+        msg.includes("service account is deleted") ||
+        msg.includes("service account bound to the api key") ||
+        msg.includes("unauthenticated") ||
+        error?.status === 401;
+      if (isDeadKey || error?.status === 403 || msg.includes("denied access")) {
+        disabledKeysUntil.set(key, Date.now() + (isDeadKey ? 6 * 60 * 60 * 1000 : 10 * 60 * 1000));
+        poolStats.deadKey++;
+        continue;
+      }
+
+      const { isRateLimitOr503, retryAfterMs } = classifyError(error);
+      if (isRateLimitOr503) {
+        penalizeSlot(key, modelName, retryAfterMs);
+        continue;
+      }
+
+      // A 404 for a retired model, a 400, a backend 500. Park it rather than
+      // swallowing it - the old code matched "not found" and silently retried,
+      // so a bad model name surfaced only as a generic failure at the end.
+      penalizeSlotTransient(key, modelName);
+    } finally {
+      clearTimeout(timer);
+      release();
+    }
+  }
+
+  throw Object.assign(new Error(lastError?.message || `${label} failed across the Gemini pool.`), {
+    apiCalls,
+  });
+}
+
+/**
+ * Result of one solve. `apiCalls` is the number of requests actually spent at
+ * the provider, which is NOT one per question: a question can retry across up
+ * to MAX_ATTEMPTS buckets. The caller bills this against the user's quota;
+ * counting one per question under-reported real usage by up to 12x.
+ */
+export interface SolveResult {
+  text: string;
+  apiCalls: number;
+}
+
+// Base output cap. With thinking pinned to minimal (see SOLVER_THINKING_CONFIG)
+// the whole budget belongs to the answer, and a full 8-10 point Hindi solution
+// measures ~300-500 tokens, so 2048 is comfortable.
+const BASE_MAX_OUTPUT_TOKENS = 2048;
+// If a model still reports MAX_TOKENS, retrying on the SAME cap just reproduces
+// the same truncation and burns another bucket. Give the retry more room once.
+const ESCALATED_MAX_OUTPUT_TOKENS = 4096;
+// Per-request wall clock. Measured latency on the Flash-Lite models is 1.6-2.1s;
+// the old 15s was tight enough that a slow long-solution response could be cut
+// off by the client rather than by the model.
+const REQUEST_TIMEOUT_MS = 30_000;
 
 export async function formatQuestionWithGemini({
   raw,
   idx,
   subjectType,
   solutionLength,
-  workerIdx,
   signal,
-}: QuestionSolverOptions): Promise<string> {
+  maxSlotWaitMs,
+}: QuestionSolverOptions): Promise<SolveResult> {
   if (signal?.aborted) {
     throw new Error("Question solving aborted");
   }
 
+  const slotWaitCeiling = maxSlotWaitMs ?? MAX_SLOT_WAIT_MS;
   const allKeys = await getGeminiApiKeys();
   if (allKeys.length === 0) {
     throw new Error("No available Gemini API keys configured");
@@ -896,16 +1427,19 @@ export async function formatQuestionWithGemini({
   const prompt = `Solve and format the following MCQ:\n\n${cleaned}`;
 
   let lastError: any = null;
-  // With 51 paced buckets a request rarely needs more than a couple of tries.
   // Each attempt waits for a free bucket, so this is self-limiting rather than
   // the old tight spin of instant retries against already-throttled models.
   const MAX_ATTEMPTS = 12;
 
   const startedAt = Date.now();
+  // Every request actually sent to Google, including the ones that failed.
+  let apiCalls = 0;
+  // Raised once a model reports MAX_TOKENS, so the retry has room to finish.
+  let maxOutputTokens = BASE_MAX_OUTPUT_TOKENS;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) {
-      throw new Error("Question solving aborted");
+      throw Object.assign(new Error("Question solving aborted"), { apiCalls });
     }
 
     // Stop once this question has had its share of time. A worker stuck behind a
@@ -913,58 +1447,67 @@ export async function formatQuestionWithGemini({
     // fail here and let the batch continue than to hold the slot indefinitely.
     const elapsed = Date.now() - startedAt;
     if (elapsed > QUESTION_BUDGET_MS) {
-      throw new Error(
-        lastError?.message ||
-          `Gave up after ${Math.round(elapsed / 1000)}s: the Gemini key pool is rate-limited. Use "Retry failed" once it recovers.`,
+      throw Object.assign(
+        new Error(
+          lastError?.message ||
+            `Gave up after ${Math.round(elapsed / 1000)}s: the Gemini key pool is rate-limited. Use "Retry failed" once it recovers.`,
+        ),
+        { apiCalls },
       );
     }
 
     // Wait for the (key, model) bucket that frees up soonest. This is the only
-    // pacing in the pipeline — it is what keeps us under the per-minute cap.
+    // pacing in the pipeline - it is what keeps us under the per-minute cap.
     // A throw here (no usable keys, saturated pool, or aborted) is terminal for
     // this question: retrying immediately cannot help.
     const remainingBudget = QUESTION_BUDGET_MS - elapsed;
-    const { key, modelName } = await acquireSlot(
-      allKeys,
-      workerIdx,
-      signal,
-      Math.min(MAX_SLOT_WAIT_MS, remainingBudget),
-    );
+    let key: string;
+    let modelName: string;
+    let release: () => void;
+    try {
+      const slot = await acquireSlot(allKeys, signal, Math.min(slotWaitCeiling, remainingBudget));
+      key = slot.key;
+      modelName = slot.modelName;
+      release = slot.release;
+    } catch (slotErr: any) {
+      // Attach the spend so far so the caller still bills what was used.
+      throw Object.assign(slotErr, { apiCalls });
+    }
+
+    // Per-request deadline that also honours the caller's cancellation. The old
+    // SDK silently dropped `signal` - it is not a member of its RequestOptions -
+    // so aborting a batch never actually cancelled anything already in flight.
+    const timeoutCtl = new AbortController();
+    const timer = setTimeout(() => timeoutCtl.abort(), REQUEST_TIMEOUT_MS);
+    const abortSignal = signal ? AbortSignal.any([signal, timeoutCtl.signal]) : timeoutCtl.signal;
 
     try {
-      const genAI = getGenAIClient(key);
-      const model = genAI.getGenerativeModel(
-        {
-          model: modelName,
-          systemInstruction,
-          generationConfig: {
-            temperature: 0.1,
-            topP: 0.1,
-            // A full 8-10 point Hindi solution runs to roughly 1,000-1,700
-            // characters, and 1200 tokens was not always enough: measured answers
-            // came back cut off mid-word ("...Solution") or stopping after option
-            // C, with no Answer line at all. Those were then stored as "done".
-            maxOutputTokens: 2048,
-          },
+      const ai = getGenAIClient(key);
+      apiCalls++;
+      // Gemma exposes no system role, so its instruction has to ride along in
+      // the user turn. Sending systemInstruction to it is rejected.
+      const gemma = isGemmaModel(modelName);
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents: gemma ? `${systemInstruction}\n\n${prompt}` : prompt,
+        config: {
+          ...(gemma ? {} : { systemInstruction }),
+          temperature: 0.1,
+          topP: 0.1,
+          maxOutputTokens,
+          thinkingConfig: SOLVER_THINKING_CONFIG,
           safetySettings: defaultSafetySettings,
+          abortSignal,
         },
-        { timeout: 15000, signal } as any,
-      );
-
-      if (signal?.aborted) {
-        throw new Error("Question solving aborted");
-      }
-
-      const result = await model.generateContent([prompt]);
-      const response = await result.response;
+      });
 
       // Reject a truncated answer instead of saving it. finishReason MAX_TOKENS
       // means the model was still writing, so the text is missing whatever comes
-      // last - usually the Answer line and the Solution. Falling through to the
-      // retry loop lets another attempt produce a complete answer; keeping it
-      // would silently store a half-written question.
-      const finishReason = (response as any)?.candidates?.[0]?.finishReason;
+      // last - usually the Answer line and the Solution. Retrying on the same
+      // cap reproduces the same truncation, so give the next attempt more room.
+      const finishReason = response.candidates?.[0]?.finishReason;
       if (finishReason === "MAX_TOKENS") {
+        maxOutputTokens = ESCALATED_MAX_OUTPUT_TOKENS;
         lastError = new Error(
           `Model ${modelName} hit the output limit and returned a truncated answer`,
         );
@@ -973,19 +1516,43 @@ export async function formatQuestionWithGemini({
 
       const text = getResponseTextSafely(response);
       if (text && text.trim().length > 0) {
-        // This bucket clearly still has quota, so clear any daily-exhaustion suspicion.
+        // This bucket clearly still has quota, so clear any exhaustion suspicion.
         noteSlotSuccess(key, modelName);
-        return sanitizeAiOutput(latexToText(text), idx, subjectType);
+        return { text: sanitizeAiOutput(latexToText(text), idx, subjectType), apiCalls };
       }
+
+      // Answered 200 with nothing usable - a safety block, or an empty candidate.
+      // Park the bucket briefly and record why, so the final error is not blank.
+      lastError = new Error(
+        `Model ${modelName} returned an empty response (finishReason ${finishReason ?? "unknown"})`,
+      );
+      penalizeSlotTransient(key, modelName);
+      continue;
     } catch (error: any) {
       lastError = error;
       const msg = (error?.message || "").toLowerCase();
       const status = error?.status;
 
-      // Bad-key handling. The SDK appends JSON.stringify(error.details) to the
-      // message, so the upstream `reason` (e.g. API_KEY_INVALID) is matchable here
-      // even though that error arrives as HTTP 400 rather than 403.
-      const isDeadKey = msg.includes("api_key_invalid") || msg.includes("consumer_suspended");
+      if (signal?.aborted) {
+        throw Object.assign(new Error("Question solving aborted"), { apiCalls });
+      }
+
+      // Bad-key handling. The SDK appends the upstream error payload to the
+      // message, so the `reason` (e.g. API_KEY_INVALID) is matchable here even
+      // though that error arrives as HTTP 400 rather than 403.
+      //
+      // 401 matters as much as 403. Measured on this pool: three keys return
+      // 401 UNAUTHENTICATED "The bound service account is deleted or disabled",
+      // which is permanent - the project behind the key is broken. Without this
+      // branch they were only bucket-parked, so each one came back every half
+      // hour and burned four more attempts before parking again.
+      const isDeadKey =
+        msg.includes("api_key_invalid") ||
+        msg.includes("consumer_suspended") ||
+        msg.includes("service account is deleted") ||
+        msg.includes("service account bound to the api key") ||
+        msg.includes("unauthenticated") ||
+        status === 401;
       if (isDeadKey || status === 403 || msg.includes("denied access")) {
         // A key Google reports as invalid/suspended will not recover on its own,
         // so park it for hours instead of letting it re-enter rotation every 10
@@ -993,6 +1560,7 @@ export async function formatQuestionWithGemini({
         // Team settings produces a different string, which is tracked separately
         // and is therefore unaffected by this entry.
         disabledKeysUntil.set(key, Date.now() + (isDeadKey ? 6 * 60 * 60 * 1000 : 10 * 60 * 1000));
+        poolStats.deadKey++;
         console.warn(
           `[Gemini] Disabling key ...${key.slice(-6)} for ${isDeadKey ? "6h" : "10m"}: ${(error?.message || "").slice(0, 120)}`,
         );
@@ -1002,22 +1570,25 @@ export async function formatQuestionWithGemini({
       const { isRateLimitOr503, retryAfterMs } = classifyError(error);
 
       if (isRateLimitOr503) {
-        // Push only this bucket out; the other 50 stay available. The next
-        // attempt waits for whichever bucket frees up soonest.
+        // Push only this bucket out; every other bucket stays available. The
+        // next attempt waits for whichever bucket frees up soonest.
         penalizeSlot(key, modelName, retryAfterMs);
         continue;
       }
 
-      if (msg.includes("recitation") || msg.includes("safety")) {
-        continue;
-      }
-
-      // Transient error; retry next key/model
+      // Everything else - a 404 for a retired model, a 400, a backend 500, a
+      // client timeout. Park the bucket so a systematically broken one does not
+      // sit permanently at the front of the free set out-competing healthy ones.
+      penalizeSlotTransient(key, modelName);
       continue;
+    } finally {
+      clearTimeout(timer);
+      release();
     }
   }
 
-  throw new Error(
-    lastError?.message || "Failed to solve question across all Gemini keys and models.",
+  throw Object.assign(
+    new Error(lastError?.message || "Failed to solve question across all Gemini keys and models."),
+    { apiCalls },
   );
 }

@@ -6,7 +6,24 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", ".output", ".vinxi"] },
+  {
+    // Build output, plus the gitignored scratch/probe scripts at the repo root.
+    // Those were contributing ~780 of the ~1030 reported problems and drowning
+    // the real findings in src/.
+    ignores: [
+      "dist",
+      ".output",
+      ".vinxi",
+      ".wrangler",
+      "dist_zip",
+      "scratch/**",
+      "test-*.{js,ts}",
+      "test_*.js",
+      "set_keys.js",
+      "scratch-test.js",
+      "src/routeTree.gen.ts",
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

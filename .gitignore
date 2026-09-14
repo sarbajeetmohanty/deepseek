@@ -54,3 +54,6 @@ scratch-test.js
 
 # Parked API keys (secrets - never commit)
 DEAD_KEYS_PARKED.txt
+
+# Supabase CLI scratch
+supabase/.temp/

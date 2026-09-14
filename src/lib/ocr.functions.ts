@@ -1,7 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
-import { GoogleGenerativeAI, HarmCategory, HarmBlockThreshold } from "@google/generative-ai";
 import { requireSupabaseAuth } from "../integrations/supabase/auth-middleware";
-import { getGeminiApiKeys } from "./settings.functions";
 
 type ExtractPayload = {
   data: string;
@@ -13,67 +11,43 @@ type GenerationPayload = {
   customPrompt: string;
 };
 
-// Client cache to avoid instantiating new GoogleGenerativeAI objects on every request
-const ocrGenAiClientCache = new Map<string, GoogleGenerativeAI>();
-function getOcrGenAIClient(key: string): GoogleGenerativeAI {
-  let client = ocrGenAiClientCache.get(key);
-  if (!client) {
-    client = new GoogleGenerativeAI(key);
-    ocrGenAiClientCache.set(key, client);
+// OCR runs against the SAME Gemini key pool as the batch solver, so it must go
+// through the SAME scheduler.
+//
+// It used to keep a private rotation (`ocrKeyIndex`) and a private cooldown map
+// that parked a rate-limited key for 5 seconds against a 60-second window. Two
+// schedulers spending one pool, neither aware of the other: OCR quietly ate the
+// per-minute allowance the solver had carefully reserved, and its own 5s park
+// guaranteed it walked straight back into the same 429. runGeminiTask() below
+// borrows the solver's bucket scheduler, so every request in the app - batch or
+// OCR - is paced against one shared view of the pool.
+import { runGeminiTask } from "./gemini.server";
+
+// Vision work stays on the Gemini Flash-Lite models. gemini-3-flash-preview is
+// excluded for the same reason the solver dropped it: a 20-requests-per-day
+// grant is not worth a rotation slot. Gemma is text-only, so it is not a
+// candidate here at all.
+const OCR_MODELS = ["gemini-3.5-flash-lite", "gemini-3.1-flash-lite"];
+
+// Transcribing a dense exam page produces far more text than solving one MCQ.
+const OCR_MAX_OUTPUT_TOKENS = 8192;
+
+// A data: URL declares its own type. The old code stripped the prefix with a
+// regex that matched png/jpeg/jpg/webp and then hard-coded mimeType "image/jpeg"
+// for all of them, so every PNG and WebP was handed to Gemini mislabelled.
+const DATA_URL_RE = /^data:(image\/(?:png|jpeg|jpg|webp));base64,/i;
+
+function splitImagePayload(raw: string): { data: string; mimeType: string } {
+  const match = raw.match(DATA_URL_RE);
+  if (match) {
+    const declared = match[1].toLowerCase();
+    return {
+      data: raw.slice(match[0].length),
+      mimeType: declared === "image/jpg" ? "image/jpeg" : declared,
+    };
   }
-  return client;
-}
-
-let ocrKeyIndex = 0;
-const rateLimitedKeys = new Map<string, number>();
-
-function getAvailableKeys(allKeys: string[]): string[] {
-  const now = Date.now();
-  const available = allKeys.filter((key) => {
-    const timeout = rateLimitedKeys.get(key);
-    if (!timeout) return true;
-    if (now > timeout) {
-      rateLimitedKeys.delete(key);
-      return true;
-    }
-    return false;
-  });
-  return available.length > 0 ? available : allKeys;
-}
-
-const defaultSafetySettings = [
-  { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-  { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-  {
-    category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
-    threshold: HarmBlockThreshold.BLOCK_NONE,
-  },
-  {
-    category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
-    threshold: HarmBlockThreshold.BLOCK_NONE,
-  },
-];
-
-const OCR_MODELS = [
-  "gemini-3.5-flash-lite",
-  "gemini-3.1-flash-lite-preview",
-  "gemini-3.1-flash-lite",
-];
-
-function getResponseTextSafely(response: any): string {
-  try {
-    return response.text();
-  } catch (e: any) {
-    const candidate = response?.candidates?.[0];
-    const partsText = candidate?.content?.parts
-      ?.map((p: any) => (typeof p.text === "string" ? p.text : ""))
-      .filter(Boolean)
-      .join("");
-    if (partsText && partsText.trim().length > 0) {
-      return partsText;
-    }
-    throw e;
-  }
+  // Bare base64 with no prefix - JPEG is the safe default for camera uploads.
+  return { data: raw, mimeType: "image/jpeg" };
 }
 
 export const extractTextFromImage = createServerFn({ method: "POST" })
@@ -91,9 +65,7 @@ export const extractTextFromImage = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data: payload }) => {
-    const base64Image = payload.data;
-    const allKeys = await getGeminiApiKeys();
-    const base64Data = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, "");
+    const { data: base64Data, mimeType } = splitImagePayload(payload.data);
 
     const prompt = payload.customPrompt
       ? `${payload.customPrompt}\n\nIMPORTANT: Return ONLY the requested content based on the instructions above. Do not include any conversational filler, markdown code blocks, or greetings. Output exactly what is requested.`
@@ -103,65 +75,17 @@ export const extractTextFromImage = createServerFn({ method: "POST" })
 - Each statement, code header ('कूट :', 'Code:'), and option (A., B., C., D. or (a), (b), (c), (d)) MUST be on its own separate line.
 - Return only the raw extracted text.`;
 
-    const imageParts = [
-      {
-        inlineData: {
-          data: base64Data,
-          mimeType: "image/jpeg",
-        },
-      },
-    ];
-
-    let lastError: any = null;
-    const MAX_ATTEMPTS = 6;
-
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      const activeKeys = getAvailableKeys(allKeys);
-      const key = activeKeys[ocrKeyIndex++ % activeKeys.length];
-      const modelName = OCR_MODELS[(attempt - 1) % OCR_MODELS.length];
-
-      try {
-        const genAI = getOcrGenAIClient(key);
-        const model = genAI.getGenerativeModel({
-          model: modelName,
-          systemInstruction:
-            "You are an OCR and document digitization engine. Accurately transcribe and digitize the document image into text.",
-          generationConfig: {
-            temperature: 0.1,
-            topP: 0.95,
-          },
-          safetySettings: defaultSafetySettings,
-        });
-
-        const result = await model.generateContent([prompt, ...imageParts]);
-        const response = await result.response;
-        const text = getResponseTextSafely(response);
-        if (text && text.trim().length > 0) {
-          return text;
-        }
-      } catch (error: any) {
-        lastError = error;
-        const msg = error.message?.toLowerCase() || "";
-
-        if (
-          error.status === 429 ||
-          error.status === 503 ||
-          msg.includes("429") ||
-          msg.includes("503") ||
-          msg.includes("resourceexhausted") ||
-          msg.includes("quota")
-        ) {
-          rateLimitedKeys.set(key, Date.now() + 5000);
-          continue;
-        }
-
-        if (msg.includes("recitation") || msg.includes("safety") || msg.includes("not found")) {
-          continue;
-        }
-      }
-    }
-
-    throw new Error(lastError?.message || "Failed to extract text from image using Gemini.");
+    const { text } = await runGeminiTask({
+      models: OCR_MODELS,
+      systemInstruction:
+        "You are an OCR and document digitization engine. Accurately transcribe and digitize the document image into text.",
+      contents: [{ text: prompt }, { inlineData: { data: base64Data, mimeType } }],
+      maxOutputTokens: OCR_MAX_OUTPUT_TOKENS,
+      temperature: 0.1,
+      topP: 0.95,
+      label: "OCR extract",
+    });
+    return text;
   });
 
 export const generateFromContext = createServerFn({ method: "POST" })
@@ -176,58 +100,17 @@ export const generateFromContext = createServerFn({ method: "POST" })
     };
   })
   .handler(async ({ data: payload }) => {
-    const allKeys = await getGeminiApiKeys();
-
     const prompt = `${payload.customPrompt}\n\nIMPORTANT: Return ONLY the requested content based on the instructions above. Do not include any conversational filler, markdown code blocks, or greetings. Output exactly what is requested.\n\n--- DOCUMENT CONTEXT START ---\n${payload.contextText}\n--- DOCUMENT CONTEXT END ---`;
 
-    let lastError: any = null;
-    const MAX_ATTEMPTS = 6;
-
-    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-      const activeKeys = getAvailableKeys(allKeys);
-      const key = activeKeys[ocrKeyIndex++ % activeKeys.length];
-      const modelName = OCR_MODELS[(attempt - 1) % OCR_MODELS.length];
-
-      try {
-        const genAI = getOcrGenAIClient(key);
-        const model = genAI.getGenerativeModel({
-          model: modelName,
-          systemInstruction:
-            "You are an expert document structuring and question extraction assistant. Digitize, format, and organize the user's provided document questions according to their instructions.",
-          generationConfig: {
-            temperature: 0.1,
-            topP: 0.95,
-          },
-          safetySettings: defaultSafetySettings,
-        });
-
-        const result = await model.generateContent([prompt]);
-        const response = await result.response;
-        const text = getResponseTextSafely(response);
-        if (text && text.trim().length > 0) {
-          return text;
-        }
-      } catch (error: any) {
-        lastError = error;
-        const msg = error.message?.toLowerCase() || "";
-
-        if (
-          error.status === 429 ||
-          error.status === 503 ||
-          msg.includes("429") ||
-          msg.includes("503") ||
-          msg.includes("resourceexhausted") ||
-          msg.includes("quota")
-        ) {
-          rateLimitedKeys.set(key, Date.now() + 5000);
-          continue;
-        }
-
-        if (msg.includes("recitation") || msg.includes("safety") || msg.includes("not found")) {
-          continue;
-        }
-      }
-    }
-
-    throw new Error(lastError?.message || "Failed to generate formatted questions using Gemini.");
+    const { text } = await runGeminiTask({
+      models: OCR_MODELS,
+      systemInstruction:
+        "You are an expert document structuring and question extraction assistant. Digitize, format, and organize the user's provided document questions according to their instructions.",
+      contents: [{ text: prompt }],
+      maxOutputTokens: OCR_MAX_OUTPUT_TOKENS,
+      temperature: 0.1,
+      topP: 0.95,
+      label: "OCR generate",
+    });
+    return text;
   });

@@ -108,22 +108,49 @@ function BatchView() {
     retry: 1,
   });
 
-  // Realtime: react to per-row status changes instantly, so UI updates without polling delay.
+  // Realtime: react to per-row status changes quickly, without polling delay.
+  //
+  // Coalesced on purpose. The server flushes questions in upserts of up to 200
+  // rows, and Postgres emits ONE realtime event per row - so a single flush fired
+  // ~200 invalidations, each re-selecting every row in the batch. On a
+  // 2,000-question run that is a refetch storm against the same table the
+  // workers are still writing to. One refetch per burst is all the UI needs.
   useEffect(() => {
+    let questionsTimer: ReturnType<typeof setTimeout> | null = null;
+    let batchTimer: ReturnType<typeof setTimeout> | null = null;
+    const COALESCE_MS = 400;
+
+    const invalidateQuestionsSoon = () => {
+      if (questionsTimer) return;
+      questionsTimer = setTimeout(() => {
+        questionsTimer = null;
+        qc.invalidateQueries({ queryKey: ["questions", id] });
+      }, COALESCE_MS);
+    };
+    const invalidateBatchSoon = () => {
+      if (batchTimer) return;
+      batchTimer = setTimeout(() => {
+        batchTimer = null;
+        qc.invalidateQueries({ queryKey: ["batch", id] });
+      }, COALESCE_MS);
+    };
+
     const channel = supabase
       .channel(`batch-${id}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "questions", filter: `batch_id=eq.${id}` },
-        () => qc.invalidateQueries({ queryKey: ["questions", id] }),
+        invalidateQuestionsSoon,
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "batches", filter: `id=eq.${id}` },
-        () => qc.invalidateQueries({ queryKey: ["batch", id] }),
+        invalidateBatchSoon,
       )
       .subscribe();
     return () => {
+      if (questionsTimer) clearTimeout(questionsTimer);
+      if (batchTimer) clearTimeout(batchTimer);
       supabase.removeChannel(channel);
     };
   }, [id, qc]);
@@ -138,12 +165,21 @@ function BatchView() {
 
   const lastProgressRef = useRef<{ count: number; time: number }>({ count: -1, time: Date.now() });
 
-  // Initial resume check on page mount
+  // Initial resume check, once the batch row has actually loaded.
+  //
+  // This read `batch` but declared its deps as [id], so it only ever ran on
+  // mount - at which point the query is still in flight and `batch` is
+  // undefined. The condition was therefore always false and an abandoned batch
+  // was never picked up on open; the 15s stall watchdog below was silently doing
+  // all the work. Gate on a ref so it still fires exactly once per batch.
+  const didInitialResume = useRef<string | null>(null);
   useEffect(() => {
-    if (batch && batch.status === "processing" && batch.completed + batch.failed < batch.total) {
+    if (!batch || didInitialResume.current === id) return;
+    if (batch.status === "processing" && batch.completed + batch.failed < batch.total) {
+      didInitialResume.current = id;
       resume.mutate();
     }
-  }, [id]);
+  }, [id, batch?.status, batch?.completed, batch?.failed, batch?.total]);
 
   // Stalled-watchdog: only fires if progress has made zero change for >= 15s while processing
   useEffect(() => {
