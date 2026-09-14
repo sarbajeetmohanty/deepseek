@@ -348,22 +348,22 @@ function AdminPage() {
   const saveGeminiKeys = useMutation({
     mutationFn: (v: string) => setGeminiApiKeys({ data: { apiKeys: v } }),
     onSuccess: (res) => {
-      toast.success(`Saved ${res?.count} Gemini API keys.`);
+      toast.success(`Saved ${res?.count} DeepSeek API keys.`);
       setGeminiApiKeysState("");
       qc.invalidateQueries({ queryKey: ["gemini-key-status"] });
     },
     onError: (e: unknown) =>
-      toast.error(e instanceof Error ? e.message : "Could not save Gemini keys"),
+      toast.error(e instanceof Error ? e.message : "Could not save DeepSeek keys"),
   });
 
   const clearGeminiKeys = useMutation({
     mutationFn: () => clearGeminiApiKeys({ data: {} } as any),
     onSuccess: () => {
-      toast.success("Gemini API keys cleared");
+      toast.success("DeepSeek API keys cleared");
       qc.invalidateQueries({ queryKey: ["gemini-key-status"] });
     },
     onError: (e: unknown) =>
-      toast.error(e instanceof Error ? e.message : "Could not clear Gemini keys"),
+      toast.error(e instanceof Error ? e.message : "Could not clear DeepSeek keys"),
   });
 
   const adminCount = (team ?? []).filter((p: any) => (p.roles ?? []).includes("admin")).length;
@@ -379,17 +379,17 @@ function AdminPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Google Gemini API Keys</CardTitle>
+          <CardTitle>DeepSeek API Keys</CardTitle>
           <CardDescription>
-            Provide one or more Google Gemini API keys separated by commas. These power both
-            ultra-fast PDF OCR extraction and 100% free MCQ batch solving (~2s per question). The
-            system automatically rotates across keys and models to prevent rate limits.
+            Provide one or more DeepSeek API keys separated by commas. These power both ultra-fast
+            PDF OCR extraction and 100% free MCQ batch solving (~2s per question). The system
+            automatically rotates across keys and models to prevent rate limits.
           </CardDescription>
         </CardHeader>
         <CardContent>
           {geminiKeyErr && (
             <p className="text-sm text-destructive mb-2">
-              Could not load Gemini key status:{" "}
+              Could not load DeepSeek key status:{" "}
               {geminiKeyErr instanceof Error ? geminiKeyErr.message : String(geminiKeyErr)}
             </p>
           )}
@@ -419,7 +419,7 @@ function AdminPage() {
             <div className="flex gap-2">
               <Input
                 type="password"
-                placeholder="Paste keys here (AIzaSy...)"
+                placeholder="Paste DeepSeek API keys here, separated by commas"
                 value={geminiApiKeys}
                 onChange={(e) => setGeminiApiKeysState(e.target.value)}
                 autoComplete="off"
@@ -435,7 +435,7 @@ function AdminPage() {
                   onClick={() => {
                     if (
                       !window.confirm(
-                        "Remove the saved Gemini keys? Question solving will stop until new keys are saved.",
+                        "Remove the saved DeepSeek keys? Question solving will stop until new keys are saved.",
                       )
                     )
                       return;

@@ -982,7 +982,7 @@ async function acquireSlotInner(
   const usableKeys = keys.filter((k) => (disabledKeysUntil.get(k) || 0) <= now);
   if (usableKeys.length === 0) {
     throw new Error(
-      "All configured Gemini API keys are temporarily disabled. Please check your keys in Team settings.",
+      "All configured DeepSeek API keys are temporarily disabled. Please check your keys in Team settings.",
     );
   }
 
@@ -1058,7 +1058,7 @@ async function acquireSlotInner(
   if (waitMs > maxWaitMs) {
     poolStats.saturatedGiveUps++;
     throw new Error(
-      `Gemini key pool is saturated - every key/model is rate-limited for at least ${Math.round(waitMs / 1000)}s. Wait a minute, then use "Retry failed".`,
+      `DeepSeek key pool is saturated - every key/model is rate-limited for at least ${Math.round(waitMs / 1000)}s. Wait a minute, then use "Retry failed".`,
     );
   }
 
@@ -1266,9 +1266,9 @@ export async function runGeminiTask(opts: {
   label?: string;
 }): Promise<{ text: string; apiCalls: number }> {
   const allKeys = await getGeminiApiKeys();
-  if (allKeys.length === 0) throw new Error("No available Gemini API keys configured");
+  if (allKeys.length === 0) throw new Error("No available DeepSeek API keys configured");
 
-  const label = opts.label ?? "Gemini task";
+  const label = opts.label ?? "DeepSeek task";
   const maxAttempts = opts.maxAttempts ?? 6;
   const startedAt = Date.now();
   let apiCalls = 0;
@@ -1360,9 +1360,12 @@ export async function runGeminiTask(opts: {
     }
   }
 
-  throw Object.assign(new Error(lastError?.message || `${label} failed across the Gemini pool.`), {
-    apiCalls,
-  });
+  throw Object.assign(
+    new Error(lastError?.message || `${label} failed across the DeepSeek pool.`),
+    {
+      apiCalls,
+    },
+  );
 }
 
 /**
@@ -1403,7 +1406,7 @@ export async function formatQuestionWithGemini({
   const slotWaitCeiling = maxSlotWaitMs ?? MAX_SLOT_WAIT_MS;
   const allKeys = await getGeminiApiKeys();
   if (allKeys.length === 0) {
-    throw new Error("No available Gemini API keys configured");
+    throw new Error("No available DeepSeek API keys configured");
   }
 
   let cleaned: string;
@@ -1450,7 +1453,7 @@ export async function formatQuestionWithGemini({
       throw Object.assign(
         new Error(
           lastError?.message ||
-            `Gave up after ${Math.round(elapsed / 1000)}s: the Gemini key pool is rate-limited. Use "Retry failed" once it recovers.`,
+            `Gave up after ${Math.round(elapsed / 1000)}s: the DeepSeek key pool is rate-limited. Use "Retry failed" once it recovers.`,
         ),
         { apiCalls },
       );
@@ -1562,7 +1565,7 @@ export async function formatQuestionWithGemini({
         disabledKeysUntil.set(key, Date.now() + (isDeadKey ? 6 * 60 * 60 * 1000 : 10 * 60 * 1000));
         poolStats.deadKey++;
         console.warn(
-          `[Gemini] Disabling key ...${key.slice(-6)} for ${isDeadKey ? "6h" : "10m"}: ${(error?.message || "").slice(0, 120)}`,
+          `[DeepSeek] Disabling key ...${key.slice(-6)} for ${isDeadKey ? "6h" : "10m"}: ${(error?.message || "").slice(0, 120)}`,
         );
         continue;
       }
@@ -1588,7 +1591,9 @@ export async function formatQuestionWithGemini({
   }
 
   throw Object.assign(
-    new Error(lastError?.message || "Failed to solve question across all Gemini keys and models."),
+    new Error(
+      lastError?.message || "Failed to solve question across all DeepSeek keys and models.",
+    ),
     { apiCalls },
   );
 }

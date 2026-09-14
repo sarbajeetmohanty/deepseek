@@ -160,14 +160,16 @@ export async function getGeminiApiKeys(): Promise<string[]> {
     .select("value")
     .eq("key", GEMINI_KEYS_SETTING)
     .maybeSingle();
-  if (error) throw new Error(`Could not load Gemini keys: ${error.message}`);
+  if (error) throw new Error(`Could not load DeepSeek keys: ${error.message}`);
 
   const stored = data?.value?.trim();
   const fallback = process.env.GEMINI_API_KEYS?.trim();
   const value = stored || fallback;
 
   if (!value) {
-    throw new Error("No Gemini API keys are configured. An admin can paste them on the Team page.");
+    throw new Error(
+      "No DeepSeek API keys are configured. An admin can paste them on the Team page.",
+    );
   }
 
   const keys = value
@@ -175,7 +177,7 @@ export async function getGeminiApiKeys(): Promise<string[]> {
     .map((k) => k.trim())
     .filter(Boolean);
   if (keys.length === 0) {
-    throw new Error("No valid Gemini API keys found.");
+    throw new Error("No valid DeepSeek API keys found.");
   }
 
   geminiCached = { value: keys, fetchedAt: Date.now() };
@@ -196,7 +198,7 @@ export const getGeminiKeyStatus = createServerFn({ method: "POST" })
       .select("value, updated_at, updated_by")
       .eq("key", GEMINI_KEYS_SETTING)
       .maybeSingle();
-    if (error) throw new Error(`Could not load Gemini key status: ${error.message}`);
+    if (error) throw new Error(`Could not load DeepSeek key status: ${error.message}`);
 
     if (!data) {
       const envConfigured = Boolean(process.env.GEMINI_API_KEYS?.trim());
@@ -268,7 +270,7 @@ export const setGeminiApiKeys = createServerFn({ method: "POST" })
       },
       { onConflict: "key" },
     );
-    if (error) throw new Error(`Could not save Gemini keys: ${error.message}`);
+    if (error) throw new Error(`Could not save DeepSeek keys: ${error.message}`);
     invalidateGeminiCache();
     return { ok: true, count: data.keysString.split(",").length };
   });
