@@ -33,6 +33,11 @@ export const DEEPSEEK_MODEL = "deepseek-flash";
 
 const DEEPSEEK_ENDPOINT = "https://api.deepseek.com/chat/completions";
 
+// Per-request wall clock. Measured latency is ~2.5s for English and ~5s for
+// Hindi (two extra translation hops), so 60s is far beyond any healthy call and
+// only ever fires on a genuinely stuck connection.
+const REQUEST_TIMEOUT_MS = 60_000;
+
 // USD per 1,000,000 tokens, peak rates. Off-peak is exactly half.
 const PRICE_PEAK = { cacheHit: 0.006, cacheMiss: 0.3, output: 1.2 };
 
@@ -157,7 +162,10 @@ async function callDeepSeek(opts: {
       // tokens) and chat_template_kwargs (65). Only this switch reaches zero.
       thinking: { type: "disabled" },
     }),
-    signal: opts.signal,
+    // A hung connection must not hold a worker for the life of the batch.
+    signal: opts.signal
+      ? AbortSignal.any([opts.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+      : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -261,7 +269,10 @@ export async function solveWithDeepSeek({
   let maxTokens = 700;
   let lastError: any = null;
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  // Generous retry budget: the batch contract is that every question finishes,
+  // and a single 429 or dropped socket must never be the reason one does not.
+  const MAX_ATTEMPTS = 6;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) throw Object.assign(new Error("Question solving aborted"), { apiCalls });
     try {
       apiCalls++;
@@ -290,8 +301,14 @@ export async function solveWithDeepSeek({
         tripBreaker(`HTTP ${e.status}: ${String(e?.message || "").slice(0, 120)}`);
         throw Object.assign(e, { apiCalls });
       }
-      if (attempt < 3) {
-        await new Promise((r) => setTimeout(r, 500 * attempt));
+      if (attempt < MAX_ATTEMPTS) {
+        // 429 means DeepSeek wants us to slow down, so back off harder for it
+        // than for an ordinary network blip. Exponential with jitter, capped so
+        // one bad question cannot stall a batch indefinitely.
+        const rateLimited = e?.status === 429;
+        const base = rateLimited ? 1500 : 400;
+        const delay = Math.min(base * 2 ** (attempt - 1), 12_000) + Math.random() * 500;
+        await new Promise((r) => setTimeout(r, delay));
         continue;
       }
     }

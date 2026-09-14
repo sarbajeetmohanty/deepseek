@@ -124,15 +124,30 @@ function setInCache(key: string, value: string) {
 // buckets while paid capacity sat idle. One provider, one predictable clock.
 const USD_TO_INR = Number(process.env.USD_TO_INR ?? 95.72);
 
-// Hard spend ceiling per 100 questions, in rupees. Not best-effort: when this is
-// reached the run stops buying capacity, because a surprise bill is worse than a
-// late batch.
-const MAX_RUPEES_PER_100 = Number(process.env.DEEPSEEK_MAX_RUPEES_PER_100 ?? 1.5);
+// Two spend lines per 100 questions, both scaled to the batch size.
+//
+// BUDGET is the expected working figure and only produces a warning: measured
+// cost is ~Rs 0.82 per 100 off-peak and ~Rs 1.65 at peak, so Rs 2.00 clears both
+// with room. HARD_CAP is the number that is genuinely never crossed.
+//
+// The gap between them exists so that finishing the batch always wins over
+// hitting the budget. An earlier revision had a single Rs 1.50 line that killed
+// the queue when reached, and a peak-rate run failed its last 9 questions - the
+// spend was correct but the batch was incomplete, which is the wrong trade. Now
+// a run that drifts past BUDGET keeps going to completion, and only a genuine
+// runaway (nearly 2x the peak estimate) is stopped.
+const BUDGET_RUPEES_PER_100 = Number(process.env.DEEPSEEK_BUDGET_RUPEES_PER_100 ?? 2.0);
+const HARD_CAP_RUPEES_PER_100 = Number(process.env.DEEPSEEK_HARD_CAP_RUPEES_PER_100 ?? 3.0);
 
 // Concurrency. DeepSeek answers in ~2.5s for English and ~5s for Hindi (the
 // Hindi path adds two free translation hops), so ~24 in flight comfortably
 // clears 100 questions inside the 30-40s target without stressing the account.
 const DEEPSEEK_WORKERS = Number(process.env.DEEPSEEK_WORKERS ?? 24);
+
+// Extra passes over anything still unsolved once the main run finishes, so a
+// transient failure cannot leave a batch short. Deliberately gentle.
+const MAX_COMPLETION_SWEEPS = 2;
+const SWEEP_CONCURRENCY = 6;
 
 async function solveBatchQuestion(opts: {
   raw: string;
@@ -207,7 +222,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     // DeepSeek worker count, bounded by how much work there is.
     const CONCURRENCY = Math.min(DEEPSEEK_WORKERS, Math.max(1, pending.length));
     console.log(
-      `[BatchProcessor] ${batchId}: DeepSeek solving ${pending.length} question(s) with ${CONCURRENCY} workers, budget Rs ${((pending.length / 100) * MAX_RUPEES_PER_100).toFixed(2)}`,
+      `[BatchProcessor] ${batchId}: DeepSeek solving ${pending.length} question(s) with ${CONCURRENCY} workers, budget Rs ${((pending.length / 100) * BUDGET_RUPEES_PER_100).toFixed(2)}, hard cap Rs ${((pending.length / 100) * HARD_CAP_RUPEES_PER_100).toFixed(2)}`,
     );
 
     // Chunk the IN(...) list — one giant IN on 2000 ids can exceed URL/statement limits.
@@ -237,7 +252,9 @@ export async function processBatchInternal(batchId: string): Promise<void> {
     }
     let doneInThisRun = 0;
     let failedInThisRun = 0;
+    const failedIdx = new Set<string>();
 
+    let hardCapHit = false;
     const queue = [...pending];
     const workers: Promise<void>[] = [];
     // In-batch dedupe: identical raw_text reuses the in-flight promise
@@ -356,6 +373,22 @@ export async function processBatchInternal(batchId: string): Promise<void> {
           queue.length = 0;
           return;
         }
+        // Check spend BEFORE claiming a question, not only on the watchdog's
+        // timer. A 1s timer let up to CONCURRENCY questions be dispatched after
+        // the cap was crossed but before it was noticed - about Rs 0.60 of
+        // overshoot at 24 workers, which matters when the cap is Rs 3.00 and a
+        // normal run costs Rs 2.53. Checking here bounds the overshoot to the
+        // requests already in flight at the moment of crossing.
+        if (hardCapHit || (await spentThisBatchUsd()) * USD_TO_INR >= hardCapRupees) {
+          if (!hardCapHit) {
+            hardCapHit = true;
+            providerBlock.message = `DeepSeek hard cap of Rs ${hardCapRupees.toFixed(2)} reached for this batch. Raise DEEPSEEK_HARD_CAP_RUPEES_PER_100, then use "Retry failed".`;
+            console.error(`[BatchProcessor] ${batchId}: ${providerBlock.message}`);
+          }
+          queue.length = 0;
+          return;
+        }
+
         const q = queue.shift();
         if (!q) return;
 
@@ -438,6 +471,7 @@ export async function processBatchInternal(batchId: string): Promise<void> {
             apiCallsSinceFlush += Math.max(1, Number(solveErr?.apiCalls ?? 0));
             updateRow(q, { status: "failed", error: errMsg.slice(0, 500) });
             failedInThisRun++;
+            failedIdx.add(q.id);
             continue;
           } finally {
             inFlightDedupe.delete(key);
@@ -448,33 +482,77 @@ export async function processBatchInternal(batchId: string): Promise<void> {
         output = output.replace(/^\s*(?:Q\.?\s*)?\d{1,4}[.:)\-–—]?\s+/i, `${q.idx}. `);
         updateRow(q, { status: "done", formatted_output: output, error: null });
         doneInThisRun++;
+        if (failedIdx.delete(q.id)) failedInThisRun = Math.max(0, failedInThisRun - 1);
       }
     };
 
     // Launch all workers in parallel across key streams
-    // Budget watchdog. DeepSeek reports exact usage per call, so spend is known
-    // rather than estimated; when the ceiling is reached the queue is drained so
-    // in-flight work finishes and nothing new is bought.
-    const budgetRupees = (pending.length / 100) * MAX_RUPEES_PER_100;
-    let spentUsd: () => number = () => 0;
-    try {
-      const ds = await import("./deepseek.server");
-      spentUsd = () => ds.getDeepSeekSpend().costUsd;
-    } catch {
-      /* module unavailable; spend stays zero */
-    }
-    let budgetReported = false;
+    // Spend watchdog. DeepSeek reports exact usage on every call, so this is
+    // measured spend, not an estimate.
+    const budgetRupees = (pending.length / 100) * BUDGET_RUPEES_PER_100;
+    const hardCapRupees = (pending.length / 100) * HARD_CAP_RUPEES_PER_100;
+    const spendAtStartUsd = (await import("./deepseek.server")).getDeepSeekSpend().costUsd;
+    const spentThisBatchUsd = async () =>
+      (await import("./deepseek.server")).getDeepSeekSpend().costUsd - spendAtStartUsd;
+
+    let budgetWarned = false;
     const budgetWatch = setInterval(() => {
-      if (spentUsd() * USD_TO_INR < budgetRupees || budgetReported) return;
-      budgetReported = true;
-      providerBlock.message = `DeepSeek budget of Rs ${budgetRupees.toFixed(2)} for this batch was reached. Raise DEEPSEEK_MAX_RUPEES_PER_100 or run off-peak, then use "Retry failed".`;
-      queue.length = 0;
-      console.warn(`[BatchProcessor] ${batchId}: ${providerBlock.message}`);
+      void (async () => {
+        const rupees = (await spentThisBatchUsd()) * USD_TO_INR;
+        if (!budgetWarned && rupees >= budgetRupees) {
+          budgetWarned = true;
+          console.warn(
+            `[BatchProcessor] ${batchId}: past the Rs ${budgetRupees.toFixed(2)} budget (Rs ${rupees.toFixed(2)}). Continuing to completion; hard cap is Rs ${hardCapRupees.toFixed(2)}.`,
+          );
+        }
+        // The hard stop itself lives in the worker's pre-dispatch check above,
+        // which is tighter than any timer can be.
+      })();
     }, 1000);
     (budgetWatch as unknown as { unref?: () => void }).unref?.();
 
+    // No cache pre-warm here, deliberately. It was tried and measured: the
+    // theory was that starting 24 workers cold made ~11 of them pay cache-MISS
+    // rate for the shared system prompt. Both halves were wrong. worker() drains
+    // the whole queue rather than taking one question, so "warm up first" ran the
+    // batch serially - 182s instead of 12s - and the cached-token count did not
+    // move at all (108,055 either way). The ~12,000 miss tokens per 100 questions
+    // are ~119 each, which is exactly the per-question TEXT: unique by
+    // definition and never cacheable. There is nothing to reclaim here.
     for (let i = 0; i < CONCURRENCY; i++) workers.push(worker());
     await Promise.allSettled(workers);
+
+    // Completion sweep.
+    //
+    // The requirement is that a batch finishes every question, so a handful lost
+    // to a transient hiccup - one 429, one dropped socket - must not be left for
+    // a human to notice. Anything still unsolved gets another pass at low
+    // concurrency, which is also gentler on whatever caused the first failure.
+    // Skipped entirely once the hard cap is hit: retrying then would be spending
+    // money the operator has explicitly capped.
+    if (!hardCapHit) {
+      for (let sweep = 1; sweep <= MAX_COMPLETION_SWEEPS; sweep++) {
+        await flushCounters();
+        const { data: stragglers } = await supabaseAdmin
+          .from("questions")
+          .select("id, idx, raw_text")
+          .eq("batch_id", batchId)
+          .neq("status", "done")
+          .limit(2000);
+        if (!stragglers || stragglers.length === 0) break;
+        if ((await spentThisBatchUsd()) * USD_TO_INR >= hardCapRupees) break;
+
+        console.log(
+          `[BatchProcessor] ${batchId}: completion sweep ${sweep}/${MAX_COMPLETION_SWEEPS} for ${stragglers.length} unsolved question(s)`,
+        );
+        queue.push(...stragglers);
+        const sweepWorkers: Promise<void>[] = [];
+        const n = Math.min(SWEEP_CONCURRENCY, stragglers.length);
+        for (let i = 0; i < n; i++) sweepWorkers.push(worker());
+        await Promise.allSettled(sweepWorkers);
+      }
+    }
+
     clearInterval(budgetWatch);
     clearInterval(flushTimer);
     clearInterval(leaseTimer);
