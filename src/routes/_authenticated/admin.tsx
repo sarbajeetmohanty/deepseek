@@ -13,7 +13,11 @@ import {
   createTeamUser,
   updateUserPassword,
 } from "@/lib/invitations.functions";
-import { getGeminiKeyStatus, setGeminiApiKeys, clearGeminiApiKeys } from "@/lib/settings.functions";
+import {
+  getDeepseekKeyStatus,
+  setDeepseekApiKey,
+  clearDeepseekApiKey,
+} from "@/lib/settings.functions";
 import { listQuotas, setUserQuota } from "@/lib/quotas.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -335,35 +339,41 @@ function AdminPage() {
       toast.error(err instanceof Error ? err.message : "Could not update password"),
   });
 
-  // GEMINI API KEYS
-  const { data: geminiKeyStatus, error: geminiKeyErr } = useQuery({
-    queryKey: ["gemini-key-status"],
-    queryFn: () => getGeminiKeyStatus({ data: {} } as any),
+  // DEEPSEEK API KEY
+  //
+  // This card writes to the DeepSeek key only. It deliberately does NOT touch the
+  // solver's own key pool, which is configured outside the app and is never shown
+  // in the UI. An earlier version pointed this field at the solver pool while
+  // labelling it "DeepSeek", and pasting a real sk-... key wiped all 81 working
+  // keys in one click.
+  const { data: deepseekKeyStatus, error: deepseekKeyErr } = useQuery({
+    queryKey: ["deepseek-key-status"],
+    queryFn: () => getDeepseekKeyStatus({ data: {} } as any),
     staleTime: 30_000,
     retry: 1,
   });
 
-  const [geminiApiKeys, setGeminiApiKeysState] = useState("");
+  const [deepseekApiKey, setDeepseekApiKeyState] = useState("");
 
-  const saveGeminiKeys = useMutation({
-    mutationFn: (v: string) => setGeminiApiKeys({ data: { apiKeys: v } }),
+  const saveDeepseekKey = useMutation({
+    mutationFn: (v: string) => setDeepseekApiKey({ data: { apiKey: v } }),
     onSuccess: (res) => {
-      toast.success(`Saved ${res?.count} DeepSeek API keys.`);
-      setGeminiApiKeysState("");
-      qc.invalidateQueries({ queryKey: ["gemini-key-status"] });
+      toast.success(`DeepSeek API key saved (${res?.preview ?? "updated"}).`);
+      setDeepseekApiKeyState("");
+      qc.invalidateQueries({ queryKey: ["deepseek-key-status"] });
     },
     onError: (e: unknown) =>
-      toast.error(e instanceof Error ? e.message : "Could not save DeepSeek keys"),
+      toast.error(e instanceof Error ? e.message : "Could not save the DeepSeek key"),
   });
 
-  const clearGeminiKeys = useMutation({
-    mutationFn: () => clearGeminiApiKeys({ data: {} } as any),
+  const clearDeepseekKey = useMutation({
+    mutationFn: () => clearDeepseekApiKey({ data: {} } as any),
     onSuccess: () => {
-      toast.success("DeepSeek API keys cleared");
-      qc.invalidateQueries({ queryKey: ["gemini-key-status"] });
+      toast.success("DeepSeek API key cleared");
+      qc.invalidateQueries({ queryKey: ["deepseek-key-status"] });
     },
     onError: (e: unknown) =>
-      toast.error(e instanceof Error ? e.message : "Could not clear DeepSeek keys"),
+      toast.error(e instanceof Error ? e.message : "Could not clear the DeepSeek key"),
   });
 
   const adminCount = (team ?? []).filter((p: any) => (p.roles ?? []).includes("admin")).length;
@@ -379,71 +389,65 @@ function AdminPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>DeepSeek API Keys</CardTitle>
+          <CardTitle>DeepSeek API Key</CardTitle>
           <CardDescription>
-            Provide one or more DeepSeek API keys separated by commas. These power both ultra-fast
-            PDF OCR extraction and 100% free MCQ batch solving (~2s per question). The system
-            automatically rotates across keys and models to prevent rate limits.
+            Paste your DeepSeek API key here to add it or replace the existing one. The key is
+            stored encrypted and is never shown in full again — only the last four characters.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          {geminiKeyErr && (
+          {deepseekKeyErr && (
             <p className="text-sm text-destructive mb-2">
               Could not load DeepSeek key status:{" "}
-              {geminiKeyErr instanceof Error ? geminiKeyErr.message : String(geminiKeyErr)}
+              {deepseekKeyErr instanceof Error ? deepseekKeyErr.message : String(deepseekKeyErr)}
             </p>
           )}
           <div className="mb-4 text-sm">
             Status:{" "}
-            {geminiKeyStatus?.configured ? (
+            {deepseekKeyStatus?.configured ? (
               <span className="font-medium text-green-600 dark:text-green-400">
-                Configured ({geminiKeyStatus.keyCount} active keys via {geminiKeyStatus.source})
+                Configured{deepseekKeyStatus.preview ? ` (${deepseekKeyStatus.preview})` : ""}
               </span>
             ) : (
               <span className="font-medium text-amber-600 dark:text-amber-400">Not configured</span>
             )}
-            {geminiKeyStatus?.updatedAt && (
+            {deepseekKeyStatus?.updatedAt && (
               <div className="text-xs text-muted-foreground mt-0.5">
-                Last updated {new Date(geminiKeyStatus.updatedAt).toLocaleString()}
-                {geminiKeyStatus.updatedByEmail ? ` by ${geminiKeyStatus.updatedByEmail}` : ""}
+                Last updated {new Date(deepseekKeyStatus.updatedAt).toLocaleString()}
+                {deepseekKeyStatus.updatedByEmail ? ` by ${deepseekKeyStatus.updatedByEmail}` : ""}
               </div>
             )}
           </div>
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (geminiApiKeys.trim()) saveGeminiKeys.mutate(geminiApiKeys);
+              if (deepseekApiKey.trim()) saveDeepseekKey.mutate(deepseekApiKey.trim());
             }}
             className="flex flex-col gap-2"
           >
             <div className="flex gap-2">
               <Input
                 type="password"
-                placeholder="Paste DeepSeek API keys here, separated by commas"
-                value={geminiApiKeys}
-                onChange={(e) => setGeminiApiKeysState(e.target.value)}
+                placeholder="Paste your DeepSeek API key (sk-...)"
+                value={deepseekApiKey}
+                onChange={(e) => setDeepseekApiKeyState(e.target.value)}
                 autoComplete="off"
               />
-              <Button type="submit" disabled={saveGeminiKeys.isPending || !geminiApiKeys.trim()}>
-                {saveGeminiKeys.isPending ? "…" : "Save Keys"}
+              <Button type="submit" disabled={saveDeepseekKey.isPending || !deepseekApiKey.trim()}>
+                {saveDeepseekKey.isPending ? "…" : "Save Key"}
               </Button>
-              {geminiKeyStatus?.configured && geminiKeyStatus.source === "database" && (
+              {deepseekKeyStatus?.configured && deepseekKeyStatus.source === "database" && (
                 <Button
                   type="button"
                   variant="ghost"
-                  disabled={clearGeminiKeys.isPending}
+                  disabled={clearDeepseekKey.isPending}
                   onClick={() => {
-                    if (
-                      !window.confirm(
-                        "Remove the saved DeepSeek keys? Question solving will stop until new keys are saved.",
-                      )
-                    )
-                      return;
-                    clearGeminiKeys.mutate();
+                    if (!window.confirm("Remove the saved DeepSeek API key?")) return;
+                    clearDeepseekKey.mutate();
                   }}
                   className="text-destructive hover:text-destructive hover:bg-destructive/10"
                 >
-                  {clearGeminiKeys.isPending ? "…" : "Clear"}
+                  {clearDeepseekKey.isPending ? "…" : "Clear"}
                 </Button>
               )}
             </div>
