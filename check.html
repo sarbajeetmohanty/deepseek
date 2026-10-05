@@ -1,0 +1,317 @@
+<title>Batch Scheduling Windows</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Source+Sans+3:wght@400;600&display=swap">
+<style>
+  :root {
+    --ground:      #F7F9FB;
+    --surface:     #FFFFFF;
+    --edge:        #DCE3EA;
+    --edge-soft:   #EAEFF4;
+    --ink:         #16202B;
+    --ink-soft:    #5A6B7C;
+    --ink-faint:   #8A99A8;
+    --standard:    #0F766E;
+    --standard-bg: #D7EDE9;
+    --elevated:    #B45309;
+    --elevated-bg: #FBE6CC;
+    --rule:        #C6D2DC;
+  }
+  :root:not([data-theme="light"]) {
+    @media (prefers-color-scheme: dark) {
+      --ground:      #10161D;
+      --surface:     #172029;
+      --edge:        #26333F;
+      --edge-soft:   #1E2933;
+      --ink:         #E6EDF3;
+      --ink-soft:    #9AAAB9;
+      --ink-faint:   #6B7C8B;
+      --standard:    #5EC8BB;
+      --standard-bg: #0F3B37;
+      --elevated:    #F0A85C;
+      --elevated-bg: #46300F;
+      --rule:        #32414F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:      #10161D;
+    --surface:     #172029;
+    --edge:        #26333F;
+    --edge-soft:   #1E2933;
+    --ink:         #E6EDF3;
+    --ink-soft:    #9AAAB9;
+    --ink-faint:   #6B7C8B;
+    --standard:    #5EC8BB;
+    --standard-bg: #0F3B37;
+    --elevated:    #F0A85C;
+    --elevated-bg: #46300F;
+    --rule:        #32414F;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "Source Sans 3", ui-sans-serif, system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.55;
+    margin: 0;
+    padding-inline: 20px;
+    padding-block: 44px 64px;
+  }
+
+  .wrap { max-width: 860px; margin-inline: auto; display: flex; flex-direction: column; gap: 38px; }
+
+  header { display: flex; flex-direction: column; gap: 10px; }
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 11px; font-weight: 500; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--ink-faint);
+  }
+  h1 {
+    font-family: "Archivo", ui-sans-serif, system-ui, sans-serif;
+    font-weight: 700; font-size: clamp(28px, 5vw, 40px);
+    line-height: 1.1; letter-spacing: -.02em; margin: 0;
+    text-wrap: balance;
+  }
+  .lede { color: var(--ink-soft); max-width: 62ch; margin: 0; font-size: 17px; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; }
+  .key { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; color: var(--ink-soft); }
+  .chip {
+    width: 30px; height: 12px; border-radius: 3px; flex: none;
+    border: 1px solid color-mix(in srgb, currentColor 34%, transparent);
+  }
+  .chip.std { background: var(--standard-bg); color: var(--standard); }
+  .chip.elv { background: var(--elevated-bg); color: var(--elevated); }
+
+  /* ---- timetable ---- */
+  .board {
+    background: var(--surface);
+    border: 1px solid var(--edge);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .ruler {
+    display: grid;
+    grid-template-columns: 104px 1fr;
+    border-bottom: 1px solid var(--edge);
+    background: var(--edge-soft);
+  }
+  .ruler .spacer { border-right: 1px solid var(--edge); }
+  .ticks { position: relative; height: 26px; }
+  .ticks span {
+    position: absolute; top: 6px; transform: translateX(-50%);
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: 10.5px; color: var(--ink-faint); font-variant-numeric: tabular-nums;
+  }
+  .ticks span:first-child { transform: none; }
+  .ticks span:last-child  { transform: translateX(-100%); }
+
+  .row {
+    display: grid;
+    grid-template-columns: 104px 1fr;
+    align-items: stretch;
+    border-bottom: 1px solid var(--edge-soft);
+  }
+  .row:last-child { border-bottom: 0; }
+  .row.weekend { background: color-mix(in srgb, var(--standard-bg) 26%, transparent); }
+
+  .dayname {
+    font-family: "Archivo", sans-serif; font-weight: 600; font-size: 14px;
+    padding: 13px 14px; border-right: 1px solid var(--edge);
+    display: flex; align-items: center;
+  }
+  .bar { display: flex; padding: 11px 14px; gap: 2px; }
+  .seg {
+    height: 26px; border-radius: 3px; min-width: 2px;
+    display: flex; align-items: center; justify-content: center;
+    font-family: "IBM Plex Mono", monospace; font-size: 10px; font-weight: 500;
+    letter-spacing: .02em; overflow: hidden; white-space: nowrap;
+  }
+  .seg.std { background: var(--standard-bg); color: var(--standard); }
+  .seg.elv { background: var(--elevated-bg); color: var(--elevated); font-weight: 600; }
+
+  /* ---- precise table ---- */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--edge); border-radius: 10px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 560px; }
+  caption {
+    text-align: left; padding: 15px 18px 0;
+    font-family: "Archivo", sans-serif; font-weight: 600; font-size: 15px;
+  }
+  th, td { text-align: left; padding: 11px 18px; border-bottom: 1px solid var(--edge-soft); vertical-align: top; }
+  thead th {
+    font-family: "IBM Plex Mono", monospace; font-size: 10.5px; font-weight: 600;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--ink-faint);
+    border-bottom: 1px solid var(--rule); padding-top: 14px;
+  }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.day { font-family: "Archivo", sans-serif; font-weight: 600; font-size: 14px; white-space: nowrap; }
+  td.times { font-family: "IBM Plex Mono", monospace; font-size: 13px; font-variant-numeric: tabular-nums; }
+  td.times.std { color: var(--standard); }
+  td.times.elv { color: var(--elevated); font-weight: 500; }
+  .none { color: var(--ink-faint); font-style: italic; font-family: "Source Sans 3", sans-serif; font-size: 13px; }
+
+  .notes { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 18px; }
+  .note {
+    border-left: 2px solid var(--rule); padding: 2px 0 2px 15px;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .note h3 {
+    font-family: "Archivo", sans-serif; font-size: 13px; font-weight: 600;
+    margin: 0; letter-spacing: .01em;
+  }
+  .note p { margin: 0; font-size: 14px; color: var(--ink-soft); }
+
+  footer {
+    border-top: 1px solid var(--edge); padding-top: 16px;
+    font-size: 13px; color: var(--ink-faint);
+  }
+  @media (max-width: 560px) {
+    .row, .ruler { grid-template-columns: 82px 1fr; }
+    .dayname { font-size: 13px; padding-inline: 10px; }
+    .bar { padding-inline: 10px; }
+    .seg { font-size: 0; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Indian Standard Time · UTC +5:30</div>
+    <h1>Batch Scheduling Windows</h1>
+    <p class="lede">
+      Processing runs at two rates depending on when a batch is submitted. Standard rate applies
+      across most of the week; an elevated rate applies during two fixed weekday windows. Batches
+      submitted at any time complete in full — only the rate changes.
+    </p>
+  </header>
+
+  <div class="legend">
+    <span class="key"><span class="chip std"></span> Standard rate</span>
+    <span class="key"><span class="chip elv"></span> Elevated rate — 2× standard</span>
+  </div>
+
+  <section class="board" aria-label="Weekly timetable">
+    <div class="ruler">
+      <div class="spacer"></div>
+      <div class="ticks" aria-hidden="true">
+        <span style="left:0%">00:00</span>
+        <span style="left:25%">06:00</span>
+        <span style="left:50%">12:00</span>
+        <span style="left:75%">18:00</span>
+        <span style="left:100%">24:00</span>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="dayname">Monday</div>
+      <div class="bar">
+        <div class="seg std" style="flex:27.08">00:00–06:30</div>
+        <div class="seg elv" style="flex:12.5">06:30–09:30</div>
+        <div class="seg std" style="flex:8.33">09:30</div>
+        <div class="seg elv" style="flex:16.67">11:30–15:30</div>
+        <div class="seg std" style="flex:35.42">15:30–24:00</div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="dayname">Tuesday</div>
+      <div class="bar">
+        <div class="seg std" style="flex:27.08">00:00–06:30</div>
+        <div class="seg elv" style="flex:12.5">06:30–09:30</div>
+        <div class="seg std" style="flex:8.33">09:30</div>
+        <div class="seg elv" style="flex:16.67">11:30–15:30</div>
+        <div class="seg std" style="flex:35.42">15:30–24:00</div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="dayname">Wednesday</div>
+      <div class="bar">
+        <div class="seg std" style="flex:27.08">00:00–06:30</div>
+        <div class="seg elv" style="flex:12.5">06:30–09:30</div>
+        <div class="seg std" style="flex:8.33">09:30</div>
+        <div class="seg elv" style="flex:16.67">11:30–15:30</div>
+        <div class="seg std" style="flex:35.42">15:30–24:00</div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="dayname">Thursday</div>
+      <div class="bar">
+        <div class="seg std" style="flex:27.08">00:00–06:30</div>
+        <div class="seg elv" style="flex:12.5">06:30–09:30</div>
+        <div class="seg std" style="flex:8.33">09:30</div>
+        <div class="seg elv" style="flex:16.67">11:30–15:30</div>
+        <div class="seg std" style="flex:35.42">15:30–24:00</div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="dayname">Friday</div>
+      <div class="bar">
+        <div class="seg std" style="flex:27.08">00:00–06:30</div>
+        <div class="seg elv" style="flex:12.5">06:30–09:30</div>
+        <div class="seg std" style="flex:8.33">09:30</div>
+        <div class="seg elv" style="flex:16.67">11:30–15:30</div>
+        <div class="seg std" style="flex:35.42">15:30–24:00</div>
+      </div>
+    </div>
+    <div class="row weekend">
+      <div class="dayname">Saturday</div>
+      <div class="bar">
+        <div class="seg std" style="flex:100">00:00–24:00 · standard rate all day</div>
+      </div>
+    </div>
+    <div class="row weekend">
+      <div class="dayname">Sunday</div>
+      <div class="bar">
+        <div class="seg std" style="flex:100">00:00–24:00 · standard rate all day</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Exact windows by day</caption>
+      <thead>
+        <tr>
+          <th scope="col">Day</th>
+          <th scope="col">Standard rate</th>
+          <th scope="col">Elevated rate (2×)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="day">Monday</td><td class="times std">00:00–06:30<br>09:30–11:30<br>15:30–24:00</td><td class="times elv">06:30–09:30<br>11:30–15:30</td></tr>
+        <tr><td class="day">Tuesday</td><td class="times std">00:00–06:30<br>09:30–11:30<br>15:30–24:00</td><td class="times elv">06:30–09:30<br>11:30–15:30</td></tr>
+        <tr><td class="day">Wednesday</td><td class="times std">00:00–06:30<br>09:30–11:30<br>15:30–24:00</td><td class="times elv">06:30–09:30<br>11:30–15:30</td></tr>
+        <tr><td class="day">Thursday</td><td class="times std">00:00–06:30<br>09:30–11:30<br>15:30–24:00</td><td class="times elv">06:30–09:30<br>11:30–15:30</td></tr>
+        <tr><td class="day">Friday</td><td class="times std">00:00–06:30<br>09:30–11:30<br>15:30–24:00</td><td class="times elv">06:30–09:30<br>11:30–15:30</td></tr>
+        <tr><td class="day">Saturday</td><td class="times std">00:00–24:00 &nbsp;<span class="none">entire day</span></td><td><span class="none">None</span></td></tr>
+        <tr><td class="day">Sunday</td><td class="times std">00:00–24:00 &nbsp;<span class="none">entire day</span></td><td><span class="none">None</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="notes">
+    <div class="note">
+      <h3>Best time to submit</h3>
+      <p>Any time Saturday or Sunday — 48 continuous hours at standard rate.</p>
+    </div>
+    <div class="note">
+      <h3>Longest weekday window</h3>
+      <p>15:30 onward, giving 8½ hours at standard rate every weekday evening.</p>
+    </div>
+    <div class="note">
+      <h3>Mid-morning gap</h3>
+      <p>09:30–11:30 sits between the two elevated windows and bills at standard rate.</p>
+    </div>
+    <div class="note">
+      <h3>Weekly split</h3>
+      <p>133 of 168 hours — 79% of the week — are at standard rate.</p>
+    </div>
+  </div>
+
+  <footer>
+    All times Indian Standard Time (UTC +5:30). Elevated windows apply Monday to Friday only;
+    weekends carry no elevated period. Batches submitted during an elevated window still process
+    to completion — the rate is the only difference.
+  </footer>
+</div>
