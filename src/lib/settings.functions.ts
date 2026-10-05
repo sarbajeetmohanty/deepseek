@@ -130,6 +130,10 @@ export const setDeepseekApiKey = createServerFn({ method: "POST" })
       `[DeepSeek] API key successfully updated in app_settings by user ${context.userId}. In-memory cache invalidated.`,
     );
     invalidateCache();
+    // A dead key is the usual reason one gets rotated, so the solver's circuit
+    // breaker has probably latched. Clearing it here makes this instance
+    // recover on the next call instead of at the next restart.
+    (await import("./deepseek.server")).resetDeepSeekBreaker();
     return { ok: true, preview: mask(data.apiKey) };
   });
 
@@ -141,6 +145,8 @@ export const clearDeepseekApiKey = createServerFn({ method: "POST" })
     const { error } = await supabaseAdmin.from("app_settings").delete().eq("key", DEEPSEEK_KEY);
     if (error) throw new Error(`Could not clear key: ${error.message}`);
     invalidateCache();
+    // Falling back to the env key is also a credential change.
+    (await import("./deepseek.server")).resetDeepSeekBreaker();
     return { ok: true };
   });
 

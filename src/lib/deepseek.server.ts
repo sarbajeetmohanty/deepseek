@@ -80,20 +80,40 @@ function priceCall(u: {
 // An invalid key, an exhausted balance or a suspended account will not fix
 // itself on retry, and the batch scheduler is willing to start up to 32 paid
 // workers when it is behind deadline. Without this, each of those would burn a
-// round trip discovering the same 401 and then fall back to Gemini anyway -
-// spending the deadline budget on nothing. One such answer trips the breaker and
-// the whole process stops offering DeepSeek.
+// round trip discovering the same 401. Question -> solution is DeepSeek-only,
+// so there is nothing to fall back to: one such answer trips the breaker and the
+// whole process stops offering DeepSeek until the credential changes.
+//
+// The breaker is scoped to the credential that tripped it, because every one of
+// these causes is fixed by an admin pasting a new key. `trippedFor` holds a
+// fingerprint of that key (null means "no key was configured at all"), and a
+// read that returns anything else earns a fresh attempt. That is what lets other
+// server instances - which never saw the reset call below - heal themselves
+// within one key-cache TTL.
 let deepseekDisabledReason: string | null = null;
+let trippedFor: string | null = null;
 export function deepseekAvailable(): boolean {
   return deepseekDisabledReason === null;
 }
 export function deepseekDisabledBecause(): string | null {
   return deepseekDisabledReason;
 }
-function tripBreaker(reason: string) {
+// Last 6 characters identify a key without this module holding the secret.
+function fingerprint(key: string): string {
+  return key.trim().slice(-6);
+}
+function tripBreaker(reason: string, key: string | null) {
   if (deepseekDisabledReason) return;
   deepseekDisabledReason = reason;
+  trippedFor = key === null ? null : fingerprint(key);
   console.warn(`[DeepSeek] Disabled for this process: ${reason}`);
+}
+/** Called when an admin writes a new key, so recovery needs no restart. */
+export function resetDeepSeekBreaker(): void {
+  if (deepseekDisabledReason === null) return;
+  console.log(`[DeepSeek] Breaker reset (was: ${deepseekDisabledReason})`);
+  deepseekDisabledReason = null;
+  trippedFor = null;
 }
 
 // Running total for this process, so spend is observable without a dashboard.
@@ -219,17 +239,24 @@ export async function solveWithDeepSeek({
   signal,
 }: QuestionSolverOptions): Promise<SolveResult> {
   if (signal?.aborted) throw new Error("Question solving aborted");
-  if (!deepseekAvailable()) {
-    throw new Error(`DeepSeek unavailable: ${deepseekDisabledReason}`);
-  }
 
+  // Read the key BEFORE consulting the breaker. A tripped breaker means the key
+  // it tripped on was rejected, so the only way out is to look at the current
+  // one - checking first would reject a freshly rotated key untried.
   let apiKey: string;
   try {
     apiKey = await getDeepseekApiKey();
   } catch (e: any) {
     // No key configured at all - same breaker, so we stop offering the tier.
-    tripBreaker(String(e?.message || "no API key configured"));
+    tripBreaker(String(e?.message || "no API key configured"), null);
     throw e;
+  }
+
+  if (deepseekDisabledReason !== null && trippedFor !== fingerprint(apiKey)) {
+    resetDeepSeekBreaker();
+  }
+  if (!deepseekAvailable()) {
+    throw new Error(`DeepSeek unavailable: ${deepseekDisabledReason}`);
   }
 
   let cleaned: string;
@@ -298,7 +325,7 @@ export async function solveWithDeepSeek({
       // 401 invalid key, 402 out of balance, 403 suspended. None recover on
       // retry, and all of them apply to every future call too.
       if ([401, 402, 403].includes(e?.status)) {
-        tripBreaker(`HTTP ${e.status}: ${String(e?.message || "").slice(0, 120)}`);
+        tripBreaker(`HTTP ${e.status}: ${String(e?.message || "").slice(0, 120)}`, apiKey);
         throw Object.assign(e, { apiCalls });
       }
       if (attempt < MAX_ATTEMPTS) {
